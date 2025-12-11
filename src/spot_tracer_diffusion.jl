@@ -1,7 +1,8 @@
 # This file was taken from Oceananigans.jl examples and modified
 # to my testing needs.
 
-# qsub -I -P y99 -l mem=47GB -l storage=scratch/y99 -l walltime=01:00:00 -l ncpus=12
+# qsub -I -P y99 -l mem=47GB -l walltime=01:00:00 -l ncpus=12
+# qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1
 
 using Pkg
 Pkg.activate(".")
@@ -16,6 +17,10 @@ using JLD2
 using Printf
 using CairoMakie
 
+using CUDA
+CUDA.set_runtime_version!(v"12.9.1")
+@show CUDA.versioninfo()
+
 Nx = 360
 Ny = 120
 latitude = (-60, 60)
@@ -23,6 +28,7 @@ longitude = (-180, 180)
 
 # A spherical domain
 grid = LatitudeLongitudeGrid(
+    GPU(),
     size = (Nx, Ny, 1),
     radius = 1,
     latitude = latitude,
@@ -30,12 +36,10 @@ grid = LatitudeLongitudeGrid(
     z = (-1, 0)
 )
 
-u(x, y, z, t) = 100.0
-
 model = HydrostaticFreeSurfaceModel(
     grid = grid,
     tracers = :c,
-    velocities = PrescribedVelocityFields(u = u), # quiescent
+    velocities = PrescribedVelocityFields(), # quiescent
     closure = HorizontalScalarDiffusivity(κ = 1),
     buoyancy = nothing
 )
@@ -123,6 +127,6 @@ frames = 1:length(times)
 
 @info "Making an animation..."
 
-record(fig, joinpath("output", "spot_tracer_diffusion.mp4"), frames, framerate = 60) do i
+Makie.record(fig, joinpath("output", "spot_tracer_diffusion.mp4"), frames, framerate = 60) do i
     n[] = i
 end
