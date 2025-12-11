@@ -45,7 +45,7 @@ grid = LatitudeLongitudeGrid(
 #     first_pole_longitude = 70,
 # )
 
-u(x, y, z, t) = 100.0
+u(x, y, z, t) = 1.0
 
 
 horizontal_closure = HorizontalScalarDiffusivity(κ = 300)
@@ -73,7 +73,7 @@ cᵢ(λ, φ, z) = Gaussian(λ, φ - φ₀, L) * Gaussian(z - z₀, Lz)
 
 set!(model, c = cᵢ)
 
-Δt = 450 # seconds
+Δt = 4500 # seconds
 
 simulation = Simulation(
     model;
@@ -123,13 +123,13 @@ set_theme!(Theme(fontsize = 30))
 fig = Figure(size = (1920, 1080))
 
 n = Observable(1)
-title = @lift "Tracer spot on a latlon at k = 47, t = " * prettytime(times[$n])
+title = @lift "Tracer spot on a latlon at k = 46, t = " * prettytime(times[$n])
 
 plot_title = "hi"
 
 c = @lift c_timeseries[$n]
 
-ck47ₙ = @lift view(c_timeseries[$n], :, :, 47)
+ck46ₙ = @lift view(c_timeseries[$n], :, :, 46)
 
 fig = Figure(size = (1920, 1080))
 
@@ -140,8 +140,8 @@ ax = fig[1, 1] = Axis(
     title = title,
 )
 
-hm = heatmap!(ax, ck47ₙ;
-    colorrange = (-1.0e2, 1.0e2),
+hm = heatmap!(ax, ck46ₙ;
+    colorrange = (-1, 1),
     # extendhigh = auto,
     # extendlow = auto,
     # colorscale = SymLog(0.01),
