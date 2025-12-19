@@ -108,28 +108,26 @@
 # modelsupergridfile = "mom$(split(model, "-")[end])deg.nc"
 # supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", modelsupergridfile)
 # supergrid_ds = open_dataset(supergridfile)
-# supergrid = readcubedata(supergrid_ds)
-@show supergrid
+@show supergrid_ds
 
 include("tripolargrid_reader.jl")
 
 # Unpack supergrid data
 # TODO: I think best to extract the raw data here
 # instead of passing YAXArrays
-x = supergrid.x.data
-y = supergrid.y.data
-dx = supergrid.dx.data
-dy = supergrid.dy.data
-area = supergrid.area.data
 # TODO: For dimensions, just get the lengths instead of index ranges
 # Not sure this matters but it is a bit more consistent
 # with Nx, Ny, etc. used elsewhere where "N" or "n" means number of points
-nx = length(supergrid.nx.val)
-nxp = length(supergrid.nxp.val)
-ny = length(supergrid.ny.val)
-nyp = length(supergrid.nyp.val)
-
-grid = tripolargrid_from_supergrid(;
-    x, y, dx, dy, area,
-    nx, nxp, ny, nyp,
+supergrid = (;
+    x = readcubedata(supergrid_ds.x).data,
+    y = readcubedata(supergrid_ds.y).data,
+    dx = readcubedata(supergrid_ds.dx).data,
+    dy = readcubedata(supergrid_ds.dy).data,
+    area = readcubedata(supergrid_ds.area).data,
+    nx = length(supergrid_ds.nx.val),
+    nxp = length(supergrid_ds.nxp.val),
+    ny = length(supergrid_ds.ny.val),
+    nyp = length(supergrid_ds.nyp.val),
 )
+
+grid = tripolargrid_from_supergrid(; supergrid...)
