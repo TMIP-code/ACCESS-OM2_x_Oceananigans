@@ -1,3 +1,11 @@
+using Oceananigans.BoundaryConditions: ZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
+using Oceananigans.Fields: set!
+using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightConnected,
+    architecture, cpu_face_constructor_z, validate_dimension_specification, generate_coordinate, on_architecture
+using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
+using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
+
+
 # @kernel function _compute_coordinates_from_supergrid!(
 #         λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC,
 #         x, y,
@@ -57,7 +65,7 @@ end
 
 #     end
 # end
-function compue_metrics_from_supergrid!(
+function compute_metrics_from_supergrid!(
         Δxᶠᶜᵃ, Δxᶜᶜᵃ, Δxᶜᶠᵃ, Δxᶠᶠᵃ,
         Δyᶠᶜᵃ, Δyᶜᶜᵃ, Δyᶜᶠᵃ, Δyᶠᶠᵃ,
         Azᶠᶜᵃ, Azᶜᶜᵃ, Azᶜᶠᵃ, Azᶠᶠᵃ,
@@ -82,6 +90,7 @@ function compue_metrics_from_supergrid!(
         Azᶜᶠᵃ[i, j] = area[𝑖 - 1, max(𝑗 - 2, 1)] + area[𝑖 - 1, 𝑗 - 1] + area[𝑖, max(𝑗 - 2, 1)] + area[𝑖, 𝑗 - 1]
         Azᶠᶠᵃ[i, j] = area[mod1(𝑖 - 2, nx), max(𝑗 - 2, 1)] + area[mod1(𝑖 - 2, nx), 𝑗 - 1] + area[𝑖 - 1, max(𝑗 - 2, 1)] + area[𝑖 - 1, 𝑗 - 1]
     end
+    return
 end
 
 
@@ -89,9 +98,9 @@ function tripolargrid_from_supergrid(
         arch = CPU(), FT::DataType = Float64;
         # size,
         # southernmost_latitude = -80,
-        halo = (4, 4, 4),
-        # radius = Oceananigans.defaults.planet_radius,
-        z, # Maybe z can be 3D array here?
+        halosize = (4, 4, 4),
+        radius = Oceananigans.defaults.planet_radius,
+        z = (0, 1), # Maybe z can be 3D array here?
         # north_poles_latitude = 55,
         # first_pole_longitude = 70,
         supergrid
@@ -99,15 +108,25 @@ function tripolargrid_from_supergrid(
 
     # supergrid data
     (; x, y, dx, dy, area, nx, ny, nxp, nyp) = supergrid
+    nx, ny, nxp, nyp = length.((nx, ny, nxp, nyp)) # get sizes instead of ranges
+
+    @show southernmost_latitude = minimum(y)
+    @show latitude  = (southernmost_latitude, 90)
+    @show longitude = (-180, 180)
+    max_latitudes = maximum(y, dims = 2)
+    @show north_poles_latitude, i_north_pole = findmin(max_latitudes)
+    @show first_pole_longitude = x[i_north_pole, 1]
 
     # Horizontal grid size
     Nλ, Nφ = nx ÷ 2, ny ÷ 2
 
-    # Size in z direction (depends on shape of z (1D or 3D array))
-    Nz = dims(z) == 1 ? length(z) : size(z, 3)
+    # Size in z direction
+    # TODO: handle Tuple and 1D and 3D z inputs?
+    Nz = 1
 
     # Halo size
-    Hλ, Hφ, Hz = halo
+    Hλ, Hφ, Hz = halosize
+    gridsize = (Nλ, Nφ, Nz)
 
     if isodd(Nλ)
         throw(ArgumentError("The number of cells in the longitude dimension should be even!"))
@@ -117,7 +136,7 @@ function tripolargrid_from_supergrid(
     topology = (Periodic, RightConnected, Bounded)
     TZ = topology[3]
     z = validate_dimension_specification(TZ, z, :z, Nz, FT)
-    Lz, z = generate_coordinate(FT, topology, size, halo, z, :z, 3, CPU())
+    Lz, z = generate_coordinate(FT, topology, gridsize, halosize, z, :z, 3, CPU())
 
     λFF = zeros(Nλ, Nφ)
     φFF = zeros(Nλ, Nφ)
@@ -129,19 +148,19 @@ function tripolargrid_from_supergrid(
     λCC = zeros(Nλ, Nφ)
     φCC = zeros(Nλ, Nφ)
 
-    compute_tripolar_coordinates!(λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC, x, y)
+    compute_coordinates_from_supergrid!(λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC, x, y)
     # If it works switch to Kernel as below?
     # loop! = _compute_tripolar_coordinates!(device(CPU()), (16, 16), (Nλ, Nφ))
     # loop!(λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC, x, y)
 
-    # Helper grid to fill halo
+    # Helper grid to fill halosize
     Nx = Nλ
     Ny = Nφ
     grid = RectilinearGrid(;
         size = (Nx, Ny),
         halo = (Hλ, Hφ),
         x = (0, 1), y = (0, 1),
-        topology = topology,
+        topology = (Periodic, RightConnected, Flat),
     )
 
     # Boundary conditions to fill halos of the coordinate and metric terms
@@ -236,7 +255,7 @@ function tripolargrid_from_supergrid(
     Azᶜᶠᵃ = zeros(Nx, Ny)
     Azᶠᶠᵃ = zeros(Nx, Ny)
 
-    compue_metrics_from_supergrid!(
+    compute_metrics_from_supergrid!(
         Δxᶠᶜᵃ, Δxᶜᶜᵃ, Δxᶜᶠᵃ, Δxᶠᶠᵃ,
         Δyᶠᶜᵃ, Δyᶜᶜᵃ, Δyᶜᶠᵃ, Δyᶠᶠᵃ,
         Azᶠᶜᵃ, Azᶜᶜᵃ, Azᶜᶠᵃ, Azᶠᶠᵃ,
@@ -289,13 +308,17 @@ function tripolargrid_from_supergrid(
     Azᶠᶜᵃ = deepcopy(dropdims(FC.data, dims = 3))
     Azᶜᶜᵃ = deepcopy(dropdims(CC.data, dims = 3))
 
-    Hx, Hy, Hz = halo
+    Hx, Hy, Hz = halosize
 
+    # TODO: Check if longitude below is correct.
+    # I recreated longitude = (-180, 180) by hand here, as it does not seem to be used anywhere else
+    # and I assume this is only used to conitnue the Δ metrics south, which should not depend on latitude
+    # (unless the South pole is also shifted like in some models?)
     latitude_longitude_grid = LatitudeLongitudeGrid(;
-        size,
+        size = gridsize,
         latitude,
-        longitude,
-        halo,
+        longitude = (-180, 180),
+        halo = halosize,
         z = (0, 1), # z does not really matter here
         radius
     )
