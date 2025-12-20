@@ -101,23 +101,20 @@ function tripolargrid_from_supergrid(
         halosize = (4, 4, 4),
         radius = Oceananigans.defaults.planet_radius,
         z = (0, 1), # Maybe z can be 3D array here?
+        Nz = 1,
         # north_poles_latitude = 55,
         # first_pole_longitude = 70,
     )  # second pole is at longitude `first_pole_longitude + 180ᵒ`
 
     @show southernmost_latitude = minimum(y)
     @show latitude = (southernmost_latitude, 90)
-    @show longitude = (-180, 180)
+    @show longitude = (minimum(x), maximum(x))
     max_latitudes = maximum(y, dims = 2)
     @show north_poles_latitude, i_north_pole = findmin(max_latitudes)
     @show first_pole_longitude = x[i_north_pole, 1]
 
     # Horizontal grid size
     Nλ, Nφ = nx ÷ 2, ny ÷ 2
-
-    # Size in z direction
-    # TODO: handle Tuple and 1D and 3D z inputs?
-    Nz = 1
 
     # Halo size
     Hλ, Hφ, Hz = halosize
@@ -372,3 +369,61 @@ function tripolargrid_from_supergrid(
 end
 
 
+"""
+Merge the cells that touch the north fold to make it an T-point pivot fold.
+
+So the last row must be extended by copying values from the opposite side:
+
+P---j---k---l---m---n---o---p---P <- fold
+|   |   |   |   |   |   |   |   |
+| - C - | - C - | - C - | - C - | <- Centers
+|   |   |   |   |   |   |   |   |
+a---b---c---d---e---f---g---h---i
+
+becomes
+
+i---h---g---f---e---d---c---b---a <- new coordinates = reversed from south edge
+|       |       |       |       |
+|   |   |   |   |   |   |   |   |
+|       |       |       |       |
+P - C - + - C - P - C - + - C - P <- fold = Centers now!
+|       |       |       |       |
+|   |   |   |   |   |   |   |   |
+|       |       |       |       |
+a---b---c---d---e---f---g---h---i <- unchanged
+"""
+function convert_Fpointpivot_to_Tpointpivot(; x, y, dx, dy, area, nx, nxp, ny, nyp)
+    for i in 1:nxp
+        x[i, nyp - 1] = x[i, nyp]
+        x[i, nyp] = x[nxp - i + 1, nyp - 2]
+        y[i, nyp - 1] = y[i, nyp]
+        y[i, nyp] = y[nxp - i + 1, nyp - 2]
+        dy[i, ny - 1] = dy[i, ny - 1] + dy[i, ny]
+        dy[i, ny] = dy[nxp - i + 1, ny - 1]
+    end
+    for i in 1:nx
+        dx[i, nyp - 1] = dx[i, nyp]
+        dx[i, nyp] = dx[nx - i + 1, nyp - 2]
+        area[i, ny - 1] = area[i, ny - 1] + area[i, ny]
+        area[i, ny] = area[nx - i + 1, ny - 1]
+    end
+    return (; x, y, dx, dy, area, nx, nxp, ny, nyp)
+end
+
+"""
+Places u or v data on the Oceananigans B-grid from MOM output.
+
+It shifts the data from the NE corners (MOM convention)
+to the SW corners (Oceananigans convention).
+It also flips the vertical coordinate.
+j = 1 row is set to zero (both u and v).
+i = 1 column is set by wrapping around the data (periodic longitude).
+"""
+function Bgrid_velocity_from_MOM(grid, data)
+    x = Field{Face, Face, Center}(grid)
+    Nx, Ny, Nz = size(grid)
+    x.data[2:Nx, 2:Ny, 1:Nz] .= data[1:end-1, 1:end-1, Nz:-1:1]
+    x.data[1:Nx, 1, 1:Nz] .= 0 # TODO Maybe remove if zero is the default on creation
+    x.data[1, 2:Ny, 1:Nz] .= data[end, 1:end-1, Nz:-1:1]
+    return x
+end

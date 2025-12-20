@@ -1,4 +1,22 @@
-# qsub -I -P y99 -q gpuvolta -l mem=96GB -l walltime=01:00:00 -l ngpus=1 -l ncpus=12
+"""
+To run this on Gadi interactively, use
+
+```
+qsub -I -P y99 -l mem=47GB -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+scratch/y99
+cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
+julia
+include("src/ACCESS-OM2_grid.jl")
+```
+
+And on the GPU queue, use
+
+```
+qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+scratch/y99
+cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
+julia
+include("src/ACCESS-OM2_grid.jl")
+```
+"""
 
 using Pkg
 Pkg.activate(".")
@@ -8,53 +26,119 @@ using Oceananigans
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 
-using CUDA
-CUDA.set_runtime_version!(v"12.9.1")
-@show CUDA.versioninfo()
-using Adapt
+# Comment/uncomment the following lines to enable/disable GPU
+# using CUDA
+# CUDA.set_runtime_version!(v"12.9.1")
+# @show CUDA.versioninfo()
+# using Adapt
 
 using Statistics
+using YAXArrays
+using DimensionalData
+using NetCDF
 using JLD2
 using Printf
 using CairoMakie
 
-Nx = 360
-Ny = 300
-Nz = 50
-latitude = (-60, 60)
-longitude = (-180, 180)
-z = (-6000, 0)
+###########################
+# 1. Horizontal supergrid #
+###########################
 
-# A spherical domain
-grid = LatitudeLongitudeGrid(
-    GPU(),
-    size = (Nx, Ny, Nz),
-    latitude = latitude,
-    longitude = longitude,
-    z = z,
+model = "ACCESS-OM2-1"
+modelsupergridfile = "mom$(split(model, "-")[end])deg.nc"
+supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", modelsupergridfile)
+supergrid_ds = open_dataset(supergridfile)
+@show supergrid_ds
+
+include("tripolargrid_reader.jl")
+
+# Unpack supergrid data
+# TODO: I think best to extract the raw data here
+# instead of passing YAXArrays
+# TODO: For dimensions, just get the lengths instead of index ranges
+# Not sure this matters but it is a bit more consistent
+# with Nx, Ny, etc. used elsewhere where "N" or "n" means number of points
+supergrid = (;
+    x = readcubedata(supergrid_ds.x).data,
+    y = readcubedata(supergrid_ds.y).data,
+    dx = readcubedata(supergrid_ds.dx).data,
+    dy = readcubedata(supergrid_ds.dy).data,
+    area = readcubedata(supergrid_ds.area).data,
+    nx = length(supergrid_ds.nx.val),
+    nxp = length(supergrid_ds.nxp.val),
+    ny = length(supergrid_ds.ny.val),
+    nyp = length(supergrid_ds.nyp.val),
 )
 
-# grid = TripolarGrid(
-#     arch = GPU();
-#     size,
-#     southernmost_latitude = -80,
-#     halo = (4, 4, 4),
-#     radius = Oceananigans.defaults.planet_radius,
-#     z = (-1000, 0),
-#     north_poles_latitude = 55,
-#     first_pole_longitude = 70,
-# )
+supergrid = convert_Fpointpivot_to_Tpointpivot(; supergrid...)
 
-u(x, y, z, t) = 1.0
+####################
+# 2. Vertical grid #
+####################
 
+experiment = "1deg_jra55_iaf_omip2_cycle6"
+time_window = "Jan1960-Dec1979"
+@show inputdir = "/scratch/y99/TMIP/data/$model/$experiment/$time_window"
+dht_ds = open_dataset(joinpath(inputdir, "dht.nc")) # <- (new) cell thickness?
+dht = readcubedata(dht_ds.dht)
+# Start with constant vertical grid as an approximation
+# Chose the deepest water column as the reference
+# TODO: match the vertical grid more closely later
+dht0 = replace(dht.data, NaN => 0.0)
+bottom = -dropdims(sum(dht0, dims = 3), dims = 3) # in MOM z increases downward
+max_dht, imax = findmin(bottom, dims = (1, 2))
+izmax, jzmax = Tuple(imax[1])
+z = reverse(-[0; cumsum(dht0[izmax, jzmax, :])])
+Nz = length(z) - 1
+
+# TODO: I am not so sure what happens of merged wet/dry cells
+# CHECK for both u/v and volumes etc.
+underlying_grid = tripolargrid_from_supergrid(; supergrid..., z, Nz)
+
+# Then immerge the grid cells with partial cells at the bottom
+grid = ImmersedBoundaryGrid(underlying_grid, PartialCellBottom(bottom))
+
+#################
+# 3. Velocities #
+#################
+
+u_ds = open_dataset(joinpath(inputdir, "u.nc"))
+u_data = replace(readcubedata(u_ds.u).data, NaN => 0.0)
+v_ds = open_dataset(joinpath(inputdir, "v.nc"))
+v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
+
+# Place u and v data on Oceananigans B-grid
+u_Bgrid = Bgrid_velocity_from_MOM(grid, u_data)
+v_Bgrid = Bgrid_velocity_from_MOM(grid, v_data)
+
+# Then interpolate to C-grid
+interp_u = @at (Face, Center, Center) 1 * u_Bgrid
+u_Cgrid = Field{Face, Center, Center}(grid)
+u_Cgrid .= interp_u
+interp_v = @at (Center, Face, Center) 1 * v_Bgrid
+v_Cgrid = Field{Center, Face, Center}(grid)
+v_Cgrid .= interp_v
+
+# Then compute w from continuity
+w_Cgrid = Field{Center, Center, Face}(grid)
+velocities = (u_Cgrid, v_Cgrid, w_Cgrid)
+HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, CPU(), grid)
+
+################
+# 4. Diffusion #
+################
 
 horizontal_closure = HorizontalScalarDiffusivity(κ = 300)
 vertical_closure = VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretization(); κ = 3.0e-5)
 
+############
+# 5. Model #
+############
+
 model = HydrostaticFreeSurfaceModel(
     grid = grid,
     tracers = :c,
-    velocities = PrescribedVelocityFields(u = u),
+    velocities = PrescribedVelocityFields(velocities...),
     closure = (horizontal_closure, vertical_closure),
     buoyancy = nothing
 )
@@ -140,7 +224,8 @@ ax = fig[1, 1] = Axis(
     title = title,
 )
 
-hm = heatmap!(ax, ck46ₙ;
+hm = heatmap!(
+    ax, ck46ₙ;
     colorrange = (-1, 1),
     # extendhigh = auto,
     # extendlow = auto,
