@@ -25,6 +25,7 @@ Pkg.instantiate()
 using Oceananigans
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
+using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Adapt
 
 # Comment/uncomment the following lines to enable/disable GPU
@@ -86,9 +87,11 @@ dht = readcubedata(dht_ds.dht)
 # TODO: match the vertical grid more closely later
 dht0 = replace(dht.data, NaN => 0.0)
 bottom = -dropdims(sum(dht0, dims = 3), dims = 3) # in MOM z increases downward
+@warn "Setting bottom to +100m for all land poitns"
+bottom[bottom .== 0.0] .= 100 # make sure it's strictly positive for land
 max_dht, imax = findmin(bottom, dims = (1, 2))
 izmax, jzmax = Tuple(imax[1])
-z = reverse(-[0; cumsum(dht0[izmax, jzmax, :])])
+z = -reverse([0; cumsum(dht0[izmax, jzmax, :])])
 Nz = length(z) - 1
 
 # TODO: I am not so sure what happens of merged wet/dry cells
@@ -96,11 +99,31 @@ Nz = length(z) - 1
 underlying_grid = tripolargrid_from_supergrid(; supergrid..., z, Nz)
 
 # Then immerge the grid cells with partial cells at the bottom
-grid = ImmersedBoundaryGrid(underlying_grid, PartialCellBottom(bottom))
+grid = ImmersedBoundaryGrid(
+    underlying_grid, PartialCellBottom(bottom);
+    active_cells_map = true,
+    active_z_columns = true,
 
-#################
-# 3. Velocities #
-#################
+)
+
+Nx, Ny, Nz = size(grid)
+
+h = grid.immersed_boundary.bottom_height
+fig = Figure()
+ax = Axis(fig[2, 1], aspect = 1)
+hm = surface!(
+    ax,
+    1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
+    1:Ny, #view(grid.underlying_grid.φᶜᶜᵃ, 1:Nx, 1:Ny),
+    view(h.data, 1:Nx, 1:Ny, 1);
+    colormap = :viridis
+)
+Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
+save(joinpath("output", "bottom_height_heatmap.png"), fig)
+
+# #################
+# # 3. Velocities #
+# #################
 
 u_ds = open_dataset(joinpath(inputdir, "u.nc"))
 u_data = replace(readcubedata(u_ds.u).data, NaN => 0.0)
@@ -124,6 +147,26 @@ w_Cgrid = Field{Center, Center, Face}(grid)
 velocities = (u_Cgrid, v_Cgrid, w_Cgrid)
 HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, CPU(), grid)
 u, v, w = velocities
+
+fill_halo_regions!(u)
+fill_halo_regions!(v)
+fill_halo_regions!(w)
+
+u2, v2, w2 = deepcopy(u), deepcopy(v), deepcopy(w)
+mask_immersed_field!(v2, 0)
+mask_immersed_field!(w2, 0)
+mask_immersed_field!(u2, NaN)
+@assert u == u2
+@assert v == v2
+@assert w == w2
+@info "Velocity fields masked correctly."
+
+k = Nz
+opt = (; colormap = :RdBu, colorrange = (-1, 1), nan_color = (:black, 1))
+fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
+plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
+Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
+save(joinpath("output", "surface_u_heatmap.png"), fig)
 
 ################
 # 4. Diffusion #
@@ -149,7 +192,7 @@ Gaussian(λ, φ, L) = exp(-(λ^2 + φ^2) / 2L^2)
 Gaussian(z, Lz) = exp(-(z^2) / 2Lz^2)
 
 # Tracer patch parameters
-L = 12 # degree
+L = 120 # degree
 φ₀ = 0 # degrees
 Lz = 100 # meters
 z₀ = -500 # meters
@@ -211,7 +254,6 @@ title = @lift "Tracer spot on offline OM2 at k = $k, t = " * prettytime(times[$n
 
 c = @lift c_timeseries[$n]
 
-Nx, Ny, Nz = size(grid)
 ckₙ = @lift view(($c).data, 1:Nx, 1:Ny, k)
 
 ax = fig[1, 1] = Axis(
@@ -235,7 +277,7 @@ frames = 1:length(times)
 
 @info "Making an animation..."
 
-Makie.record(fig, joinpath("output", "offline_OM2_tes.mp4"), frames, framerate = 25) do i
+Makie.record(fig, joinpath("output", "offline_OM2_test.mp4"), frames, framerate = 25) do i
     n[] = i
 end
 
