@@ -43,11 +43,10 @@ using CairoMakie
 
 model = "ACCESS-OM2-1"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output"
-symlink(outputdir, "scratch_output")
 
-###########################
-# 1. Horizontal supergrid #
-###########################
+###############################
+@info "1. Horizontal supergrid"
+###############################
 
 modelsupergridfile = "mom$(split(model, "-")[end])deg.nc"
 supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", modelsupergridfile)
@@ -79,9 +78,9 @@ supergrid = (;
 
 supergrid = convert_Fpointpivot_to_Tpointpivot(; supergrid...)
 
-####################
-# 2. Vertical grid #
-####################
+########################
+@info "2. Vertical grid"
+########################
 
 experiment = "1deg_jra55_iaf_omip2_cycle6"
 # Here I use the z-coordinate grid (not using time-dependent dht output)
@@ -154,9 +153,9 @@ hm = surface!(
 Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
 save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
 
-# #################
-# # 3. Velocities #
-# #################
+#####################
+@info "3. Velocities"
+#####################
 
 u_ds = open_dataset(joinpath(inputdir, "u.nc"))
 u_data = replace(readcubedata(u_ds.u).data, NaN => 0.0)
@@ -166,8 +165,6 @@ v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
 # Place u and v data on Oceananigans B-grid
 u_Bgrid = Bgrid_velocity_from_MOM(grid, u_data)
 v_Bgrid = Bgrid_velocity_from_MOM(grid, v_data)
-fill_halo_regions!(u_Bgrid)
-fill_halo_regions!(v_Bgrid)
 
 
 fig = Figure(size = (1000, 1000))
@@ -197,6 +194,17 @@ interp_v = @at (Center, Face, Center) 1 * v_Bgrid
 v = YFaceField(grid; boundary_conditions = vbcs)
 v .= interp_v
 
+# Then compute w from continuity
+w = Field{Center, Center, Face}(grid)
+velocities = (u, v, w)
+mask_immersed_field!(u, 0.0)
+mask_immersed_field!(v, 0.0)
+fill_halo_regions!(u)
+fill_halo_regions!(v)
+HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, CPU(), grid)
+u, v, w = velocities
+
+
 fill_halo_regions!(u)
 fill_halo_regions!(v)
 mask_immersed_field!(u, 0.0)
@@ -222,16 +230,6 @@ save(joinpath(outputdir, "surface_u_v_halos.png"), fig)
 
 
 
-# Then compute w from continuity
-w = Field{Center, Center, Face}(grid)
-velocities = (u, v, w)
-fill_halo_regions!(u)
-fill_halo_regions!(v)
-mask_immersed_field!(u, 0.0)
-mask_immersed_field!(v, 0.0)
-HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, CPU(), grid)
-u, v, w = velocities
-
 fill_halo_regions!(w)
 mask_immersed_field!(w, 0.0)
 
@@ -256,16 +254,16 @@ save(joinpath(outputdir, "w.png"), fig)
 # Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
 # save(joinpath(outputdir, "surface_u_heatmap.png"), fig)
 
-################
-# 4. Diffusion #
-################
+####################
+@info "4. Diffusion"
+####################
 
 horizontal_closure = HorizontalScalarDiffusivity(κ = 300)
 vertical_closure = VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretization(); κ = 3.0e-5)
 
-############
-# 5. Model #
-############
+################
+@info "5. Model"
+################
 
 model = HydrostaticFreeSurfaceModel(
     grid = grid,
@@ -276,9 +274,9 @@ model = HydrostaticFreeSurfaceModel(
 )
 
 
-########################
-# 6. Initial condition #
-########################
+############################
+@info "6. Initial condition"
+############################
 
 # Gaussian for making a tracer patch as an initial condition
 Gaussian(x, x₀, L) = exp(-((x - x₀)^2) / 2L^2)
@@ -337,9 +335,9 @@ end
 # Colorbar(fig[end + 1, 1:2], hm; vertical = false, tellwidth = false)
 # save(joinpath(outputdir, "velocities_diff_periodic_BC.png"), fig)
 
-#################
-# 7. Simulation #
-#################
+#####################
+@info "7. Simulation"
+#####################
 
 Δt = 4500 # seconds
 
@@ -375,9 +373,9 @@ simulation.output_writers[:fields] = JLD2Writer(
 
 run!(simulation)
 
-###############
-# 8. Plotting #
-###############
+###################
+@info "8. Plotting"
+###################
 
 c_timeseries = FieldTimeSeries(simulation.output_writers[:fields].filepath, "c")
 cxy_timeseries = FieldTimeSeries(simulation.output_writers[:fields].filepath, "Cxy")
