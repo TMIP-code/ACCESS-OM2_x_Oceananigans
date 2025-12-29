@@ -41,11 +41,14 @@ using JLD2
 using Printf
 using CairoMakie
 
+model = "ACCESS-OM2-1"
+outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output"
+symlink(outputdir, "scratch_output")
+
 ###########################
 # 1. Horizontal supergrid #
 ###########################
 
-model = "ACCESS-OM2-1"
 modelsupergridfile = "mom$(split(model, "-")[end])deg.nc"
 supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", modelsupergridfile)
 supergrid_ds = open_dataset(supergridfile)
@@ -149,7 +152,7 @@ hm = surface!(
     colormap = :viridis
 )
 Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-save(joinpath("output", "bottom_height_heatmap.png"), fig)
+save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
 
 # #################
 # # 3. Velocities #
@@ -179,7 +182,7 @@ ax = Axis(fig[2, 1])
 # hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 hm = heatmap!(ax, v_Bgrid.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-save(joinpath("output", "surface_BGrid_u_v_halos.png"), fig)
+save(joinpath(outputdir, "surface_BGrid_u_v_halos.png"), fig)
 
 
 
@@ -215,7 +218,7 @@ mask_immersed_field!(mask, NaN)
 # hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-save(joinpath("output", "surface_u_v_halos.png"), fig)
+save(joinpath(outputdir, "surface_u_v_halos.png"), fig)
 
 
 
@@ -238,7 +241,7 @@ mask = ones(Nx, Ny)
 mask[bottom .== 0] .= NaN
 hm = heatmap!(ax, w.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
 Colorbar(fig[1, 2], hm)
-save(joinpath("output", "w.png"), fig)
+save(joinpath(outputdir, "w.png"), fig)
 
 # TODO: Check velocities look reasonable (maybe against tx_trans etc.)
 
@@ -251,7 +254,7 @@ save(joinpath("output", "w.png"), fig)
 # fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
 # plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
 # Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
-# save(joinpath("output", "surface_u_heatmap.png"), fig)
+# save(joinpath(outputdir, "surface_u_heatmap.png"), fig)
 
 ################
 # 4. Diffusion #
@@ -301,7 +304,7 @@ mask_immersed_field!(mask, NaN)
 # hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 hm = heatmap!(ax, model.tracers.c.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-1, 1))
 Colorbar(fig[1, 2], hm)
-save(joinpath("output", "initial_c_surface.png"), fig)
+save(joinpath(outputdir, "initial_c_surface.png"), fig)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
@@ -309,7 +312,7 @@ mask = ones(Nx, Ny)
 mask[bottom .== 0] .= NaN
 hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 Colorbar(fig[1, 2], hm)
-save(joinpath("output", "initial_c_surface.png"), fig)
+save(joinpath(outputdir, "initial_c_surface.png"), fig)
 
 
 # fig = Figure(size = (1920, 1080))
@@ -332,7 +335,7 @@ for (ishift, shift) in enumerate(-2:3)
     @show extrema(Δc)
 end
 # Colorbar(fig[end + 1, 1:2], hm; vertical = false, tellwidth = false)
-# save(joinpath("output", "velocities_diff_periodic_BC.png"), fig)
+# save(joinpath(outputdir, "velocities_diff_periodic_BC.png"), fig)
 
 #################
 # 7. Simulation #
@@ -361,7 +364,7 @@ add_callback!(simulation, progress_message, IterationInterval(1))
 c = model.tracers.c
 output_fields = (; c, Cyz = Average(c, dims = 1), Cxy = Average(c, dims = 3))
 
-output_prefix = joinpath("output", "offline_ACCESS-OM2_Nx$(grid.Nx)_Ny$(grid.Ny)_Nz$(grid.Nz)")
+output_prefix = joinpath(outputdir, "offline_ACCESS-OM2_Nx$(grid.Nx)_Ny$(grid.Ny)_Nz$(grid.Nz)")
 
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;
@@ -418,7 +421,7 @@ frames = 1:length(times)
 
 @info "Making an animation..."
 
-Makie.record(fig, joinpath("output", "offline_OM2_test.mp4"), frames, framerate = 25) do i
+Makie.record(fig, joinpath(outputdir, "offline_OM2_test.mp4"), frames, framerate = 25) do i
     n[] = i
 end
 
@@ -427,7 +430,7 @@ end
 #     ax = Axis(fig[1, 1])
 #     hm = heatmap!(ax, cyz_timeseries[n])
 #     Colorbar(fig[1, 2], hm)
-#     save(joinpath("output", "Cyz_$n.png"), fig)
+#     save(joinpath(outputdir, "Cyz_$n.png"), fig)
 # end
 
 shift = 1
@@ -460,7 +463,7 @@ mask[findall(bottom .== 0)] .= NaN
 hm = heatmap!(ax, w[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
 # hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
 Colorbar(fig[1, 2], hm)
-save(joinpath("output", "w_surface.png"), fig)
+save(joinpath(outputdir, "w_surface.png"), fig)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
@@ -476,7 +479,7 @@ mask_immersed_field!(div, NaN)
 hm = heatmap!(ax, div.data[1:Nx, 1:Ny, 50]; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
 # hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
 Colorbar(fig[1, 2], hm)
-save(joinpath("output", "surfacediv.png"), fig)
+save(joinpath(outputdir, "surfacediv.png"), fig)
 
 myw = Field{Center, Center, Face}(grid)
 ϕw = Az * w
