@@ -420,10 +420,13 @@ j = 1 row is set to zero (both u and v).
 i = 1 column is set by wrapping around the data (periodic longitude).
 """
 function Bgrid_velocity_from_MOM(grid, data)
-    x = Field{Face, Face, Center}(grid)
+    north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
+    bcs = FieldBoundaryConditions(grid, (Face(), Face(), Center()), north = north_bc)
+    x = Field{Face, Face, Center}(grid; boundary_conditions = bcs)
     Nx, Ny, Nz = size(grid)
     x.data[2:Nx, 2:Ny, 1:Nz] .= data[1:end-1, 1:end-1, Nz:-1:1]
     x.data[1:Nx, 1, 1:Nz] .= 0 # TODO Maybe remove if zero is the default on creation
     x.data[1, 2:Ny, 1:Nz] .= data[end, 1:end-1, Nz:-1:1]
+    Oceananigans.BoundaryConditions.fill_halo_regions!(x)
     return x
 end

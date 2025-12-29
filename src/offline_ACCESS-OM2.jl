@@ -163,14 +163,61 @@ v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
 # Place u and v data on Oceananigans B-grid
 u_Bgrid = Bgrid_velocity_from_MOM(grid, u_data)
 v_Bgrid = Bgrid_velocity_from_MOM(grid, v_data)
+fill_halo_regions!(u_Bgrid)
+fill_halo_regions!(v_Bgrid)
+
+
+fig = Figure(size = (1000, 1000))
+ax = Axis(fig[1, 1])
+mask = Field{Face, Face, Center}(grid)
+mask .= 1.0
+fill_halo_regions!(mask)
+mask_immersed_field!(mask, NaN)
+# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, u_Bgrid.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+ax = Axis(fig[2, 1])
+# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, v_Bgrid.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
+save(joinpath("output", "surface_BGrid_u_v_halos.png"), fig)
+
+
 
 # Then interpolate to C-grid
 interp_u = @at (Face, Center, Center) 1 * u_Bgrid
-u = Field{Face, Center, Center}(grid)
+north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
+ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()), north = north_bc)
+vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()), north = north_bc)
+u = XFaceField(grid; boundary_conditions = ubcs)
 u .= interp_u
 interp_v = @at (Center, Face, Center) 1 * v_Bgrid
-v = YFaceField(grid)
+v = YFaceField(grid; boundary_conditions = vbcs)
 v .= interp_v
+
+fill_halo_regions!(u)
+fill_halo_regions!(v)
+mask_immersed_field!(u, 0.0)
+mask_immersed_field!(v, 0.0)
+
+fig = Figure(size = (1000, 1000))
+ax = Axis(fig[1, 1])
+mask = XFaceField(grid)
+mask .= 1.0
+fill_halo_regions!(mask)
+mask_immersed_field!(mask, NaN)
+# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, u.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+ax = Axis(fig[2, 1])
+mask = YFaceField(grid)
+mask .= 1.0
+fill_halo_regions!(mask)
+mask_immersed_field!(mask, NaN)
+# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
+save(joinpath("output", "surface_u_v_halos.png"), fig)
+
+
 
 # Then compute w from continuity
 w = Field{Center, Center, Face}(grid)
@@ -192,8 +239,6 @@ mask[bottom .== 0] .= NaN
 hm = heatmap!(ax, w.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
 Colorbar(fig[1, 2], hm)
 save(joinpath("output", "w.png"), fig)
-
-foo
 
 # TODO: Check velocities look reasonable (maybe against tx_trans etc.)
 
@@ -250,10 +295,11 @@ fill_halo_regions!(model.tracers.c)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
-mask = ones(Nx, Ny)
-mask[bottom .== 0] .= NaN
+mask = CenterField(grid)
+mask .= 1.0
+mask_immersed_field!(mask, NaN)
 # hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
-hm = heatmap!(ax, model.tracers.c.data[:, :, Nz].parent; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, model.tracers.c.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-1, 1))
 Colorbar(fig[1, 2], hm)
 save(joinpath("output", "initial_c_surface.png"), fig)
 
@@ -297,7 +343,7 @@ end
 simulation = Simulation(
     model;
     Δt = Δt,
-    stop_time = 100Δt,
+    stop_time = 200Δt,
 )
 
 function progress_message(sim)
@@ -411,7 +457,7 @@ fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
 mask = ones(Nx, Ny)
 mask[findall(bottom .== 0)] .= NaN
-hm = heatmap!(ax, w[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = 1e-3 .* (-1, 1))
+hm = heatmap!(ax, w[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
 # hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
 Colorbar(fig[1, 2], hm)
 save(joinpath("output", "w_surface.png"), fig)
@@ -423,10 +469,11 @@ function divergence!(grid, u, v, w, div)
     for i in axes(div, 1), j in axes(div, 2), k in axes(div, 3)
         div[i, j, k] = Oceananigans.Operators.divᶜᶜᶜ(i, j, k, grid, u, v, w)
     end
+    return
 end
 divergence!(grid, u, v, w, div)
 mask_immersed_field!(div, NaN)
-hm = heatmap!(ax, div.data[1:Nx, 1:Ny, 50]; colormap = :RdBu_9, colorrange = 1e-3 .* (-1, 1))
+hm = heatmap!(ax, div.data[1:Nx, 1:Ny, 50]; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
 # hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
 Colorbar(fig[1, 2], hm)
 save(joinpath("output", "surfacediv.png"), fig)
@@ -434,8 +481,8 @@ save(joinpath("output", "surfacediv.png"), fig)
 myw = Field{Center, Center, Face}(grid)
 ϕw = Az * w
 for i in 1:Nx, j in 1:Ny, k in 1:Nz
-    Ax[i, j] = Δxᶠᶜᵃ[i, j] *
-    myw[i, j, k + 1] = myw[i, j, k] +
+    # Ax[i, j] = Δxᶠᶜᵃ[i, j] *
+    # myw[i, j, k + 1] = myw[i, j, k] +
     # div = 1/V * [δxᶜᵃᵃ(Ax * u) + δxᵃᶜᵃ(Ay * v) + δzᵃᵃᶜ(Az * w)]
     #
     # ∫dV x = ∮ A (u · n) dS
@@ -462,5 +509,3 @@ dxv = grid.underlying_grid.Δxᶜᶠᵃ
 Av = YFaceField(grid)
 Av .= dzv .* dxv
 fill_halo_regions!(Av)
-
-
