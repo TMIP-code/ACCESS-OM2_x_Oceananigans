@@ -134,7 +134,6 @@ grid = ImmersedBoundaryGrid(
     underlying_grid, PartialCellBottom(bottom);
     active_cells_map = true,
     active_z_columns = true,
-
 )
 
 Nx, Ny, Nz = size(grid)
@@ -214,7 +213,6 @@ model = HydrostaticFreeSurfaceModel(
     grid = grid,
     tracers = :c,
     velocities = PrescribedVelocityFields(; u, v, w),
-    tracer_advection = :RungeKutta3,
     closure = (horizontal_closure, vertical_closure),
     buoyancy = nothing
 )
