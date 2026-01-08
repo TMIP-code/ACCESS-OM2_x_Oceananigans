@@ -1,97 +1,211 @@
-using Oceananigans.BoundaryConditions: ZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
+using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
 using Oceananigans.Fields: set!
-using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightConnected,
+using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceConnected,
     architecture, cpu_face_constructor_z, validate_dimension_specification, generate_coordinate, on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
 
 
-# @kernel function _compute_coordinates_from_supergrid!(
-#         λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC,
-#         x, y,
-#     )
-
-#     i, j = @index(Global, NTuple)
-
-#     # TODO: Check these are the correct C and F indices
-#     # Also, I don;t know what I'm doing here really...
-#     # Is that the right way to write this kernel?
-#     # Does this make sense?
-#     # Does it matter if x/y are on CPU or GPU?
-#     λFF[i, j] = x[2i, 2j]
-#     φFF[i, j] = y[2i, 2j]
-#     λFC[i, j] = x[2i, 2j + 1]
-#     φFC[i, j] = y[2i, 2j + 1]
-#     λCF[i, j] = x[2i + 1, 2j]
-#     φCF[i, j] = y[2i + 1, 2j]
-#     λCC[i, j] = x[2i + 1, 2j + 1]
-#     φCC[i, j] = y[2i + 1, 2j + 1]
-# end
-function compute_coordinates_from_supergrid!(
-        λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC,
-        x, y,
+@kernel function compute_coordinates_and_metrics_from_supergrid!(
+        λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
+        φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
+        ΔxFF, ΔxFC, ΔxCF, ΔxCC, # TripolarGrid x distances
+        ΔyFF, ΔyFC, ΔyCF, ΔyCC, # TripolarGrid y distances
+        AzFF, AzFC, AzCF, AzCC, # TripolarGrid areas
+        x, y,   # supergrid coordinates
+        dx, dy, # supergrid distances
+        area,   # supergrid areas
+        nx      # supergrid size in x (nx == 2 * Nx)
     )
 
-    for i in axes(λFF, 1), j in axes(λFF, 2)
-        # TODO: Check these are the correct C and F indices
-        λFF[i, j] = x[2i, 2j]
-        φFF[i, j] = y[2i, 2j]
-        λFC[i, j] = x[2i, 2j + 1]
-        φFC[i, j] = y[2i, 2j + 1]
-        λCF[i, j] = x[2i + 1, 2j]
-        φCF[i, j] = y[2i + 1, 2j]
-        λCC[i, j] = x[2i + 1, 2j + 1]
-        φCC[i, j] = y[2i + 1, 2j + 1]
-    end
-    return nothing
+    # Note this kernel will fills halos a bit sometimes.
+    # That's because size varies with location and topology,
+    # e.g., λCC has size (Nx, Ny) but λFF has size (Nx, Ny + 1).
+    # But that's OK because we fill halos again later.
+
+    i, j = @index(Global, NTuple)
+
+    # For λ we just copy from the super grid incrementing by 2 in each direction.
+    # For λCC, of size (Nx, Ny), we have:
+    #
+    #                       ┏━━━━━━┯━━━━━━┳━━━━━━┯━━━━━━┓
+    #                       ┃      │      ┃      │      ┃
+    #                       ┃      │      ┃      │      ┃
+    #  j = 2, 𝑗 = 2j = 4 ─▶ ┠──────┼──────╂──────┼──────┨
+    #                       ┃      │      ┃      │      ┃
+    #                       ┃      │      ┃      │      ┃
+    #                       ┣━━━━━━┿━━━━━━╋━━━━━━┿━━━━━━┫
+    #                       ┃      │      ┃      │      ┃
+    #                       ┃      │      ┃      │      ┃
+    #  j = 1, 𝑗 = 2j = 2 ─▶ u ──── c ─────╂──────┼──────┨
+    #                       ┃      │      ┃      │      ┃
+    #                       ┃      │      ┃      │      ┃
+    #                       ┗━━━━━ v ━━━━━┻━━━━━━┷━━━━━━┛
+    #                              ▲             ▲
+    #                            i = 1         i = 2
+    #                         𝑖 = 2i = 2     𝑖 = 2i = 4
+    #
+    #
+    # And for λFF, size (Nx, Ny + 1):
+    #
+    #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┏━━━━━━┯━━━━━━┳━━━━━━┯━━━━━━┓
+    #                           ┃      │      ┃      │      ┃
+    #                           ┃      │      ┃      │      ┃
+    #                           ┠──────┼──────╂──────┼──────┨
+    #                           ┃      │      ┃      │      ┃
+    #                           ┃      │      ┃      │      ┃
+    #  j = 2, 𝑗 = 2j - 1 = 3 ─▶ ┣━━━━━━┿━━━━━━╋━━━━━━┿━━━━━━┫
+    #                           ┃      │      ┃      │      ┃
+    #                           ┃      │      ┃      │      ┃
+    #                           u ──── c ─────╂──────┼──────┨
+    #                           ┃      │      ┃      │      ┃
+    #                           ┃      │      ┃      │      ┃
+    #  j = 1, 𝑗 = 2j - 1 = 1 ─▶ ┗━━━━━ v ━━━━━┻━━━━━━┷━━━━━━┛
+    #                           ▲             ▲
+    #                         i = 1         i = 2
+    #                     𝑖 = 2i - 1 = 1    𝑖 = 2i - 1 = 3
+    #
+    # Note that this kernel will try to fill λCC at index j = Ny + 1 (j = 3) above,
+    # which is the halo region. That's OK because the halos will be filled in,
+    # but that means the supergrid must be extended by one row for this to work!
+
+    λFF[i, j] = x[2i - 1, 2j - 1]
+    λFC[i, j] = x[2i - 1, 2j]
+    λCF[i, j] = x[2i, 2j - 1]
+    λCC[i, j] = x[2i, 2j]
+
+    # Ditto for φ
+    φFF[i, j] = y[2i - 1, 2j - 1]
+    φFC[i, j] = y[2i - 1, 2j]
+    φCF[i, j] = y[2i, 2j - 1]
+    φCC[i, j] = y[2i, 2j]
+
+    # For Δx, I need to sum consecutive dx 2 by 2,
+    # and sometimes wrap subgrid 𝑖 indices around with modulo nx.
+    # For ΔxCC, of size (Nx, Ny), we have:
+    #
+    #                       ┏━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #  j = 2, 𝑗 = 2j = 4 ─▶ ┠─────────┼─────────╂─────────┼─────────┨
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┣━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃◀━━━━━━━━Δx━━━━━━━▶┃         │         ┃
+    #  j = 1, 𝑗 = 2j = 2 ─▶ u ─────── c ────────╂─────────┼─────────┨
+    #                       ┃◀───dx──▶│◀───dx──▶┃         │         ┃
+    #                       ┃    ▲    │    ▲    ┃         │         ┃
+    #                       ┃    │    │    │    ┃         │         ┃
+    #                       ┗━━━━┿━━━ v ━━━┿━━━━┻━━━━━━━━━┷━━━━━━━━━┛
+    #                            │    ▲    │              ▲
+    #                            │  i = 1  │            i = 2
+    #                            │         𝑖 = 2i = 2
+    #                            𝑖 = 2i - 1 = 1
+    #
+    # For ΔxFF, of size (Nx, Ny + 1), we have:
+    #
+    #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           ┼─────────╂─────────┼─────────╂─────────┼─────────┨
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #  j = 2, 𝑗 = 2j - 1 = 3 ─▶ ┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           ┼──────── u ─────── c ────────╂─────────┼─────────┨
+    #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
+    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │◀━━━━━━━━Δx━━━━━━━▶│         ┃         │         ┃
+    #  j = 1, 𝑗 = 2j - 1 = 1 ─▶ ┷━━━━━━━━━┻━━━━━━━━ v ━━━━━━━━┻━━━━━━━━━┷━━━━━━━━━┛
+    #                            ◀───dx──▶▲◀───dx──▶          ▲          ◀───dx──▶
+    #                                ▲    ┃    ▲              ┃              ▲
+    #                                │  i = 1  │            i = 2            │
+    #                                │         𝑖 = 2i - 1 = 1                │
+    #                                𝑖 = 2i - 2 = 0 ----> wrap it with ----> 𝑖 = mod1(2i - 2, nx)
+    #                                                                          = mod1(0, 4) = 4
+    ΔxFF[i, j] = dx[mod1(2i - 2, nx), 2j - 1] + dx[2i - 1, 2j - 1]
+    ΔxFC[i, j] = dx[mod1(2i - 2, nx), 2j] + dx[2i - 1, 2j]
+    ΔxCF[i, j] = dx[2i - 1, 2j - 1] + dx[2i, 2j - 1]
+    ΔxCC[i, j] = dx[2i - 1, 2j] + dx[2i, 2j]
+
+    # For Δy, I need to sum consecutive dy 2 by 2,
+    # but I need to "extend" the grid north and south.
+    # For ΔyCC, of size (Nx, Ny), we have:
+    #
+    #                       ┏━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #              j = 2 ─▶ ┠─────────┼─────────╂─────────┼─────────┨
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┣━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                       ┃        ▲│▲        ┃         │         ┃
+    #         𝑗 = 2j = 2 ─▶ ┃        ┃││dy      ┃         │         ┃
+    #                       ┃        ┃│▼        ┃         │         ┃
+    #              j = 1 ─▶ u ───── Δy ─────────╂─────────┼─────────┨
+    #                       ┃        ┃│▲        ┃         │         ┃
+    #     𝑗 = 2j - 1 = 1 ─▶ ┃        ┃││dy      ┃         │         ┃
+    #                       ┃        ▼│▼        ┃         │         ┃
+    #                       ┗━━━━━━━━ v ━━━━━━━━┻━━━━━━━━━┷━━━━━━━━━┛
+    #                                 ▲                   ▲
+    #                               i = 1               i = 2
+    #                            𝑖 = 2i = 2           𝑖 = 2i = 4
+    #
+    #
+    # For ΔyFF, of size (Nx, Ny + 1), we clamp the j indices at the boundaries:
+    #
+    #                       ┠─────────┼─────────╂─────────┼─────────┨
+    #    so repeat 𝑗 = 4   ▲┃▲ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #    𝑗 = 2j - 1 = 5 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #                      ┃┃▼ ghost  │  ghost  ┃  ghost  │  ghost  ┃
+    #            j = 3 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                      ┃┃▲        │         ┃         │         ┃
+    #    𝑗 = 2j - 2 = 4 ─▶ ┃┃│dy      │         ┃         │         ┃
+    #                      ▼┃▼        │         ┃         │         ┃
+    #                       ┠─────────┼─────────╂─────────┼─────────┨
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #             j = 2 ─▶  ┣━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       u ─────── c ────────╂─────────┼─────────┨
+    #                      ▲┃▲        │         ┃         │         ┃
+    #    𝑗 = 2j - 1 = 1 ─▶ ┃┃│dy      │         ┃         │         ┃
+    #                      ┃┃▼        │         ┃         │         ┃
+    #            j = 1 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                      ┃┃▲ ghost  │  ghost  ┃  ghost  │  ghost  ┃
+    #    𝑗 = 2j - 2 = 0 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #    so repeat 𝑗 = 1   ▼┃▼ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #                       ┠─────────┼─────────╂─────────┼─────────┨
+    #                       ▲                   ▲
+    #                     i = 1               i = 2
+    #                𝑖 = 2i - 1 = 1       𝑖 = 2i - 1 = 3
+    #
+    ΔyFF[i, j] = dy[2i - 1, max(2j - 2, 1)] + dy[2i - 1, min(2j - 1, ny)]
+    ΔyFC[i, j] = dy[2i - 1, 2j - 1] + dy[2i - 1, 2j]
+    ΔyCF[i, j] = dy[2i, max(2j - 2, 1)] + dy[2i, min(2j - 1, ny)]
+    ΔyCC[i, j] = dy[2i, 2j - 1] + dy[2i, 2j]
+
+    # For area use the same logic as above but sum 4 by 4
+    AzFF[i, j] = area[mod1(2i - 2, nx), max(2j - 2, 1)] + area[mod1(2i - 2, nx), min(2j - 1, ny)] + area[2i - 1, max(2j - 2, 1)] + area[2i - 1, min(2j - 1, ny)]
+    AzFC[i, j] = area[mod1(2i - 2, nx), 2j - 1] + area[mod1(2i - 2, nx), 2j] + area[2i - 1, 2j - 1] + area[2i - 1, 2j]
+    AzCF[i, j] = area[2i - 1, max(2j - 2, 1)] + area[2i - 1, min(2j - 1, ny)] + area[2i, max(2j - 2, 1)] + area[2i, min(2j - 1, ny)]
+    AzCC[i, j] = area[2i - 1, 2j - 1] + area[2i - 1, 2j] + area[2i, 2j - 1] + area[2i, 2j]
+
 end
 
-
-# @kernel function _compue_metrics_from_supergrid!(
-#         Δxᶠᶜᵃ, Δxᶜᶜᵃ, Δxᶜᶠᵃ, Δxᶠᶠᵃ,
-#         Δyᶠᶜᵃ, Δyᶜᶜᵃ, Δyᶜᶠᵃ, Δyᶠᶠᵃ,
-#         Azᶠᶜᵃ, Azᶜᶜᵃ, Azᶜᶠᵃ, Azᶠᶠᵃ,
-#         dx, dy, area
-#     )
-
-#     i, j = @index(Global, NTuple)
-
-#     @inbounds begin
-#         Δxᶜᶜᵃ[i, j] = dx[2i - 1, 2j] + dx[2i, 2j]
-#         Δxᶠᶜᵃ[i, j] = dx[2i - 2, 2j] + dx[2i - 1, 2j]
-#         Δxᶜᶠᵃ[i, j] = dx[2i - 1, 2j - 1] + dx[2i, 2j - 1]
-#         Δxᶠᶠᵃ[i, j] = dx[2i - 2, 2j - 1] + dx[2i - 1, 2j - 1]
-
-
-#     end
-# end
-function compute_metrics_from_supergrid!(
-        Δxᶠᶜᵃ, Δxᶜᶜᵃ, Δxᶜᶠᵃ, Δxᶠᶠᵃ,
-        Δyᶠᶜᵃ, Δyᶜᶜᵃ, Δyᶜᶠᵃ, Δyᶠᶠᵃ,
-        Azᶠᶜᵃ, Azᶜᶜᵃ, Azᶜᶠᵃ, Azᶠᶠᵃ,
-        nx, ny, dx, dy, area
-    )
-
-    for i in axes(Δxᶜᶜᵃ, 1), j in axes(Δxᶜᶜᵃ, 2)
-        𝑖, 𝑗 = 2i, 2j
-        # For Δx, wrap x indices around with mod1(𝑖 - 2, nx)
-        Δxᶜᶜᵃ[i, j] = dx[𝑖 - 1, 𝑗] + dx[𝑖, 𝑗]
-        Δxᶠᶜᵃ[i, j] = dx[mod1(𝑖 - 2, nx), 𝑗] + dx[𝑖 - 1, 𝑗]
-        Δxᶜᶠᵃ[i, j] = dx[𝑖 - 1, 𝑗 - 1] + dx[𝑖, 𝑗 - 1]
-        Δxᶠᶠᵃ[i, j] = dx[mod1(𝑖 - 2, nx), 𝑗 - 1] + dx[𝑖 - 1, 𝑗 - 1]
-        # For Δy, repeat last row for south boundary with max(𝑗 - 2, 1)
-        Δyᶜᶜᵃ[i, j] = dy[𝑖, 𝑗 - 1] + dy[𝑖, 𝑗]
-        Δyᶠᶜᵃ[i, j] = dy[𝑖 - 1, 𝑗 - 1] + dy[𝑖 - 1, 𝑗]
-        Δyᶜᶠᵃ[i, j] = dy[𝑖, max(𝑗 - 2, 1)] + dy[𝑖, 𝑗 - 1]
-        Δyᶠᶠᵃ[i, j] = dy[𝑖 - 1, max(𝑗 - 2, 1)] + dy[𝑖 - 1, 𝑗 - 1]
-        # For area use the same logic as above
-        Azᶜᶜᵃ[i, j] = area[𝑖 - 1, 𝑗 - 1] + area[𝑖 - 1, 𝑗] + area[𝑖, 𝑗 - 1] + area[𝑖, 𝑗]
-        Azᶠᶜᵃ[i, j] = area[mod1(𝑖 - 2, nx), 𝑗 - 1] + area[mod1(𝑖 - 2, nx), 𝑗] + area[𝑖 - 1, 𝑗 - 1] + area[𝑖 - 1, 𝑗]
-        Azᶜᶠᵃ[i, j] = area[𝑖 - 1, max(𝑗 - 2, 1)] + area[𝑖 - 1, 𝑗 - 1] + area[𝑖, max(𝑗 - 2, 1)] + area[𝑖, 𝑗 - 1]
-        Azᶠᶠᵃ[i, j] = area[mod1(𝑖 - 2, nx), max(𝑗 - 2, 1)] + area[mod1(𝑖 - 2, nx), 𝑗 - 1] + area[𝑖 - 1, max(𝑗 - 2, 1)] + area[𝑖 - 1, 𝑗 - 1]
-    end
-    return
-end
 
 
 function tripolargrid_from_supergrid(
@@ -102,9 +216,7 @@ function tripolargrid_from_supergrid(
         radius = Oceananigans.defaults.planet_radius,
         z = (0, 1), # Maybe z can be 3D array here?
         Nz = 1,
-        # north_poles_latitude = 55,
-        # first_pole_longitude = 70,
-    )  # second pole is at longitude `first_pole_longitude + 180ᵒ`
+    )
 
     @show southernmost_latitude = minimum(y)
     @show latitude = (southernmost_latitude, 90)
@@ -124,43 +236,32 @@ function tripolargrid_from_supergrid(
         throw(ArgumentError("The number of cells in the longitude dimension should be even!"))
     end
 
-    # For z use the same as Oceananigans TripolarGrid
-    topology = (Periodic, RightConnected, Bounded)
-    TZ = topology[3]
-    z = validate_dimension_specification(TZ, z, :z, Nz, FT)
-    Lz, z = generate_coordinate(FT, topology, gridsize, halosize, z, :z, 3, CPU())
-
-    λFF = zeros(Nλ, Nφ)
-    φFF = zeros(Nλ, Nφ)
-    λFC = zeros(Nλ, Nφ)
-    φFC = zeros(Nλ, Nφ)
-
-    λCF = zeros(Nλ, Nφ)
-    φCF = zeros(Nλ, Nφ)
-    λCC = zeros(Nλ, Nφ)
-    φCC = zeros(Nλ, Nφ)
-
-    compute_coordinates_from_supergrid!(λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC, x, y)
-    # If it works switch to Kernel as below?
-    # loop! = _compute_tripolar_coordinates!(device(CPU()), (16, 16), (Nλ, Nφ))
-    # loop!(λFF, φFF, λFC, φFC, λCF, φCF, λCC, φCC, x, y)
-
-    # Helper grid to fill halosize
+    # Helper grid to fill halo
     Nx = Nλ
     Ny = Nφ
     grid = RectilinearGrid(;
         size = (Nx, Ny),
         halo = (Hλ, Hφ),
         x = (0, 1), y = (0, 1),
-        topology = (Periodic, RightConnected, Flat),
+        topology = (Periodic, RightFaceConnected, Flat),
     )
 
-    # Boundary conditions to fill halos of the coordinate and metric terms
+    # For z use the same as Oceananigans TripolarGrid
+    # while λ and φ will come from supergrid.
+    topology = (Periodic, RightFaceConnected, Bounded)
+    TZ = topology[3]
+    z = validate_dimension_specification(TZ, z, :z, Nz, FT)
+    Lz, z = generate_coordinate(FT, topology, gridsize, halosize, z, :z, 3, CPU())
+
+    # To get data of the right size, we create fields at the right locations
+    # with the right boundary conditions.
     # We need to define them manually because of the convention in the
-    # ZipperBoundaryCondition that edge fields need to switch sign (which we definitely do not
-    # want for coordinates and metrics)
-    default_boundary_conditions = FieldBoundaryConditions(
-        north = ZipperBoundaryCondition(),
+    # FPivotZipperBoundaryCondition that edge fields need to switch sign
+    # (which we definitely do not want for coordinates and metrics)
+    # TODO: Check that, actually... I don't think that's true as
+    # I think the sign change only happens for tracers called :u or :v.
+    boundary_conditions = FieldBoundaryConditions(
+        north = FPivotZipperBoundaryCondition(),
         south = NoFluxBoundaryCondition(), # The south should be `continued`
         west = Oceananigans.PeriodicBoundaryCondition(),
         east = Oceananigans.PeriodicBoundaryCondition(),
@@ -168,143 +269,81 @@ function tripolargrid_from_supergrid(
         bottom = nothing
     )
 
-    lFF = Field{Face, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
-    pFF = Field{Face, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
+    λFF = Field{Face, Face, Center}(grid; boundary_conditions)
+    λFC = Field{Face, Center, Center}(grid; boundary_conditions)
+    λCF = Field{Center, Face, Center}(grid; boundary_conditions)
+    λCC = Field{Center, Center, Center}(grid; boundary_conditions)
+    φFF = Field{Face, Face, Center}(grid; boundary_conditions)
+    φFC = Field{Face, Center, Center}(grid; boundary_conditions)
+    φCF = Field{Center, Face, Center}(grid; boundary_conditions)
+    φCC = Field{Center, Center, Center}(grid; boundary_conditions)
+    ΔxFF = Field{Face, Face, Center}(grid; boundary_conditions)
+    ΔxFC = Field{Face, Center, Center}(grid; boundary_conditions)
+    ΔxCF = Field{Center, Face, Center}(grid; boundary_conditions)
+    ΔxCC = Field{Center, Center, Center}(grid; boundary_conditions)
+    ΔyFF = Field{Face, Face, Center}(grid; boundary_conditions)
+    ΔyFC = Field{Face, Center, Center}(grid; boundary_conditions)
+    ΔyCF = Field{Center, Face, Center}(grid; boundary_conditions)
+    ΔyCC = Field{Center, Center, Center}(grid; boundary_conditions)
+    AzFF = Field{Face, Face, Center}(grid; boundary_conditions)
+    AzFC = Field{Face, Center, Center}(grid; boundary_conditions)
+    AzCF = Field{Center, Face, Center}(grid; boundary_conditions)
+    AzCC = Field{Center, Center, Center}(grid; boundary_conditions)
 
-    lFC = Field{Face, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
-    pFC = Field{Face, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
-
-    lCF = Field{Center, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
-    pCF = Field{Center, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
-
-    lCC = Field{Center, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
-    pCC = Field{Center, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
-
-    set!(lFF, λFF)
-    set!(pFF, φFF)
-
-    set!(lFC, λFC)
-    set!(pFC, φFC)
-
-    set!(lCF, λCF)
-    set!(pCF, φCF)
-
-    set!(lCC, λCC)
-    set!(pCC, φCC)
-
-    fill_halo_regions!(lFF)
-    fill_halo_regions!(lCF)
-    fill_halo_regions!(lFC)
-    fill_halo_regions!(lCC)
-
-    fill_halo_regions!(pFF)
-    fill_halo_regions!(pCF)
-    fill_halo_regions!(pFC)
-    fill_halo_regions!(pCC)
-
-    # Coordinates
-    λᶠᶠᵃ = dropdims(lFF.data, dims = 3)
-    φᶠᶠᵃ = dropdims(pFF.data, dims = 3)
-
-    λᶠᶜᵃ = dropdims(lFC.data, dims = 3)
-    φᶠᶜᵃ = dropdims(pFC.data, dims = 3)
-
-    λᶜᶠᵃ = dropdims(lCF.data, dims = 3)
-    φᶜᶠᵃ = dropdims(pCF.data, dims = 3)
-
-    λᶜᶜᵃ = dropdims(lCC.data, dims = 3)
-    φᶜᶜᵃ = dropdims(pCC.data, dims = 3)
-
-    # Read Metrics
-    # TODO: check these are the correct indices
-    # dx and dy are the lengths of the edges of the supergrid
-    # so need to sum them to get the Δx and Δy
-    # Same for area (need to sum 2x2)
-    # But I need to add one row and one column to the left.
-    dx_west = dx[end, :]
-    dx_east = dx[1, :]
-    dy_south = dy[:, end]
-    area_west = area[end, :]
-    area_south = area[:, end]
-    area_southwest = area[end, end]
-
-    # TODO: Maybe this can be made faster?
-    # TODO: Check if the metrics and area are correct at boundaries
-    # TODO: make these on_architecture(arch, zeros(Nx, Ny))
-    # to build the grid on GPU
-    Δxᶜᶜᵃ = zeros(Nx, Ny)
-    Δxᶠᶜᵃ = zeros(Nx, Ny)
-    Δxᶜᶠᵃ = zeros(Nx, Ny)
-    Δxᶠᶠᵃ = zeros(Nx, Ny)
-
-    Δyᶜᶜᵃ = zeros(Nx, Ny)
-    Δyᶠᶜᵃ = zeros(Nx, Ny)
-    Δyᶜᶠᵃ = zeros(Nx, Ny)
-    Δyᶠᶠᵃ = zeros(Nx, Ny)
-
-    Azᶜᶜᵃ = zeros(Nx, Ny)
-    Azᶠᶜᵃ = zeros(Nx, Ny)
-    Azᶜᶠᵃ = zeros(Nx, Ny)
-    Azᶠᶠᵃ = zeros(Nx, Ny)
-
-    compute_metrics_from_supergrid!(
-        Δxᶠᶜᵃ, Δxᶜᶜᵃ, Δxᶜᶠᵃ, Δxᶠᶠᵃ,
-        Δyᶠᶜᵃ, Δyᶜᶜᵃ, Δyᶜᶠᵃ, Δyᶠᶠᵃ,
-        Azᶠᶜᵃ, Azᶜᶜᵃ, Azᶜᶠᵃ, Azᶠᶠᵃ,
-        nx, ny, dx, dy, area
+    # Compute coordinates and metrics from supergrid
+    # but run the kernel up to (Nλ, Nφ + 1) instead of (Nλ, Nφ)!
+    # (We extend the indices to make sure to fill interior points for all locations.)
+    loop! = compute_coordinates_and_metrics_from_supergrid!(device(CPU()), (16, 16), (Nλ, Nφ + 1))
+    loop!(
+        λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
+        φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
+        ΔxFF, ΔxFC, ΔxCF, ΔxCC, # TripolarGrid x distances
+        ΔyFF, ΔyFC, ΔyCF, ΔyCC, # TripolarGrid y distances
+        AzFF, AzFC, AzCF, AzCC, # TripolarGrid areas
+        x, y,   # supergrid coordinates
+        dx, dy, # supergrid distances
+        area,   # supergrid areas
+        nx      # supergrid size in x (nx == 2 * Nx)
     )
 
-    # Metrics fields to fill halos
-    FF = Field{Face, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
-    FC = Field{Face, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
-    CF = Field{Center, Face, Center}(grid; boundary_conditions = default_boundary_conditions)
-    CC = Field{Center, Center, Center}(grid; boundary_conditions = default_boundary_conditions)
+    # Fill halos (important as we overwrote some halo regions above)
+    for x in (
+            λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
+            φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
+            ΔxFF, ΔxFC, ΔxCF, ΔxCC, # TripolarGrid x distances
+            ΔyFF, ΔyFC, ΔyCF, ΔyCC, # TripolarGrid y distances
+            AzFF, AzFC, AzCF, AzCC, # TripolarGrid areas
+        )
+        fill_halo_regions!(x)
+    end
 
-    # Fill all periodic halos
-    set!(FF, Δxᶠᶠᵃ)
-    set!(CF, Δxᶜᶠᵃ)
-    set!(FC, Δxᶠᶜᵃ)
-    set!(CC, Δxᶜᶜᵃ)
-    fill_halo_regions!(FF)
-    fill_halo_regions!(CF)
-    fill_halo_regions!(FC)
-    fill_halo_regions!(CC)
-    Δxᶠᶠᵃ = deepcopy(dropdims(FF.data, dims = 3))
-    Δxᶜᶠᵃ = deepcopy(dropdims(CF.data, dims = 3))
-    Δxᶠᶜᵃ = deepcopy(dropdims(FC.data, dims = 3))
-    Δxᶜᶜᵃ = deepcopy(dropdims(CC.data, dims = 3))
-
-    set!(FF, Δyᶠᶠᵃ)
-    set!(CF, Δyᶜᶠᵃ)
-    set!(FC, Δyᶠᶜᵃ)
-    set!(CC, Δyᶜᶜᵃ)
-    fill_halo_regions!(FF)
-    fill_halo_regions!(CF)
-    fill_halo_regions!(FC)
-    fill_halo_regions!(CC)
-    Δyᶠᶠᵃ = deepcopy(dropdims(FF.data, dims = 3))
-    Δyᶜᶠᵃ = deepcopy(dropdims(CF.data, dims = 3))
-    Δyᶠᶜᵃ = deepcopy(dropdims(FC.data, dims = 3))
-    Δyᶜᶜᵃ = deepcopy(dropdims(CC.data, dims = 3))
-
-    set!(FF, Azᶠᶠᵃ)
-    set!(CF, Azᶜᶠᵃ)
-    set!(FC, Azᶠᶜᵃ)
-    set!(CC, Azᶜᶜᵃ)
-    fill_halo_regions!(FF)
-    fill_halo_regions!(CF)
-    fill_halo_regions!(FC)
-    fill_halo_regions!(CC)
-    Azᶠᶠᵃ = deepcopy(dropdims(FF.data, dims = 3))
-    Azᶜᶠᵃ = deepcopy(dropdims(CF.data, dims = 3))
-    Azᶠᶜᵃ = deepcopy(dropdims(FC.data, dims = 3))
-    Azᶜᶜᵃ = deepcopy(dropdims(CC.data, dims = 3))
+    # and only keep interior data + drop z dimension
+    λᶠᶠᵃ = dropdims(λFF.data, dims = 3)
+    λᶠᶜᵃ = dropdims(λFC.data, dims = 3)
+    λᶜᶠᵃ = dropdims(λCF.data, dims = 3)
+    λᶜᶜᵃ = dropdims(λCC.data, dims = 3)
+    φᶠᶠᵃ = dropdims(φFF.data, dims = 3)
+    φᶠᶜᵃ = dropdims(φFC.data, dims = 3)
+    φᶜᶠᵃ = dropdims(φCF.data, dims = 3)
+    φᶜᶜᵃ = dropdims(φCC.data, dims = 3)
+    Δxᶠᶠᵃ = dropdims(FF.data, dims = 3)
+    Δxᶜᶠᵃ = dropdims(CF.data, dims = 3)
+    Δxᶠᶜᵃ = dropdims(FC.data, dims = 3)
+    Δxᶜᶜᵃ = dropdims(CC.data, dims = 3)
+    Δyᶠᶠᵃ = dropdims(FF.data, dims = 3)
+    Δyᶜᶠᵃ = dropdims(CF.data, dims = 3)
+    Δyᶠᶜᵃ = dropdims(FC.data, dims = 3)
+    Δyᶜᶜᵃ = dropdims(CC.data, dims = 3)
+    Azᶠᶠᵃ = dropdims(FF.data, dims = 3)
+    Azᶜᶠᵃ = dropdims(CF.data, dims = 3)
+    Azᶠᶜᵃ = dropdims(FC.data, dims = 3)
+    Azᶜᶜᵃ = dropdims(CC.data, dims = 3)
 
     Hx, Hy, Hz = halosize
 
     # TODO: Check if longitude below is correct.
     # I recreated longitude = (-180, 180) by hand here, as it does not seem to be used anywhere else
-    # and I assume this is only used to conitnue the Δ metrics south, which should not depend on latitude
+    # and I assume this is only used to conitnue the Δ metrics south, which should not depend on longitude
     # (unless the South pole is also shifted like in some models?)
     latitude_longitude_grid = LatitudeLongitudeGrid(;
         size = gridsize,
@@ -335,7 +374,7 @@ function tripolargrid_from_supergrid(
 
     # Final grid with correct metrics
     # TODO: remove `on_architecture(arch, ...)` when we shift grid construction to GPU
-    grid = OrthogonalSphericalShellGrid{Periodic, RightConnected, Bounded}(
+    grid = OrthogonalSphericalShellGrid{Periodic, RightFaceConnected, Bounded}(
         arch,
         Nx, Ny, Nz,
         Hx, Hy, Hz,
@@ -362,53 +401,16 @@ function tripolargrid_from_supergrid(
         on_architecture(arch, map(FT, Azᶜᶠᵃ)),
         on_architecture(arch, map(FT, Azᶠᶠᵃ)),
         convert(FT, radius),
+        # TODO: this mapping to Tripolar should be replaced with a custom one
         Tripolar(north_poles_latitude, first_pole_longitude, southernmost_latitude)
     )
+
+    @warn "This grid uses a Tripolar mapping but it should have its own custom one I think."
 
     return grid
 end
 
-
-"""
-Merge the cells that touch the north fold to make it an T-point pivot fold.
-
-So the last row must be extended by copying values from the opposite side:
-
-P---j---k---l---m---n---o---p---P <- fold
-|   |   |   |   |   |   |   |   |
-| - C - | - C - | - C - | - C - | <- Centers
-|   |   |   |   |   |   |   |   |
-a---b---c---d---e---f---g---h---i
-
-becomes
-
-i---h---g---f---e---d---c---b---a <- new coordinates = reversed from south edge
-|       |       |       |       |
-|   |   |   |   |   |   |   |   |
-|       |       |       |       |
-P - C - + - C - P - C - + - C - P <- fold = Centers now!
-|       |       |       |       |
-|   |   |   |   |   |   |   |   |
-|       |       |       |       |
-a---b---c---d---e---f---g---h---i <- unchanged
-"""
-function convert_Fpointpivot_to_Tpointpivot(; x, y, dx, dy, area, nx, nxp, ny, nyp)
-    for i in 1:nxp
-        x[i, nyp - 1] = x[i, nyp]
-        x[i, nyp] = x[nxp - i + 1, nyp - 2]
-        y[i, nyp - 1] = y[i, nyp]
-        y[i, nyp] = y[nxp - i + 1, nyp - 2]
-        dy[i, ny - 1] = dy[i, ny - 1] + dy[i, ny]
-        dy[i, ny] = dy[nxp - i + 1, ny - 1]
-    end
-    for i in 1:nx
-        dx[i, nyp - 1] = dx[i, nyp]
-        dx[i, nyp] = dx[nx - i + 1, nyp - 2]
-        area[i, ny - 1] = area[i, ny - 1] + area[i, ny]
-        area[i, ny] = area[nx - i + 1, ny - 1]
-    end
-    return (; x, y, dx, dy, area, nx, nxp, ny, nyp)
-end
+WIP WIP WIP
 
 """
 Places u or v data on the Oceananigans B-grid from MOM output.
@@ -429,24 +431,72 @@ function Bgrid_velocity_from_MOM(grid, data)
     Oceananigans.BoundaryConditions.fill_halo_regions!(x)
     return x
 end
-function Tpoint_Bgrid_v_from_MOM(grid, data)
-    v = Field{Face, Face, Center}(grid)
+
+"""
+I think I need to make my own BC first on the B-grid velocities,
+then interpolate to C-grid,
+then merge cells across the fold,
+and only then fill halo regions with the Oceananigans machinery
+(because it can only deal with the fold at XFace points).
+"""
+function Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, data)
+    # I only use the grid here to create the same offsetarray
+    x = Field{Face, Face, Center}(grid).data
     Nx, Ny, Nz = size(grid)
-    v.data[2:Nx, 2:Ny, 1:Nz] .= data[1:(Nx - 1), 1:(Ny - 1), Nz:-1:1]
-    v.data[1:Nx, 1, 1:Nz] .= 0 # TODO Maybe remove if zero is the default on creation
-    v.data[1, 2:Ny, 1:Nz] .= data[Nx, 1:(Ny - 1), Nz:-1:1]
-    Oceananigans.BoundaryConditions.fill_halo_regions!(v)
-    return v
+    # Shift everything from NE to SW and flip vertical
+    x[2:(Nx + 1), 2:(Ny + 1), 1:Nz] .= data[1:Nx, 1:Ny, Nz:-1:1]
+    # Fill i = 1 column by wrapping around in longitude
+    x[1, 2:(Ny + 1), 1:Nz] .= data[Nx, 1:Ny, Nz:-1:1]
+    return x
 end
-function Tpoint_Bgrid_u_from_MOM(grid, data)
-    u = Field{Face, Face, Center}(grid)
-    Nx, Ny, Nz = size(grid)
-    u.data[2:Nx, 2:Ny, 1:Nz] .= data[1:(Nx - 1), 1:(Ny - 1), Nz:-1:1]
-    u.data[1:Nx, 1, 1:Nz] .= 0 # TODO Maybe remove if zero is the default on creation
-    u.data[1, 2:Ny, 1:Nz] .= data[Nx, 1:(Ny - 1), Nz:-1:1]
-    Oceananigans.BoundaryConditions.fill_halo_regions!(u)
-    # But for u, we override the Ny + 1 row with opposite u
-    # becasue these will be used for interpolating to C-grid
-    u.data[1:(Nx + 1), Ny + 1, 1:Nz] .= -u.data[(Nx + 1):-1:1, Ny, 1:Nz]
-    return u
+
+function interpolate_u_from_Bgrid_to_Cgrid!(uc, ubdata)
+    for i in 1:(Nx + 1), j in 1:Ny, k in 1:Nz
+        uc.data[i, j, k] = (ubdata[i, j, k] + ubdata[i, j + 1, k]) / 2
+    end
+    return uc
+end
+function interpolate_v_from_Bgrid_to_Cgrid!(vc, vbdata)
+    for i in 1:Nx, j in 1:(Ny + 1), k in 1:Nz
+        vc.data[i, j, k] = (vbdata[i, j, k] + vbdata[i + 1, j, k]) / 2
+    end
+    return vc
+end
+
+
+"""Determine Location from 3 characters at the end?"""
+function celllocation(char::Char)
+    return char == 'ᶜ' ? Center :
+        char == 'ᶠ' ? Face :
+        char == 'ᵃ' ? Center :
+        throw(ArgumentError("Unknown cell location character: $char"))
+end
+function celllocation(str::String)
+    N = ncodeunits(str)
+    iz = prevind(str, N)
+    z = celllocation(str[iz])
+    iy = prevind(str, iz)
+    y = celllocation(str[iy])
+    ix = prevind(str, iy)
+    x = celllocation(str[ix])
+    return (x, y, z)
+end
+celllocation(sym::Symbol) = celllocation(String(sym))
+
+function plot_surface_field(grid, xstr; prefix = "")
+    xdata = getproperty(grid, xstr)
+    x = Field{celllocation(xstr)...}(grid)
+    x .= xdata
+    # mask_immersed_field!(x, NaN)
+    # fill_halo_regions!(x)
+    fig = Figure()
+    ax = Axis(fig[1, 1]; xlabel = "i", ylabel = "j", aspect = DataAspect())
+    (; Hx, Hy, Nx, Ny, Nz) = grid
+    hm = heatmap!(ax, (1 - Hx):(Nx + Hx), (1 - Hy):(Ny + Hy), x.data[:, :, Nz].parent; nan_color = :black)
+    ax.title = "$xstr at surface"
+    # translate!(hm, (0, 0, -100))
+    Colorbar(fig[2, 1], hm; vertical = false, tellwidth = false)
+    filepath = joinpath(outputdir, "$(prefix)$(xstr)_map.png")
+    save(filepath, fig)
+    return filepath
 end

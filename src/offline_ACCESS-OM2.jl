@@ -64,7 +64,7 @@ include("tripolargrid_reader.jl")
 # TODO: For dimensions, just get the lengths instead of index ranges
 # Not sure this matters but it is a bit more consistent
 # with Nx, Ny, etc. used elsewhere where "N" or "n" means number of points
-supergrid = (;
+MOMsupergrid = (;
     x = readcubedata(supergrid_ds.x).data,
     y = readcubedata(supergrid_ds.y).data,
     dx = readcubedata(supergrid_ds.dx).data,
@@ -75,8 +75,6 @@ supergrid = (;
     ny = length(supergrid_ds.ny.val),
     nyp = length(supergrid_ds.nyp.val),
 )
-
-supergrid = convert_Fpointpivot_to_Tpointpivot(; supergrid...)
 
 ########################
 @info "2. Vertical grid"
@@ -116,6 +114,7 @@ end
 # I just use the maximum depth on either side of the fold.
 # TODO: This is a hack, so remove once the F-point pivot grid is implemented
 # in Oceananigans!
+MOMbottom = copy(bottom) # Save it for MOMgrid
 Nx, Ny = size(bottom)
 for i in 1:Nx
     bottom[i, Ny] = max(bottom[i, Ny], bottom[Nx - i + 1, Ny])
@@ -153,6 +152,12 @@ hm = surface!(
 Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
 save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
 
+for metric in (:Δxᶜᶜᵃ, :Δyᶜᶜᵃ, :Azᶜᶜᵃ, :Δxᶜᶠᵃ, :Δyᶜᶠᵃ, :Azᶜᶠᵃ, :Δxᶠᶜᵃ, :Δyᶠᶜᵃ, :Azᶠᶜᵃ, :Δxᶠᶠᵃ, :Δyᶠᶠᵃ, :Azᶠᶠᵃ)
+    plot_surface_field(grid.underlying_grid, metric)
+end
+
+foo
+
 #####################
 @info "3. Velocities"
 #####################
@@ -163,8 +168,17 @@ v_ds = open_dataset(joinpath(inputdir, "v.nc"))
 v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
 
 # Place u and v data on Oceananigans B-grid
-u_Bgrid = Bgrid_velocity_from_MOM(grid, u_data)
-v_Bgrid = Bgrid_velocity_from_MOM(grid, v_data)
+@info """
+About the MOM B-grid velocities:
+1. I fill halos with my own BC with fold at YFace first
+2. Interpolate to C-grid,
+3. Merge cells across the fold with C-grid (easier to conserve mass),
+4. Fill halo regions with the Oceananigans machinery
+    (because it can only deal with the fold at XFace points).
+"""
+
+u_OffsetArray_Bgrid = Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, u_data)
+v_OffsetArray_Bgrid = Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, v_data)
 
 
 fig = Figure(size = (1000, 1000))
@@ -183,16 +197,39 @@ save(joinpath(outputdir, "surface_BGrid_u_v_halos.png"), fig)
 
 
 
+
 # Then interpolate to C-grid
-interp_u = @at (Face, Center, Center) 1 * u_Bgrid
+# interp_u = @at (Face, Center, Center) 1 * u_Bgrid
 north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
 ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()), north = north_bc)
 vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()), north = north_bc)
 u = XFaceField(grid; boundary_conditions = ubcs)
-u .= interp_u
-interp_v = @at (Center, Face, Center) 1 * v_Bgrid
+# u .= interp_u
+interpolate_u_from_Bgrid_to_Cgrid!(u, u_OffsetArray_Bgrid)
+# interp_v = @at (Center, Face, Center) 1 * v_Bgrid
 v = YFaceField(grid; boundary_conditions = vbcs)
-v .= interp_v
+# v .= interp_v
+interpolate_v_from_Bgrid_to_Cgrid!(v, v_OffsetArray_Bgrid)
+
+# Then change velocities to reflect the cells merged across the fold
+# Since I used max(bottom) on either side of the fold,
+# I must take that into account for computing u and v.
+# I think the most important is to conserve the fluxes, So
+#
+#   u_flux = u * Δyᶠᶜᵃ * Δzᶠᶜᵃ
+#
+# should be summed over merged cells, and
+#
+#   v_flux = v * Δxᶜᶠᵃ * Δzᶜᶠᵃ
+#
+# should be taken from the face that is kept.
+# Then u and v can be recomputed from the fluxes.
+u_flux_data = XFaceField(grid).data
+v_flux_data = YFaceField(grid).data
+for i in 1:Nx, j in 1:Ny, k in 1:Nz
+    dz = (z[k + 1] - bottom[i, j])
+    dy = MOMsupergrid.dy[2i - 1, 2j - 1] + MOMsupergrid.dy[2i - 1, 2j]
+    u_flux_data[i, j, k] = u.data[i, j, k] * dy * dz
 
 # Then compute w from continuity
 w = Field{Center, Center, Face}(grid)
