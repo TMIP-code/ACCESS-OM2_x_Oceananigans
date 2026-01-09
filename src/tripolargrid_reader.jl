@@ -3,9 +3,11 @@ using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Pe
     validate_dimension_specification, generate_coordinate, on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
-using Oceananigans.Architectures: CPU
+using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Utils: KernelParameters, launch!
 using KernelAbstractions: @kernel, @index
+using GPUArraysCore: @allowscalar
+
 
 @kernel function compute_coordinates_and_metrics_from_supergrid!(
         λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
@@ -219,12 +221,12 @@ function tripolargrid_from_supergrid(
         Nz = 1,
     )
 
-    @show southernmost_latitude = minimum(y)
-    @show latitude = (southernmost_latitude, 90)
-    @show longitude = (minimum(x), maximum(x))
+    southernmost_latitude = minimum(y)
+    latitude = (southernmost_latitude, 90)
+    longitude = (minimum(x), maximum(x))
     max_latitudes = maximum(y, dims = 2)
-    @show north_poles_latitude, i_north_pole = findmin(max_latitudes)
-    @show first_pole_longitude = x[i_north_pole, 1]
+    north_poles_latitude, i_north_pole = findmin(max_latitudes)
+    first_pole_longitude = @allowscalar x[i_north_pole, 1]
 
     # Horizontal grid size
     Nλ, Nφ = nx ÷ 2, ny ÷ 2
@@ -240,7 +242,8 @@ function tripolargrid_from_supergrid(
     # Helper grid to fill halo
     Nx = Nλ
     Ny = Nφ
-    grid = RectilinearGrid(;
+    grid = RectilinearGrid(
+        CPU(), FT;
         size = (Nx, Ny),
         halo = (Hλ, Hφ),
         x = (0, 1), y = (0, 1),
@@ -346,7 +349,8 @@ function tripolargrid_from_supergrid(
     # I recreated longitude = (-180, 180) by hand here, as it does not seem to be used anywhere else
     # and I assume this is only used to conitnue the Δ metrics south, which should not depend on longitude
     # (unless the South pole is also shifted like in some models?)
-    latitude_longitude_grid = LatitudeLongitudeGrid(;
+    latitude_longitude_grid = LatitudeLongitudeGrid(
+        CPU(), FT;
         size = gridsize,
         latitude,
         longitude = (-180, 180),
@@ -427,12 +431,12 @@ end
     # so we need to flip that as well.
 
     𝑖 = mod1(i - 1, Nx)
-    𝑗 = j - 1
-    mask = ifelse(𝑗 == 0, 0.0, 1.0)
+    𝑗 = max(j - 1, 1)
+    zero_first_row = ifelse(j == 1, 0.0, 1.0)
     𝑘 = Nz - k + 1 # flip vertical
 
-    u[i, j, k] = mask * u_data[𝑖, 𝑗, 𝑘]
-    v[i, j, k] = mask * v_data[𝑖, 𝑗, 𝑘]
+    u[i, j, k] = zero_first_row * u_data[𝑖, 𝑗, 𝑘]
+    v[i, j, k] = zero_first_row * v_data[𝑖, 𝑗, 𝑘]
 end
 
 """
@@ -445,19 +449,20 @@ j = 1 row is set to zero (both u and v).
 i = 1 column is set by wrapping around the data (periodic longitude).
 """
 function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-    north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
+    # north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper{FPivot}(), -1)
+    north = FPivotZipperBoundaryCondition(-1)
 
     loc = (Face(), Face(), Center())
-    bcs = FieldBoundaryConditions(grid, loc, north = north_bc)
+    boundary_conditions = FieldBoundaryConditions(grid, loc; north)
 
-    u = Field(loc, grid; boundary_conditions = bcs)
-    v = Field(loc, grid; boundary_conditions = bcs)
+    u = Field(loc, grid; boundary_conditions)
+    v = Field(loc, grid; boundary_conditions)
 
-    Nx, Ny, Nz = size(u)
+    Nx, Ny, Nz = size(grid)
 
     kp = KernelParameters(1:Nx, 1:(Ny + 1), 1:Nz)
 
-    launch!(CPU(), grid, kp, compute_Bgrid_velocity_from_MOM_output!,
+    launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
         u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
         u_data, v_data    # B-grid u and v from MOM
     )
@@ -467,6 +472,28 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
     return u, v
 end
+
+function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
+
+    north = FPivotZipperBoundaryCondition(-1)
+
+    ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north)
+    vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north)
+
+    u = XFaceField(grid; boundary_conditions = ubcs)
+    v = YFaceField(grid; boundary_conditions = vbcs)
+
+    interp_u = @at (Face, Center, Center) 1 * u_Bgrid
+    interp_v = @at (Center, Face, Center) 1 * v_Bgrid
+
+    u .= interp_u
+    v .= interp_v
+
+    return u, v
+end
+
+
+
 
 """
 I think I need to make my own BC first on the B-grid velocities,
@@ -520,9 +547,11 @@ end
 celllocation(sym::Symbol) = celllocation(String(sym))
 
 function plot_surface_field(grid, xstr; prefix = "")
+    @show x = Field{celllocation(xstr)...}(grid)
     xdata = getproperty(grid, xstr)
-    x = Field{celllocation(xstr)...}(grid)
-    x .= xdata
+    @cushow xdata # <- segfaults!
+    # TODO: Make this work ont the GPU!
+    set!(x, xdata)
     # mask_immersed_field!(x, NaN)
     # fill_halo_regions!(x)
     fig = Figure()

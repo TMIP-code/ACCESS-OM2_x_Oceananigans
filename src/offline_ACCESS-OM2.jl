@@ -13,6 +13,8 @@ And on the GPU queue, use
 ```
 qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
+module load cuda/12.9.0
+export JULIA_CUDA_USE_COMPAT=false
 julia
 include("src/ACCESS-OM2_grid.jl")
 ```
@@ -27,16 +29,23 @@ Pkg.instantiate()
 #########################################
 
 using Oceananigans
+
+# Comment/uncomment the following lines to enable/disable GPU
+if contains(ENV["HOSTNAME"], "gpu")
+    using CUDA
+    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit=true)
+    @show CUDA.versioninfo()
+    arch = GPU()
+else
+    arch = CPU()
+end
+@info "Using $arch architecture"
+
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Architectures: CPU
 using Adapt: adapt
-
-# Comment/uncomment the following lines to enable/disable GPU
-# using CUDA
-# CUDA.set_runtime_version!(v"12.9.1")
-# @show CUDA.versioninfo()
 
 using Statistics
 using YAXArrays
@@ -87,18 +96,18 @@ MOMsupergrid = (;
 println("Reading vertical grid data into memory...")
 @show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_1deg/ocean_vgrid.nc"
 z_ds = open_dataset(MOM_input_vgrid_file)
-z = -reverse(vec(z_ds["zeta"].data[1:2:end]))
+z = -reverse(vec(z_ds["zeta"].data[1:2:end])) # from surface to bottom
 Nz = length(z) - 1
 
 
 println("Building Horizontal grid...")
 underlying_grid = tripolargrid_from_supergrid(
-    CPU(), Float64;
+    arch;
     MOMsupergrid...,
     halosize = (4, 4, 4),
     radius = Oceananigans.defaults.planet_radius,
-    z = (0, 1),
-    Nz = 1,
+    z,
+    Nz,
 )
 
 for metric in (
@@ -110,8 +119,6 @@ for metric in (
     plot_surface_field(underlying_grid, metric)
 end
 
-
-foo
 
 ########################
 @info "2. Vertical grid"
@@ -142,25 +149,12 @@ for idx in eachindex(kbottom)
 end
 @info "z coordinate/grid checks passed."
 
-# Now since I am merging cells on the north fold,
-# I just use the maximum depth on either side of the fold.
-# TODO: This is a hack, so remove once the F-point pivot grid is implemented
-# in Oceananigans!
-MOMbottom = copy(bottom) # Save it for MOMgrid
-Nx, Ny = size(bottom)
-for i in 1:Nx
-    bottom[i, Ny] = max(bottom[i, Ny], bottom[Nx - i + 1, Ny])
-end
-
 time_window = "Jan1960-Dec1979"
 @show inputdir = "/scratch/y99/TMIP/data/$model/$experiment/$time_window"
 
+# TODO: use time-dependent dht or η to adjust the vertical coordinates like in MOM.
 # dht_ds = open_dataset(joinpath(inputdir, "dht.nc")) # <- (new) cell thickness?
 # dht = readcubedata(dht_ds.dht)
-
-# TODO: I am not so sure what happens of merged wet/dry cells
-# CHECK for both u/v and volumes etc.
-
 
 # Then immerge the grid cells with partial cells at the bottom
 grid = ImmersedBoundaryGrid(
@@ -185,6 +179,7 @@ Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
 save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
 
 
+
 #####################
 @info "3. Velocities"
 #####################
@@ -198,7 +193,6 @@ v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
 # Place u and v data on Oceananigans B-grid
 u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
-foo
 
 fig = Figure(size = (1000, 1000))
 ax = Axis(fig[1, 1])
@@ -216,39 +210,29 @@ save(joinpath(outputdir, "surface_BGrid_u_v_halos.png"), fig)
 
 
 
-
 # Then interpolate to C-grid
-# interp_u = @at (Face, Center, Center) 1 * u_Bgrid
-north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
-ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()), north = north_bc)
-vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()), north = north_bc)
-u = XFaceField(grid; boundary_conditions = ubcs)
-# u .= interp_u
-interpolate_u_from_Bgrid_to_Cgrid!(u, u_OffsetArray_Bgrid)
-# interp_v = @at (Center, Face, Center) 1 * v_Bgrid
-v = YFaceField(grid; boundary_conditions = vbcs)
-# v .= interp_v
-interpolate_v_from_Bgrid_to_Cgrid!(v, v_OffsetArray_Bgrid)
+u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
 
-# Then change velocities to reflect the cells merged across the fold
-# Since I used max(bottom) on either side of the fold,
-# I must take that into account for computing u and v.
-# I think the most important is to conserve the fluxes, So
-#
-#   u_flux = u * Δyᶠᶜᵃ * Δzᶠᶜᵃ
-#
-# should be summed over merged cells, and
-#
-#   v_flux = v * Δxᶜᶠᵃ * Δzᶜᶠᵃ
-#
-# should be taken from the face that is kept.
-# Then u and v can be recomputed from the fluxes.
-u_flux_data = XFaceField(grid).data
-v_flux_data = YFaceField(grid).data
-for i in 1:Nx, j in 1:Ny, k in 1:Nz
-    dz = (z[k + 1] - bottom[i, j])
-    dy = MOMsupergrid.dy[2i - 1, 2j - 1] + MOMsupergrid.dy[2i - 1, 2j]
-    u_flux_data[i, j, k] = u.data[i, j, k] * dy * dz
+
+fig = Figure(size = (1000, 1000))
+
+ax = Axis(fig[1, 1], title = "C-grid u")
+mask = Field{Face, Center, Center}(grid)
+mask .= 1.0
+fill_halo_regions!(mask)
+mask_immersed_field!(mask, NaN)
+hm = heatmap!(ax, u.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+
+ax = Axis(fig[2, 1], title = "C-grid v")
+mask = Field{Center, Face, Center}(grid)
+mask .= 1.0
+fill_halo_regions!(mask)
+mask_immersed_field!(mask, NaN)
+hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+
+Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
+save(joinpath(outputdir, "surface_CGrid_u_v_halos.png"), fig)
+
 
 # Then compute w from continuity
 w = Field{Center, Center, Face}(grid)
@@ -257,32 +241,29 @@ mask_immersed_field!(u, 0.0)
 mask_immersed_field!(v, 0.0)
 fill_halo_regions!(u)
 fill_halo_regions!(v)
-HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, CPU(), grid)
+HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, arch, grid)
 u, v, w = velocities
 
 
-fill_halo_regions!(u)
-fill_halo_regions!(v)
-mask_immersed_field!(u, 0.0)
-mask_immersed_field!(v, 0.0)
 
 fig = Figure(size = (1000, 1000))
+
 ax = Axis(fig[1, 1])
 mask = XFaceField(grid)
 mask .= 1.0
 fill_halo_regions!(mask)
 mask_immersed_field!(mask, NaN)
-# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 hm = heatmap!(ax, u.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+
 ax = Axis(fig[2, 1])
 mask = YFaceField(grid)
 mask .= 1.0
 fill_halo_regions!(mask)
 mask_immersed_field!(mask, NaN)
-# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
 hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-save(joinpath(outputdir, "surface_u_v_halos.png"), fig)
+save(joinpath(outputdir, "surface_u_v_filled_halos.png"), fig)
 
 
 
@@ -296,6 +277,8 @@ mask[bottom .== 0] .= NaN
 hm = heatmap!(ax, w.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
 Colorbar(fig[1, 2], hm)
 save(joinpath(outputdir, "w.png"), fig)
+
+
 
 # TODO: Check velocities look reasonable (maybe against tx_trans etc.)
 
@@ -322,7 +305,7 @@ vertical_closure = VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretizatio
 ################
 
 model = HydrostaticFreeSurfaceModel(
-    grid = grid,
+    grid;
     tracers = :c,
     velocities = PrescribedVelocityFields(; u, v, w),
     closure = (horizontal_closure, vertical_closure),

@@ -18,17 +18,17 @@ using Printf
 using CairoMakie
 
 using CUDA
-CUDA.set_runtime_version!(v"12.9.1")
+CUDA.set_runtime_version!(v"12.9.0")
 @show CUDA.versioninfo()
 
 Nx = 360
-Ny = 120
+Ny = 300
 latitude = (-60, 60)
 longitude = (-180, 180)
 
 # A spherical domain
 grid = LatitudeLongitudeGrid(
-    GPU(),
+    GPU();
     size = (Nx, Ny, 1),
     radius = 1,
     latitude = latitude,
@@ -37,7 +37,7 @@ grid = LatitudeLongitudeGrid(
 )
 
 model = HydrostaticFreeSurfaceModel(
-    grid = grid,
+    grid;
     tracers = :c,
     velocities = PrescribedVelocityFields(), # quiescent
     closure = HorizontalScalarDiffusivity(κ = 1),
