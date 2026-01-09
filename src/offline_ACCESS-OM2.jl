@@ -22,11 +22,16 @@ using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
 
+#########################################
+@info "0. Loading packages and functions"
+#########################################
+
 using Oceananigans
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
-using Adapt
+using Oceananigans.Architectures: CPU
+using Adapt: adapt
 
 # Comment/uncomment the following lines to enable/disable GPU
 # using CUDA
@@ -41,6 +46,11 @@ using JLD2
 using Printf
 using CairoMakie
 
+# TODO: Maybe I should only use the supergrid for the locations
+# of center/face/corner points but otherwise use the "standard"
+# grid metrics available from the MOM outputs?
+include("tripolargrid_reader.jl")
+
 model = "ACCESS-OM2-1"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output"
 
@@ -53,10 +63,7 @@ supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", mod
 supergrid_ds = open_dataset(supergridfile)
 @show supergrid_ds
 
-# TODO: Maybe I should only use the supergrid for the locations
-# of center/face/corner points but otherwise use the "standard"
-# grid metrics available from the MOM outputs?
-include("tripolargrid_reader.jl")
+
 
 # Unpack supergrid data
 # TODO: I think best to extract the raw data here
@@ -64,6 +71,7 @@ include("tripolargrid_reader.jl")
 # TODO: For dimensions, just get the lengths instead of index ranges
 # Not sure this matters but it is a bit more consistent
 # with Nx, Ny, etc. used elsewhere where "N" or "n" means number of points
+println("Reading supergrid data into memory...")
 MOMsupergrid = (;
     x = readcubedata(supergrid_ds.x).data,
     y = readcubedata(supergrid_ds.y).data,
@@ -75,6 +83,35 @@ MOMsupergrid = (;
     ny = length(supergrid_ds.ny.val),
     nyp = length(supergrid_ds.nyp.val),
 )
+
+println("Reading vertical grid data into memory...")
+@show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_1deg/ocean_vgrid.nc"
+z_ds = open_dataset(MOM_input_vgrid_file)
+z = -reverse(vec(z_ds["zeta"].data[1:2:end]))
+Nz = length(z) - 1
+
+
+println("Building Horizontal grid...")
+underlying_grid = tripolargrid_from_supergrid(
+    CPU(), Float64;
+    MOMsupergrid...,
+    halosize = (4, 4, 4),
+    radius = Oceananigans.defaults.planet_radius,
+    z = (0, 1),
+    Nz = 1,
+)
+
+for metric in (
+        :λᶜᶜᵃ, :φᶜᶜᵃ, #:Δxᶜᶜᵃ, :Δyᶜᶜᵃ, :Azᶜᶜᵃ,
+        :λᶜᶠᵃ, :φᶜᶠᵃ, #:Δxᶜᶠᵃ, :Δyᶜᶠᵃ, :Azᶜᶠᵃ,
+        :λᶠᶜᵃ, :φᶠᶜᵃ, #:Δxᶠᶜᵃ, :Δyᶠᶜᵃ, :Azᶠᶜᵃ,
+        :λᶠᶠᵃ, :φᶠᶠᵃ, #:Δxᶠᶠᵃ, :Δyᶠᶠᵃ, :Azᶠᶠᵃ,
+    )
+    plot_surface_field(underlying_grid, metric)
+end
+
+
+foo
 
 ########################
 @info "2. Vertical grid"
@@ -89,11 +126,6 @@ MOM_output_grid_ds = open_dataset(joinpath(MOM_output_grid_inputdir, "ocean_grid
 ht = readcubedata(MOM_output_grid_ds.ht).data
 ht = replace(ht, missing => 0.0)
 kmt = readcubedata(MOM_output_grid_ds.kmt).data
-
-@show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_1deg/ocean_vgrid.nc"
-z_ds = open_dataset(MOM_input_vgrid_file)
-z = -reverse(vec(z_ds["zeta"].data[1:2:end]))
-Nz = length(z) - 1
 kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
 
 @show MOM_input_topo_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_1deg/topog.nc"
@@ -128,7 +160,7 @@ time_window = "Jan1960-Dec1979"
 
 # TODO: I am not so sure what happens of merged wet/dry cells
 # CHECK for both u/v and volumes etc.
-underlying_grid = tripolargrid_from_supergrid(; supergrid..., z, Nz)
+
 
 # Then immerge the grid cells with partial cells at the bottom
 grid = ImmersedBoundaryGrid(
@@ -152,11 +184,6 @@ hm = surface!(
 Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
 save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
 
-for metric in (:Δxᶜᶜᵃ, :Δyᶜᶜᵃ, :Azᶜᶜᵃ, :Δxᶜᶠᵃ, :Δyᶜᶠᵃ, :Azᶜᶠᵃ, :Δxᶠᶜᵃ, :Δyᶠᶜᵃ, :Azᶠᶜᵃ, :Δxᶠᶠᵃ, :Δyᶠᶠᵃ, :Azᶠᶠᵃ)
-    plot_surface_field(grid.underlying_grid, metric)
-end
-
-foo
 
 #####################
 @info "3. Velocities"
@@ -167,19 +194,11 @@ u_data = replace(readcubedata(u_ds.u).data, NaN => 0.0)
 v_ds = open_dataset(joinpath(inputdir, "v.nc"))
 v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
 
+
 # Place u and v data on Oceananigans B-grid
-@info """
-About the MOM B-grid velocities:
-1. I fill halos with my own BC with fold at YFace first
-2. Interpolate to C-grid,
-3. Merge cells across the fold with C-grid (easier to conserve mass),
-4. Fill halo regions with the Oceananigans machinery
-    (because it can only deal with the fold at XFace points).
-"""
+u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
-u_OffsetArray_Bgrid = Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, u_data)
-v_OffsetArray_Bgrid = Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, v_data)
-
+foo
 
 fig = Figure(size = (1000, 1000))
 ax = Axis(fig[1, 1])

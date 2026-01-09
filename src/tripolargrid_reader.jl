@@ -1,10 +1,11 @@
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
-using Oceananigans.Fields: set!
-using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceConnected,
-    architecture, cpu_face_constructor_z, validate_dimension_specification, generate_coordinate, on_architecture
+using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceFolded,
+    validate_dimension_specification, generate_coordinate, on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
-
+using Oceananigans.Architectures: CPU
+using Oceananigans.Utils: KernelParameters, launch!
+using KernelAbstractions: @kernel, @index
 
 @kernel function compute_coordinates_and_metrics_from_supergrid!(
         λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
@@ -15,7 +16,7 @@ using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx      # supergrid size in x (nx == 2 * Nx)
+        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2Ny)
     )
 
     # Note this kernel will fills halos a bit sometimes.
@@ -67,18 +68,18 @@ using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
     #
     # Note that this kernel will try to fill λCC at index j = Ny + 1 (j = 3) above,
     # which is the halo region. That's OK because the halos will be filled in,
-    # but that means the supergrid must be extended by one row for this to work!
-
-    λFF[i, j] = x[2i - 1, 2j - 1]
-    λFC[i, j] = x[2i - 1, 2j]
-    λCF[i, j] = x[2i, 2j - 1]
-    λCC[i, j] = x[2i, 2j]
+    # but I cannot grab the value from 𝑗 = 2j = 6 here, so I clamp 𝑗 to valid indices.
+    # TODO: write a cleaner kernel that exactly fills the interior points only.
+    λFF[i, j] = x[2i - 1, clamp(2j - 1, 1, ny + 1)]
+    λFC[i, j] = x[2i - 1, clamp(2j    , 1, ny + 1)]
+    λCF[i, j] = x[2i    , clamp(2j - 1, 1, ny + 1)]
+    λCC[i, j] = x[2i    , clamp(2j    , 1, ny + 1)]
 
     # Ditto for φ
-    φFF[i, j] = y[2i - 1, 2j - 1]
-    φFC[i, j] = y[2i - 1, 2j]
-    φCF[i, j] = y[2i, 2j - 1]
-    φCC[i, j] = y[2i, 2j]
+    φFF[i, j] = y[2i - 1, clamp(2j - 1, 1, ny + 1)]
+    φFC[i, j] = y[2i - 1, clamp(2j    , 1, ny + 1)]
+    φCF[i, j] = y[2i    , clamp(2j - 1, 1, ny + 1)]
+    φCC[i, j] = y[2i    , clamp(2j    , 1, ny + 1)]
 
     # For Δx, I need to sum consecutive dx 2 by 2,
     # and sometimes wrap subgrid 𝑖 indices around with modulo nx.
@@ -131,10 +132,10 @@ using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
     #                                │         𝑖 = 2i - 1 = 1                │
     #                                𝑖 = 2i - 2 = 0 ----> wrap it with ----> 𝑖 = mod1(2i - 2, nx)
     #                                                                          = mod1(0, 4) = 4
-    ΔxFF[i, j] = dx[mod1(2i - 2, nx), 2j - 1] + dx[2i - 1, 2j - 1]
-    ΔxFC[i, j] = dx[mod1(2i - 2, nx), 2j] + dx[2i - 1, 2j]
-    ΔxCF[i, j] = dx[2i - 1, 2j - 1] + dx[2i, 2j - 1]
-    ΔxCC[i, j] = dx[2i - 1, 2j] + dx[2i, 2j]
+    ΔxFF[i, j] = dx[mod1(2i - 2, nx), clamp(2j - 1, 1, ny + 1)] + dx[2i - 1, clamp(2j - 1, 1, ny + 1)]
+    ΔxFC[i, j] = dx[mod1(2i - 2, nx), clamp(2j    , 1, ny + 1)] + dx[2i - 1, clamp(2j    , 1, ny + 1)]
+    ΔxCF[i, j] = dx[2i - 1          , clamp(2j - 1, 1, ny + 1)] + dx[2i    , clamp(2j - 1, 1, ny + 1)]
+    ΔxCC[i, j] = dx[2i - 1          , clamp(2j    , 1, ny + 1)] + dx[2i    , clamp(2j    , 1, ny + 1)]
 
     # For Δy, I need to sum consecutive dy 2 by 2,
     # but I need to "extend" the grid north and south.
@@ -193,16 +194,16 @@ using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
     #                     i = 1               i = 2
     #                𝑖 = 2i - 1 = 1       𝑖 = 2i - 1 = 3
     #
-    ΔyFF[i, j] = dy[2i - 1, max(2j - 2, 1)] + dy[2i - 1, min(2j - 1, ny)]
-    ΔyFC[i, j] = dy[2i - 1, 2j - 1] + dy[2i - 1, 2j]
-    ΔyCF[i, j] = dy[2i, max(2j - 2, 1)] + dy[2i, min(2j - 1, ny)]
-    ΔyCC[i, j] = dy[2i, 2j - 1] + dy[2i, 2j]
+    ΔyFF[i, j] = dy[2i - 1, clamp(2j - 2, 1, ny)] + dy[2i - 1, clamp(2j - 1, 1, ny)]
+    ΔyFC[i, j] = dy[2i - 1, clamp(2j - 1, 1, ny)] + dy[2i - 1, clamp(2j    , 1, ny)]
+    ΔyCF[i, j] = dy[2i    , clamp(2j - 2, 1, ny)] + dy[2i    , clamp(2j - 1, 1, ny)]
+    ΔyCC[i, j] = dy[2i    , clamp(2j - 1, 1, ny)] + dy[2i    , clamp(2j    , 1, ny)]
 
     # For area use the same logic as above but sum 4 by 4
-    AzFF[i, j] = area[mod1(2i - 2, nx), max(2j - 2, 1)] + area[mod1(2i - 2, nx), min(2j - 1, ny)] + area[2i - 1, max(2j - 2, 1)] + area[2i - 1, min(2j - 1, ny)]
-    AzFC[i, j] = area[mod1(2i - 2, nx), 2j - 1] + area[mod1(2i - 2, nx), 2j] + area[2i - 1, 2j - 1] + area[2i - 1, 2j]
-    AzCF[i, j] = area[2i - 1, max(2j - 2, 1)] + area[2i - 1, min(2j - 1, ny)] + area[2i, max(2j - 2, 1)] + area[2i, min(2j - 1, ny)]
-    AzCC[i, j] = area[2i - 1, 2j - 1] + area[2i - 1, 2j] + area[2i, 2j - 1] + area[2i, 2j]
+    AzFF[i, j] = area[mod1(2i - 2, nx), clamp(2j - 2, 1, ny)] + area[mod1(2i - 2, nx), clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j - 2, 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)]
+    AzFC[i, j] = area[mod1(2i - 2, nx), clamp(2j - 1, 1, ny)] + area[mod1(2i - 2, nx), clamp(2j    , 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j    , 1, ny)]
+    AzCF[i, j] = area[     2i - 1     , clamp(2j - 2, 1, ny)] + area[     2i - 1     , clamp(2j - 1, 1, ny)] + area[2i    , clamp(2j - 2, 1, ny)] + area[2i    , clamp(2j - 1, 1, ny)]
+    AzCC[i, j] = area[     2i - 1     , clamp(2j - 1, 1, ny)] + area[     2i - 1     , clamp(2j    , 1, ny)] + area[2i    , clamp(2j - 1, 1, ny)] + area[2i    , clamp(2j    , 1, ny)]
 
 end
 
@@ -243,12 +244,12 @@ function tripolargrid_from_supergrid(
         size = (Nx, Ny),
         halo = (Hλ, Hφ),
         x = (0, 1), y = (0, 1),
-        topology = (Periodic, RightFaceConnected, Flat),
+        topology = (Periodic, RightFaceFolded, Flat),
     )
 
     # For z use the same as Oceananigans TripolarGrid
     # while λ and φ will come from supergrid.
-    topology = (Periodic, RightFaceConnected, Bounded)
+    topology = (Periodic, RightFaceFolded, Bounded)
     TZ = topology[3]
     z = validate_dimension_specification(TZ, z, :z, Nz, FT)
     Lz, z = generate_coordinate(FT, topology, gridsize, halosize, z, :z, 3, CPU())
@@ -293,8 +294,8 @@ function tripolargrid_from_supergrid(
     # Compute coordinates and metrics from supergrid
     # but run the kernel up to (Nλ, Nφ + 1) instead of (Nλ, Nφ)!
     # (We extend the indices to make sure to fill interior points for all locations.)
-    loop! = compute_coordinates_and_metrics_from_supergrid!(device(CPU()), (16, 16), (Nλ, Nφ + 1))
-    loop!(
+    kp = KernelParameters(1:Nλ, 1:(Nφ + 1))
+    launch!(CPU(), grid, kp, compute_coordinates_and_metrics_from_supergrid!,
         λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
         φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
         ΔxFF, ΔxFC, ΔxCF, ΔxCC, # TripolarGrid x distances
@@ -303,7 +304,7 @@ function tripolargrid_from_supergrid(
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx      # supergrid size in x (nx == 2 * Nx)
+        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2Ny)
     )
 
     # Fill halos (important as we overwrote some halo regions above)
@@ -326,18 +327,18 @@ function tripolargrid_from_supergrid(
     φᶠᶜᵃ = dropdims(φFC.data, dims = 3)
     φᶜᶠᵃ = dropdims(φCF.data, dims = 3)
     φᶜᶜᵃ = dropdims(φCC.data, dims = 3)
-    Δxᶠᶠᵃ = dropdims(FF.data, dims = 3)
-    Δxᶜᶠᵃ = dropdims(CF.data, dims = 3)
-    Δxᶠᶜᵃ = dropdims(FC.data, dims = 3)
-    Δxᶜᶜᵃ = dropdims(CC.data, dims = 3)
-    Δyᶠᶠᵃ = dropdims(FF.data, dims = 3)
-    Δyᶜᶠᵃ = dropdims(CF.data, dims = 3)
-    Δyᶠᶜᵃ = dropdims(FC.data, dims = 3)
-    Δyᶜᶜᵃ = dropdims(CC.data, dims = 3)
-    Azᶠᶠᵃ = dropdims(FF.data, dims = 3)
-    Azᶜᶠᵃ = dropdims(CF.data, dims = 3)
-    Azᶠᶜᵃ = dropdims(FC.data, dims = 3)
-    Azᶜᶜᵃ = dropdims(CC.data, dims = 3)
+    Δxᶠᶠᵃ = dropdims(ΔxFF.data, dims = 3)
+    Δxᶜᶠᵃ = dropdims(ΔxCF.data, dims = 3)
+    Δxᶠᶜᵃ = dropdims(ΔxFC.data, dims = 3)
+    Δxᶜᶜᵃ = dropdims(ΔxCC.data, dims = 3)
+    Δyᶠᶠᵃ = dropdims(ΔyFF.data, dims = 3)
+    Δyᶜᶠᵃ = dropdims(ΔyCF.data, dims = 3)
+    Δyᶠᶜᵃ = dropdims(ΔyFC.data, dims = 3)
+    Δyᶜᶜᵃ = dropdims(ΔyCC.data, dims = 3)
+    Azᶠᶠᵃ = dropdims(AzFF.data, dims = 3)
+    Azᶜᶠᵃ = dropdims(AzCF.data, dims = 3)
+    Azᶠᶜᵃ = dropdims(AzFC.data, dims = 3)
+    Azᶜᶜᵃ = dropdims(AzCC.data, dims = 3)
 
     Hx, Hy, Hz = halosize
 
@@ -374,7 +375,7 @@ function tripolargrid_from_supergrid(
 
     # Final grid with correct metrics
     # TODO: remove `on_architecture(arch, ...)` when we shift grid construction to GPU
-    grid = OrthogonalSphericalShellGrid{Periodic, RightFaceConnected, Bounded}(
+    grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
         arch,
         Nx, Ny, Nz,
         Hx, Hy, Hz,
@@ -410,7 +411,29 @@ function tripolargrid_from_supergrid(
     return grid
 end
 
-WIP WIP WIP
+@kernel function compute_Bgrid_velocity_from_MOM_output!(
+        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        u_data, v_data    # B-grid u and v from MOM
+    )
+
+    i, j, k = @index(Global, NTuple)
+
+    # The MOM B-grid places u and V at NE corners of the cells,
+    # while Oceananigans places them at SW corners.
+    # So we need to shift the data by one index in both i and j.
+    # That means we need to wrap around the i index (periodic longitude),
+    # and set j = 1 row to zero (both u and v).
+    # Also, MOM vertical coordinate is flipped compared to Oceananigans,
+    # so we need to flip that as well.
+
+    𝑖 = mod1(i - 1, Nx)
+    𝑗 = j - 1
+    mask = ifelse(𝑗 == 0, 0.0, 1.0)
+    𝑘 = Nz - k + 1 # flip vertical
+
+    u[i, j, k] = mask * u_data[𝑖, 𝑗, 𝑘]
+    v[i, j, k] = mask * v_data[𝑖, 𝑗, 𝑘]
+end
 
 """
 Places u or v data on the Oceananigans B-grid from MOM output.
@@ -421,15 +444,28 @@ It also flips the vertical coordinate.
 j = 1 row is set to zero (both u and v).
 i = 1 column is set by wrapping around the data (periodic longitude).
 """
-function Bgrid_velocity_from_MOM(grid, data)
+function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper(), -1)
-    bcs = FieldBoundaryConditions(grid, (Face(), Face(), Center()), north = north_bc)
-    x = Field{Face, Face, Center}(grid; boundary_conditions = bcs)
-    Nx, Ny, Nz = size(grid)
-    x.data[2:Nx, 2:Ny, 1:Nz] .= data[1:(Nx - 1), 1:(Ny - 1), Nz:-1:1]
-    x.data[1, 2:Ny, 1:Nz] .= data[Nx, 1:(Ny - 1), Nz:-1:1]
-    Oceananigans.BoundaryConditions.fill_halo_regions!(x)
-    return x
+
+    loc = (Face(), Face(), Center())
+    bcs = FieldBoundaryConditions(grid, loc, north = north_bc)
+
+    u = Field(loc, grid; boundary_conditions = bcs)
+    v = Field(loc, grid; boundary_conditions = bcs)
+
+    Nx, Ny, Nz = size(u)
+
+    kp = KernelParameters(1:Nx, 1:(Ny + 1), 1:Nz)
+
+    launch!(CPU(), grid, kp, compute_Bgrid_velocity_from_MOM_output!,
+        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        u_data, v_data    # B-grid u and v from MOM
+    )
+
+    Oceananigans.BoundaryConditions.fill_halo_regions!(u)
+    Oceananigans.BoundaryConditions.fill_halo_regions!(v)
+
+    return u, v
 end
 
 """
