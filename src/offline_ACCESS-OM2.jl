@@ -5,7 +5,7 @@ To run this on Gadi interactively, use
 qsub -I -P y99 -l mem=47GB -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 julia
-include("src/ACCESS-OM2_grid.jl")
+include("src/offline_ACCESS-OM2.jl")
 ```
 
 And on the GPU queue, use
@@ -16,7 +16,7 @@ cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 julia
-include("src/ACCESS-OM2_grid.jl")
+include("src/offline_ACCESS-OM2.jl")
 ```
 """
 
@@ -157,6 +157,7 @@ time_window = "Jan1960-Dec1979"
 # dht = readcubedata(dht_ds.dht)
 
 # Then immerge the grid cells with partial cells at the bottom
+bottom = on_architecture(arch, bottom)
 grid = ImmersedBoundaryGrid(
     underlying_grid, PartialCellBottom(bottom);
     active_cells_map = true,
@@ -165,7 +166,7 @@ grid = ImmersedBoundaryGrid(
 
 Nx, Ny, Nz = size(grid)
 
-h = grid.immersed_boundary.bottom_height
+h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
 fig = Figure()
 ax = Axis(fig[2, 1], aspect = 1)
 hm = surface!(
@@ -196,17 +197,12 @@ u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
 fig = Figure(size = (1000, 1000))
 ax = Axis(fig[1, 1])
-mask = Field{Face, Face, Center}(grid)
-mask .= 1.0
-fill_halo_regions!(mask)
-mask_immersed_field!(mask, NaN)
-# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
-hm = heatmap!(ax, u_Bgrid.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(u_Bgrid)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 ax = Axis(fig[2, 1])
-# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
-hm = heatmap!(ax, v_Bgrid.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(v_Bgrid)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-save(joinpath(outputdir, "surface_BGrid_u_v_halos.png"), fig)
+@show filepath = joinpath(outputdir, "surface_BGrid_u_v_halos.png")
+save(filepath, fig)
 
 
 
@@ -217,18 +213,10 @@ u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
 fig = Figure(size = (1000, 1000))
 
 ax = Axis(fig[1, 1], title = "C-grid u")
-mask = Field{Face, Center, Center}(grid)
-mask .= 1.0
-fill_halo_regions!(mask)
-mask_immersed_field!(mask, NaN)
-hm = heatmap!(ax, u.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(u)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 
 ax = Axis(fig[2, 1], title = "C-grid v")
-mask = Field{Center, Face, Center}(grid)
-mask .= 1.0
-fill_halo_regions!(mask)
-mask_immersed_field!(mask, NaN)
-hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(v)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
 save(joinpath(outputdir, "surface_CGrid_u_v_halos.png"), fig)
@@ -241,7 +229,7 @@ mask_immersed_field!(u, 0.0)
 mask_immersed_field!(v, 0.0)
 fill_halo_regions!(u)
 fill_halo_regions!(v)
-HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, arch, grid)
+HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
 u, v, w = velocities
 
 
@@ -249,18 +237,10 @@ u, v, w = velocities
 fig = Figure(size = (1000, 1000))
 
 ax = Axis(fig[1, 1])
-mask = XFaceField(grid)
-mask .= 1.0
-fill_halo_regions!(mask)
-mask_immersed_field!(mask, NaN)
-hm = heatmap!(ax, u.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(u)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 
 ax = Axis(fig[2, 1])
-mask = YFaceField(grid)
-mask .= 1.0
-fill_halo_regions!(mask)
-mask_immersed_field!(mask, NaN)
-hm = heatmap!(ax, v.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
+hm = heatmap!(ax, make_plottable_array(v)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
 
 Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
 save(joinpath(outputdir, "surface_u_v_filled_halos.png"), fig)
@@ -272,9 +252,7 @@ mask_immersed_field!(w, 0.0)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
-mask = ones(Nx, Ny)
-mask[bottom .== 0] .= NaN
-hm = heatmap!(ax, w.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
+hm = heatmap!(ax, make_plottable_array(w)[:, :, Nz + 1]; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
 Colorbar(fig[1, 2], hm)
 save(joinpath(outputdir, "w.png"), fig)
 
@@ -335,19 +313,13 @@ fill_halo_regions!(model.tracers.c)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
-mask = CenterField(grid)
-mask .= 1.0
-mask_immersed_field!(mask, NaN)
-# hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
-hm = heatmap!(ax, model.tracers.c.data[:, :, Nz].parent .* mask.data[:,:,Nz].parent; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, make_plottable_array(model.tracers.c)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-1, 1))
 Colorbar(fig[1, 2], hm)
 save(joinpath(outputdir, "initial_c_surface.png"), fig)
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1])
-mask = ones(Nx, Ny)
-mask[bottom .== 0] .= NaN
-hm = heatmap!(ax, model.tracers.c.data[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = (-1, 1))
+hm = heatmap!(ax, make_plottable_array(model.tracers.c)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-1, 1))
 Colorbar(fig[1, 2], hm)
 save(joinpath(outputdir, "initial_c_surface.png"), fig)
 
@@ -362,11 +334,8 @@ for (ishift, shift) in enumerate(-2:3)
     @show extrema(Δu)
     Δw = w.data[Nx + shift, 1:Ny, 1:Nz] - w.data[0 + shift, 1:Ny, 1:Nz]
     @show extrema(Δw)
-    # hm = heatmap!(ax, Δu; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
-    # ax = Axis(fig[ishift, 2])
     Δv = v.data[Nx + shift, 1:Ny, 1:Nz] - v.data[0 + shift, 1:Ny, 1:Nz]
     @show extrema(Δv)
-    # hm = heatmap!(ax, Δv; colormap = :RdBu_9, colorrange = (-0.1, 0.1))
     c = model.tracers.c
     Δc = c.data[Nx + shift, 1:Ny, 1:Nz] - c.data[0 + shift, 1:Ny, 1:Nz]
     @show extrema(Δc)
@@ -434,7 +403,7 @@ title = @lift "Tracer spot on offline OM2 at k = $k, t = " * prettytime(times[$n
 
 c = @lift c_timeseries[$n]
 
-ckₙ = @lift view(($c).data, 1:Nx, 1:Ny, k)
+ckₙ = @lift make_plottable_array($c)[1:Nx, 1:Ny, k]
 
 ax = fig[1, 1] = Axis(
     fig,
@@ -462,90 +431,3 @@ Makie.record(fig, joinpath(outputdir, "offline_OM2_test.mp4"), frames, framerate
     n[] = i
 end
 
-# for n in 1:length(times)
-#     fig = Figure(size = (1920, 1080))
-#     ax = Axis(fig[1, 1])
-#     hm = heatmap!(ax, cyz_timeseries[n])
-#     Colorbar(fig[1, 2], hm)
-#     save(joinpath(outputdir, "Cyz_$n.png"), fig)
-# end
-
-shift = 1
-Δc = c_timeseries.data[Nx + shift, 1:Ny, 1:Nz, :] - c_timeseries.data[0 + shift, 1:Ny, 1:Nz, :]
-
-for shift in -2:3
-    for X in [
-            grid.underlying_grid.Δxᶜᶜᵃ,
-            grid.underlying_grid.Δxᶜᶠᵃ,
-            grid.underlying_grid.Δxᶠᶜᵃ,
-            grid.underlying_grid.Δxᶠᶠᵃ,
-            grid.underlying_grid.Δyᶜᶜᵃ,
-            grid.underlying_grid.Δyᶜᶠᵃ,
-            grid.underlying_grid.Δyᶠᶜᵃ,
-            grid.underlying_grid.Δyᶠᶠᵃ,
-            grid.underlying_grid.Azᶜᶜᵃ,
-            grid.underlying_grid.Azᶜᶠᵃ,
-            grid.underlying_grid.Azᶠᶜᵃ,
-            grid.underlying_grid.Azᶠᶠᵃ,
-        ]
-        ΔX = X[Nx + shift, 1:Ny] - X[0 + shift, 1:Ny]
-        @show extrema(replace(ΔX, NaN => -9999.0))
-    end
-end
-
-fig = Figure(size = (1920, 1080))
-ax = Axis(fig[1, 1])
-mask = ones(Nx, Ny)
-mask[findall(bottom .== 0)] .= NaN
-hm = heatmap!(ax, w[1:Nx, 1:Ny, Nz] .* mask; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
-# hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
-Colorbar(fig[1, 2], hm)
-save(joinpath(outputdir, "w_surface.png"), fig)
-
-fig = Figure(size = (1920, 1080))
-ax = Axis(fig[1, 1])
-div = CenterField(grid)
-function divergence!(grid, u, v, w, div)
-    for i in axes(div, 1), j in axes(div, 2), k in axes(div, 3)
-        div[i, j, k] = Oceananigans.Operators.divᶜᶜᶜ(i, j, k, grid, u, v, w)
-    end
-    return
-end
-divergence!(grid, u, v, w, div)
-mask_immersed_field!(div, NaN)
-hm = heatmap!(ax, div.data[1:Nx, 1:Ny, 50]; colormap = :RdBu_9, colorrange = 1.0e-3 .* (-1, 1))
-# hm = heatmap!(ax, w[:, :, Nz].parent .* mask; colormap = :RdBu_9, colorrange = 0.001 .* (-1, 1))
-Colorbar(fig[1, 2], hm)
-save(joinpath(outputdir, "surfacediv.png"), fig)
-
-myw = Field{Center, Center, Face}(grid)
-ϕw = Az * w
-for i in 1:Nx, j in 1:Ny, k in 1:Nz
-    # Ax[i, j] = Δxᶠᶜᵃ[i, j] *
-    # myw[i, j, k + 1] = myw[i, j, k] +
-    # div = 1/V * [δxᶜᵃᵃ(Ax * u) + δxᵃᶜᵃ(Ay * v) + δzᵃᵃᶜ(Az * w)]
-    #
-    # ∫dV x = ∮ A (u · n) dS
-end
-
-# Recompute w by hand
-dz = CenterField(grid)
-set!(dz, zspacings(grid, Center(), Center(), Center()))
-fill_halo_regions!(dz)
-Az = grid.underlying_grid.Azᶜᶜᵃ
-
-dzu = XFaceField(grid)
-set!(dzu, zspacings(grid, Face(), Center(), Center()))
-fill_halo_regions!(dzu)
-dyu = grid.underlying_grid.Δyᶠᶜᵃ
-Au = XFaceField(grid)
-Au .= dzu .* dyu
-fill_halo_regions!(Au)
-
-dzv = YFaceField(grid)
-set!(dzv, zspacings(grid, Center(), Face(), Center()))
-fill_halo_regions!(dzv)
-dxv = grid.underlying_grid.Δxᶜᶠᵃ
-Av = YFaceField(grid)
-Av .= dzv .* dxv
-fill_halo_regions!(Av)

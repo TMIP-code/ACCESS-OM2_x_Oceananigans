@@ -462,9 +462,11 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
     kp = KernelParameters(1:Nx, 1:(Ny + 1), 1:Nz)
 
+    arch = architecture(grid)
+
     launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
         u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
-        u_data, v_data    # B-grid u and v from MOM
+        on_architecture(arch, u_data), on_architecture(arch, v_data)    # B-grid u and v from MOM
     )
 
     Oceananigans.BoundaryConditions.fill_halo_regions!(u)
@@ -548,8 +550,10 @@ celllocation(sym::Symbol) = celllocation(String(sym))
 
 function plot_surface_field(grid, xstr; prefix = "")
     @show x = Field{celllocation(xstr)...}(grid)
+    x = on_architecture(CPU(), x)
     xdata = getproperty(grid, xstr)
-    @cushow xdata # <- segfaults!
+    xdata = on_architecture(CPU(), xdata)
+    # @cushow xdata # <- segfaults!
     # TODO: Make this work ont the GPU!
     set!(x, xdata)
     # mask_immersed_field!(x, NaN)
@@ -564,4 +568,36 @@ function plot_surface_field(grid, xstr; prefix = "")
     filepath = joinpath(outputdir, "$(prefix)$(xstr)_map.png")
     save(filepath, fig)
     return filepath
+end
+
+
+
+#taken from Makie ext (not sure how to load these)
+function drop_singleton_indices(N)
+    if N == 1
+        return 1
+    else
+        return Colon()
+    end
+end
+function make_plottable_array(f)
+    compute!(f)
+    mask_immersed_field!(f, NaN)
+
+    Nx, Ny, Nz = size(f)
+
+    ii = drop_singleton_indices(Nx)
+    jj = drop_singleton_indices(Ny)
+    kk = drop_singleton_indices(Nz)
+
+    fi = interior(f, ii, jj, kk)
+    fi_cpu = on_architecture(CPU(), fi)
+
+    if architecture(f) isa CPU
+        fi_cpu = deepcopy(fi_cpu) # so we can re-zero peripheral nodes
+    end
+
+    mask_immersed_field!(f)
+
+    return fi_cpu
 end
