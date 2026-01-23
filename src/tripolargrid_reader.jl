@@ -113,19 +113,19 @@ using GPUArraysCore: @allowscalar
     #
     #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
-    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │  halo   ┃         │         ┃         │         ┃
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
     #                           ┼─────────╂─────────┼─────────╂─────────┼─────────┨
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
-    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │  halo   ┃         │         ┃         │         ┃
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
     #  j = 2, 𝑗 = 2j - 1 = 3 ─▶ ┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
-    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │  halo   ┃         │         ┃         │         ┃
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
     #                           ┼──────── u ─────── c ────────╂─────────┼─────────┨
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
-    #                           │  ghost  ┃         │         ┃         │         ┃
+    #                           │  halo   ┃         │         ┃         │         ┃
     #                           │◀━━━━━━━━Δx━━━━━━━▶│         ┃         │         ┃
     #  j = 1, 𝑗 = 2j - 1 = 1 ─▶ ┷━━━━━━━━━┻━━━━━━━━ v ━━━━━━━━┻━━━━━━━━━┷━━━━━━━━━┛
     #                            ◀───dx──▶▲◀───dx──▶          ▲          ◀───dx──▶
@@ -170,7 +170,7 @@ using GPUArraysCore: @allowscalar
     #                       ┠─────────┼─────────╂─────────┼─────────┨
     #    so repeat 𝑗 = 4   ▲┃▲ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
     #    𝑗 = 2j - 1 = 5 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
-    #                      ┃┃▼ ghost  │  ghost  ┃  ghost  │  ghost  ┃
+    #                      ┃┃▼ halo   │  halo   ┃  halo   │  halo   ┃
     #            j = 3 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
     #                      ┃┃▲        │         ┃         │         ┃
     #    𝑗 = 2j - 2 = 4 ─▶ ┃┃│dy      │         ┃         │         ┃
@@ -188,7 +188,7 @@ using GPUArraysCore: @allowscalar
     #    𝑗 = 2j - 1 = 1 ─▶ ┃┃│dy      │         ┃         │         ┃
     #                      ┃┃▼        │         ┃         │         ┃
     #            j = 1 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
-    #                      ┃┃▲ ghost  │  ghost  ┃  ghost  │  ghost  ┃
+    #                      ┃┃▲ halo   │  halo   ┃  halo   │  halo   ┃
     #    𝑗 = 2j - 2 = 0 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
     #    so repeat 𝑗 = 1   ▼┃▼ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
     #                       ┠─────────┼─────────╂─────────┼─────────┨
@@ -549,19 +549,11 @@ end
 celllocation(sym::Symbol) = celllocation(String(sym))
 
 function plot_surface_field(grid, xstr; prefix = "")
-    @show x = Field{celllocation(xstr)...}(grid)
-    x = on_architecture(CPU(), x)
-    xdata = getproperty(grid, xstr)
-    xdata = on_architecture(CPU(), xdata)
-    # @cushow xdata # <- segfaults!
-    # TODO: Make this work ont the GPU!
-    set!(x, xdata)
-    # mask_immersed_field!(x, NaN)
-    # fill_halo_regions!(x)
+    xdata = on_architecture(CPU(), getproperty(grid, xstr))
     fig = Figure()
     ax = Axis(fig[1, 1]; xlabel = "i", ylabel = "j", aspect = DataAspect())
-    (; Hx, Hy, Nx, Ny, Nz) = grid
-    hm = heatmap!(ax, (1 - Hx):(Nx + Hx), (1 - Hy):(Ny + Hy), x.data[:, :, Nz].parent; nan_color = :black)
+    (; Hx, Hy, Nx, Ny) = grid
+    hm = heatmap!(ax, (1 - Hx):(Nx + Hx), (1 - Hy):(Ny + Hy), xdata.parent; nan_color = :black)
     ax.title = "$xstr at surface"
     # translate!(hm, (0, 0, -100))
     Colorbar(fig[2, 1], hm; vertical = false, tellwidth = false)
