@@ -2,6 +2,7 @@
 To run this on Gadi interactively on the GPU queue, use
 
 ```
+qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
 qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 module load cuda/12.9.0
@@ -11,9 +12,7 @@ include("src/offline_ACCESS-OM2.jl")
 ```
 """
 
-#########################################
 @info "0. Loading packages and functions"
-#########################################
 
 using Oceananigans
 
@@ -36,7 +35,7 @@ using Oceananigans.Grids: znode
 using Adapt: adapt
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
-
+month = months = year / 12
 
 using Statistics
 using YAXArrays
@@ -62,21 +61,17 @@ parentmodel = "ACCESS-OM2-1"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
 mkpath(outputdir)
 
-###############################
+################################################################################
+
 @info "1. Horizontal supergrid"
-###############################
 
 resolution_str = split(parentmodel, "-")[end]
 supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", "mom$(resolution_str)deg.nc")
 supergrid_ds = open_dataset(supergridfile)
 
-
 # Unpack supergrid data
 # TODO: I think best to extract the raw data here
 # instead of passing YAXArrays
-# TODO: For dimensions, just get the lengths instead of index ranges
-# Not sure this matters but it is a bit more consistent
-# with Nx, Ny, etc. used elsewhere where "N" or "n" means number of points
 println("Reading supergrid data into memory...")
 MOMsupergrid = (;
     x = readcubedata(supergrid_ds.x).data,
@@ -84,6 +79,8 @@ MOMsupergrid = (;
     dx = readcubedata(supergrid_ds.dx).data,
     dy = readcubedata(supergrid_ds.dy).data,
     area = readcubedata(supergrid_ds.area).data,
+    # For dimensions, use indices lengths instead of full ranges.
+    # This is more consistent with Oceananigans.jl conventions for Nx, Ny, etc.
     nx = length(supergrid_ds.nx.val),
     nxp = length(supergrid_ds.nxp.val),
     ny = length(supergrid_ds.ny.val),
@@ -95,7 +92,6 @@ println("Reading vertical grid data into memory...")
 z_ds = open_dataset(MOM_input_vgrid_file)
 z = -reverse(vec(z_ds["zeta"].data[1:2:end])) # from surface to bottom
 Nz = length(z) - 1
-
 
 println("Building Horizontal grid...")
 underlying_grid = tripolargrid_from_supergrid(
@@ -116,10 +112,9 @@ for metric in (
     plot_surface_field(underlying_grid, metric)
 end
 
+################################################################################
 
-########################
 @info "2. Vertical grid"
-########################
 
 parentmodel_ik11path = parentmodel == "ACCESS-OM2-1" ? "access-om2" : "access-om2-$(resolution_str)"
 # TODO: Fix this string for 0.1°
@@ -176,128 +171,174 @@ hm = surface!(
     colormap = :viridis
 )
 Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-save(joinpath(outputdir, "bottom_height_heatmap.png"), fig)
+save(joinpath(outputdir, "bottom_height_heatmap_$(arch).png"), fig)
 
+################################################################################
 
-#####################
 @info "3. Velocities"
-#####################
 
-u_ds = open_dataset(joinpath(inputdir, "u.nc"))
-u_data = replace(readcubedata(u_ds.u).data, NaN => 0.0)
-v_ds = open_dataset(joinpath(inputdir, "v.nc"))
-v_data = replace(readcubedata(v_ds.v).data, NaN => 0.0)
+# TODO: Probably factor this out into separate setup file,
+# to be run once to sabe to JLD2 or something else,
+# And then just load it here.
+# just in case it fills up all the GPU memory (not sure it does)
+# TODO: Figure out the best way to load the data for performance (IO).
+
+# TODO: Comment/uncomment below. Setting times as 12 days for testing only.
+# presribed_Δt = 1month
+presribed_Δt = 1day
+times = adapt(arch, ((1:12) .- 0.5) * presribed_Δt)
+
+u_ts = FieldTimeSeries{Face, Center, Center}(grid, times)
+v_ts = FieldTimeSeries{Center, Face, Center}(grid, times)
+w_ts = FieldTimeSeries{Center, Center, Face}(grid, times)
+
+u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
+v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
+
+print("month ")
+for month in 1:12
+    print("$month, ")
+
+    u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
+    v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+
+    # Place u and v data on Oceananigans B-grid
+    u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+
+    # plottable_u = make_plottable_array(u_Bgrid)
+    # plottable_v = make_plottable_array(v_Bgrid)
+    # for k in 1:50
+    #     local fig = Figure(size = (1200, 1200))
+    #     local ax = Axis(fig[1, 1], title = "C-grid u")
+    #     local velocity2D = plottable_u[:, :, k]
+    #     local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[1, 2], hm)
+    #     ax = Axis(fig[2, 1], title = "C-grid v")
+    #     velocity2D = plottable_v[:, :, k]
+    #     maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[2, 2], hm)
+    #     save(joinpath(outputdir, "velocities/BGrid_velocities_$(k)_month$(month)_$(arch).png"), fig)
+    # end
+
+    # Then interpolate to C-grid
+    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
+
+    # plottable_u = make_plottable_array(u)
+    # plottable_v = make_plottable_array(v)
+    # for k in 1:50
+    #     local fig = Figure(size = (1200, 1200))
+    #     local ax = Axis(fig[1, 1], title = "C-grid u")
+    #     local velocity2D = plottable_u[:, :, k]
+    #     local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[1, 2], hm)
+    #     ax = Axis(fig[2, 1], title = "C-grid v")
+    #     velocity2D = plottable_v[:, :, k]
+    #     maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[2, 2], hm)
+    #     save(joinpath(outputdir, "velocities/CGrid_velocities_$(k)_month$(month)_$(arch).png"), fig)
+    # end
+
+    # Then compute w from continuity
+    w = Field{Center, Center, Face}(grid)
+    mask_immersed_field!(u, 0.0)
+    mask_immersed_field!(v, 0.0)
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    velocities = (u, v, w)
+    HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
+    u, v, w = velocities
+
+    # plottable_u = make_plottable_array(u)
+    # plottable_v = make_plottable_array(v)
+    # plottable_w = make_plottable_array(w)
+    # for k in 1:50
+    #     local fig = Figure(size = (1200, 1800))
+    #     local ax = Axis(fig[1, 1], title = "C-grid u")
+    #     local velocity2D = plottable_u[:, :, k]
+    #     local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[1, 2], hm)
+    #     ax = Axis(fig[2, 1], title = "C-grid v")
+    #     velocity2D = plottable_v[:, :, k]
+    #     maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[2, 2], hm)
+    #     ax = Axis(fig[3, 1], title = "C-grid w")
+    #     velocity2D = plottable_w[:, :, k + 1]
+    #     maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+    #     Colorbar(fig[3, 2], hm)
+    #     save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_month$(month)_$(arch).png"), fig)
+    # end
 
 
-# Place u and v data on Oceananigans B-grid
-u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+    # u2, v2, w2 = deepcopy(u), deepcopy(v), deepcopy(w)
+    # mask_immersed_field!(v2, NaN)
+    # mask_immersed_field!(w2, NaN)
+    # mask_immersed_field!(u2, NaN)
+    # k = Nz
+    # opt = (; colormap = :RdBu, colorrange = (-1, 1), nan_color = (:black, 1))
+    # fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
+    # plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
+    # Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
+    # save(joinpath(outputdir, "velocities/surface_u_heatmap_$(arch).png"), fig)
 
+    set!(u_ts, u, month)
+    set!(v_ts, v, month)
+    set!(w_ts, w, month)
 
-fig = Figure(size = (1000, 1000))
-ax = Axis(fig[1, 1])
-hm = heatmap!(ax, make_plottable_array(u_Bgrid)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
-ax = Axis(fig[2, 1])
-hm = heatmap!(ax, make_plottable_array(v_Bgrid)[:, :, Nz]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
-Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-@show filepath = joinpath(outputdir, "surface_BGrid_u_v_halos.png")
-save(filepath, fig)
-
-
-# Then interpolate to C-grid
-u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
-
-plottable_u = make_plottable_array(u)
-plottable_v = make_plottable_array(v)
-for k in 1:50
-    local fig = Figure(size = (1000, 1000))
-    local ax = Axis(fig[1, 1], title = "C-grid u")
-    local hm = heatmap!(ax, plottable_u[:, :, k]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
-    ax = Axis(fig[2, 1], title = "C-grid v")
-    hm = heatmap!(ax, plottable_v[:, :, k]; colormap = :RdBu_9, colorrange = (-0.1, 0.1), nan_color = :black)
-    Colorbar(fig[3, 1], hm; vertical = false, tellwidth = false)
-    save(joinpath(outputdir, "surface_CGrid_u_v_halos_k$k.png"), fig)
 end
+println("Done!")
 
+velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 
+################################################################################
 
-# Then compute w from continuity
-w = Field{Center, Center, Face}(grid)
-velocities = (u, v, w)
-mask_immersed_field!(u, 0.0)
-mask_immersed_field!(v, 0.0)
-fill_halo_regions!(u)
-fill_halo_regions!(v)
-HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
-u, v, w = velocities
-
-plottable_u = make_plottable_array(u)
-plottable_v = make_plottable_array(v)
-plottable_w = make_plottable_array(w)
-for k in 1:50
-    local fig = Figure(size = (1200, 1800))
-    local ax = Axis(fig[1, 1], title = "C-grid u")
-    local velocity2D = plottable_u[:, :, k]
-    local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-    local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    Colorbar(fig[1, 2], hm)
-    ax = Axis(fig[2, 1], title = "C-grid v")
-    velocity2D = plottable_v[:, :, k]
-    maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-    hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    Colorbar(fig[2, 2], hm)
-    ax = Axis(fig[3, 1], title = "C-grid w")
-    velocity2D = plottable_w[:, :, k + 1]
-    maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-    hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    Colorbar(fig[3, 2], hm)
-    save(joinpath(outputdir, "CGrid_velocities_filledhalos_k$k.png"), fig)
-end
-
-
-# TODO: Check velocities look reasonable (maybe against tx_trans etc.)
-
-# u2, v2, w2 = deepcopy(u), deepcopy(v), deepcopy(w)
-# mask_immersed_field!(v2, NaN)
-# mask_immersed_field!(w2, NaN)
-# mask_immersed_field!(u2, NaN)
-# k = Nz
-# opt = (; colormap = :RdBu, colorrange = (-1, 1), nan_color = (:black, 1))
-# fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
-# plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
-# Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
-# save(joinpath(outputdir, "surface_u_heatmap.png"), fig)
-
-####################
 @info "4. Diffusion"
-####################
 
 # TODO: Try to match ACCESS-OM2 as much as possible
 
-# Add strong vertical diffusion in the mixed layer
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
-mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
-z_center = znodes(grid, Center(), Center(), Center())
-is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-κVField = CenterField(grid)
-κVML = 0.1 # m^2/s in the mixed layer
-κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
-set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+κVField_ts = FieldTimeSeries{Center, Center, Center}(grid, times)
+
+# Load MLD to add strong vertical diffusion in the mixed layer
+mld_ds = open_dataset(joinpath(inputdir, "mld_periodic.nc"))
+
+print("month ")
+for month in 1:12
+    print("$month, ")
+
+    mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld[month = At(month)]).data, NaN => 0.0))
+    z_center = znodes(grid, Center(), Center(), Center())
+    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+    κVField = CenterField(grid)
+    κVML = 0.1 # m^2/s in the mixed layer
+    κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
+    set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+
+    # fig, ax, plt = heatmap(
+    #     make_plottable_array(κVField)[:, :, 10];
+    #     colorscale = log10,
+    #     colormap = :viridis,
+    #     axis = (; title = "Vertical diffusivity at k = 10"),
+    #     colorrange = (1e-5, 3e-1),
+    #     lowclip = :red,
+    #     highclip = :cyan,
+    # )
+    # Colorbar(fig[1, 2], plt, ticks = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1])
+    # save(joinpath(outputdir, "vertical_diffusivity_k10_month$(month)_$(arch).png"), fig)
+
+    set!(κVField_ts, κVField, month)
+end
+println("Done!")
+
 vertical_diffusion = VerticalScalarDiffusivity(
     VerticallyImplicitTimeDiscretization();
-    κ = κVField,
+    κ = κVField_ts,
 )
-fig, ax, plt = heatmap(
-    make_plottable_array(κVField)[:, :, 10];
-    colorscale = log10,
-    colormap = :viridis,
-    axis = (; title = "Vertical diffusivity at k = 10"),
-    colorrange = (1e-5, 3e-1),
-    lowclip = :red,
-    highclip = :cyan,
-)
-Colorbar(fig[1, 2], plt, ticks = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1])
-save(joinpath(outputdir, "vertical_diffusivity_k10.png"), fig)
-
 
 horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
 # horizontal_diffusion = IsopycnalSkewSymmetricDiffusivity(
@@ -316,37 +357,37 @@ closure = (
     vertical_diffusion,
 )
 
-################
+################################################################################
+
 @info "5. Model"
-################
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
 # Maybe I should clamp the age manually after all?
-@kernel function _age_forcing_callback(age, Nz, age_initial, elapsed_time)
-    i, j, k = @index(Global, NTuple)
+# @kernel function _age_forcing_callback(age, Nz, age_initial, elapsed_time)
+#     i, j, k = @index(Global, NTuple)
 
-    age[i, j, k] = ifelse(k == Nz, 0, age[i, j, k])
-    age[i, j, k] = max(age[i, j, k], 0)
-    age[i, j, k] = min(age[i, j, k], age_initial[i, j, k] + elapsed_time)
+#     age[i, j, k] = ifelse(k == Nz, 0, age[i, j, k])
+#     age[i, j, k] = max(age[i, j, k], 0)
+#     age[i, j, k] = min(age[i, j, k], age_initial[i, j, k] + elapsed_time)
 
-end
+# end
 
-function age_forcing_callback(sim)
-    age = sim.model.tracers.age
-    Nz = sim.model.grid.Nz
-    age[:,:,Nz] .= 0.0
-    clamp!(age[:,:,Nz], 0.0, Inf)
-end
+# function age_forcing_callback(sim)
+#     age = sim.model.tracers.age
+#     Nz = sim.model.grid.Nz
+#     age[:,:,Nz] .= 0.0
+#     clamp!(age[:,:,Nz], 0.0, Inf)
+# end
 
 
 age_parameters = (;
-    # relaxation_timescale = 3Δt,     # Relaxation timescale for removing age at surface
+    relaxation_timescale = 3Δt,     # Relaxation timescale for removing age at surface
     source_rate = 1.0 / year,         # Source for the age (in years)
 )
 
-# @inline age_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
-@inline age_source(i, j, k, grid, clock, fields, params) = params.source_rate
+@inline age_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+# @inline age_source(i, j, k, grid, clock, fields, params) = params.source_rate
 
 age_dynamics = Forcing(
     age_source,
@@ -357,33 +398,20 @@ age_dynamics = Forcing(
 model = HydrostaticFreeSurfaceModel(
     grid;
     tracers = (:age,),
+    tracer_advection = WENO(order = 5),
+    # tracer_advection = UpwindBiased(),
     # timestepper = :SplitRungeKutta3, # <- to try and improve numerical stability over AB2
-    velocities = PrescribedVelocityFields(; u, v, w),
+    velocities = velocities,
     closure = closure,
     forcing = (; age = age_dynamics),
     buoyancy = nothing,
 )
 
-############################
+################################################################################
+
 @info "6. Initial condition"
-############################
 
-# # Gaussian for making a tracer patch as an initial condition
-# Gaussian(x, x₀, L) = exp(-((x - x₀)^2) / 2L^2)
-
-# # Tracer patch parameters
-# Lλ = 2 # degree
-# λ₀ = 80 # degrees
-# Lφ = 100 # degree
-# φ₀ = 0 # degrees
-# Lz = 100 # meters
-# z₀ = 0 # meters
-
-# cᵢ(λ, φ, z) = Gaussian(λ, λ₀, Lλ) * Gaussian(φ, φ₀, Lφ) * Gaussian(z, z₀, Lz)
-ageᵢ(λ, φ, z) = 0
-
-set!(model, age = ageᵢ)
-# set!(model, Returns(0.0))
+set!(model, age = Returns(0.0)) # TODO: Unneccessary as fields are initialized to zero by default.
 # fill_halo_regions!(model.tracers.age)
 
 fig, ax, plt = heatmap(
@@ -392,14 +420,13 @@ fig, ax, plt = heatmap(
     axis = (; title = "Initial age at surface (years)"),
 )
 Colorbar(fig[1, 2], plt)
-save(joinpath(outputdir, "initial_age_surface.png"), fig)
+save(joinpath(outputdir, "initial_age_surface_$(arch).png"), fig)
 
-#####################
+################################################################################
+
 @info "7. Simulation"
-#####################
 
-# stop_time = 2years
-stop_time = 1day
+stop_time = 12 * presribed_Δt
 
 simulation = Simulation(
     model;
@@ -412,30 +439,34 @@ function progress_message(sim)
     walltime = prettytime(sim.run_wall_time)
 
     return @info @sprintf(
-        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d) wall time: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_age, idx.I..., walltime
+        # "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d) wall time: %s\n",
+        # iteration(sim), time(sim), sim.Δt, max_age, idx.I..., walltime
+        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age)/time = %.1e at (%d, %d, %d) wall time: %s\n",
+        iteration(sim), time(sim), sim.Δt, max_age / (time(sim)/year), idx.I..., walltime
     )
 end
 
 # add_callback!(simulation, progress_message, TimeInterval(1year))
-add_callback!(simulation, progress_message, IterationInterval(1))
-add_callback!(simulation, zero_age_callback, IterationInterval(1))
+add_callback!(simulation, progress_message, TimeInterval(presribed_Δt))
+# add_callback!(simulation, zero_age_callback, IterationInterval(1))
 
 
 output_fields = Dict(
     # "age" => model -> make_plottable_array(model.tracers.age) / year, # save age in years
     "age" => model.tracers.age, # save age in years
+    "u" => model.velocities.u,
 )
 # output_dims = Dict(
 #     "age" => ("x_ccc", "y_ccc", "z_ccc"),
 # )
 
-output_prefix = joinpath(outputdir, "offline_age_$parentmodel")
+output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(arch)")
 
 # simulation.output_writers[:fields] = NetCDFWriter(
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;
-    schedule = TimeInterval(1year),
+    schedule = TimeInterval(presribed_Δt),
+    # schedule = IterationInterval(1),
     filename = output_prefix,
     # dimensions=output_dims,
     # include_grid_metrics = true,
@@ -446,9 +477,9 @@ simulation.output_writers[:fields] = JLD2Writer(
 
 run!(simulation)
 
-###################
+################################################################################
+
 @info "8. Plotting"
-###################
 
 plottable_age = make_plottable_array(model.tracers.age)
 for k in 1:50
@@ -456,14 +487,14 @@ for k in 1:50
         plottable_age[:, :, k];
         # on_architecture(CPU(), model.tracers.age.data.parent)[:, :, Nz];
         nan_color = :black,
-        colorrange = (0, 5 / 4 * stop_time / year),
-        colormap = cgrad(cgrad(:tab20b; categorical = true)[1:20], categorical = true),
-        lowclip = :yellow,
-        highclip = :cyan,
+        colorrange = (0, stop_time / year),
+        colormap = cgrad(cgrad(:tab20b; categorical = true)[1:16], categorical = true),
+        lowclip = :red,
+        highclip = :yellow,
         axis = (; title = "Final age (years) at level k = $k"),
     )
     Colorbar(fig[1, 2], plt)
-    save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel).png"), fig)
+    save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(arch).png"), fig)
 end
 
 foo

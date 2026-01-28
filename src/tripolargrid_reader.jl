@@ -485,8 +485,8 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
 
-    interp_u = @at (Face, Center, Center) 1 * u_Bgrid
-    interp_v = @at (Center, Face, Center) 1 * v_Bgrid
+    interp_u = @at (Face, Center, Center) 1 * uFF
+    interp_v = @at (Center, Face, Center) 1 * vFF
 
     u .= interp_u
     v .= interp_v
@@ -495,38 +495,6 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
 end
 
 
-
-
-"""
-I think I need to make my own BC first on the B-grid velocities,
-then interpolate to C-grid,
-then merge cells across the fold,
-and only then fill halo regions with the Oceananigans machinery
-(because it can only deal with the fold at XFace points).
-"""
-function Bgrid_OffsetArray_velocity_from_MOM_with_foldᵃᶠᵃ(grid, data)
-    # I only use the grid here to create the same offsetarray
-    x = Field{Face, Face, Center}(grid).data
-    Nx, Ny, Nz = size(grid)
-    # Shift everything from NE to SW and flip vertical
-    x[2:(Nx + 1), 2:(Ny + 1), 1:Nz] .= data[1:Nx, 1:Ny, Nz:-1:1]
-    # Fill i = 1 column by wrapping around in longitude
-    x[1, 2:(Ny + 1), 1:Nz] .= data[Nx, 1:Ny, Nz:-1:1]
-    return x
-end
-
-function interpolate_u_from_Bgrid_to_Cgrid!(uc, ubdata)
-    for i in 1:(Nx + 1), j in 1:Ny, k in 1:Nz
-        uc.data[i, j, k] = (ubdata[i, j, k] + ubdata[i, j + 1, k]) / 2
-    end
-    return uc
-end
-function interpolate_v_from_Bgrid_to_Cgrid!(vc, vbdata)
-    for i in 1:Nx, j in 1:(Ny + 1), k in 1:Nz
-        vc.data[i, j, k] = (vbdata[i, j, k] + vbdata[i + 1, j, k]) / 2
-    end
-    return vc
-end
 
 
 """Determine Location from 3 characters at the end?"""
