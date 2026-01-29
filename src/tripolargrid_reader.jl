@@ -18,74 +18,62 @@ using GPUArraysCore: @allowscalar
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2Ny)
+        nx, ny  # supergrid size in x (nx = 2 * Nx, ny = 2 * (Ny - 1))
     )
 
-    # Note this kernel will fills halos a bit sometimes.
-    # That's because size varies with location and topology,
-    # e.g., λCC has size (Nx, Ny) but λFF has size (Nx, Ny + 1).
-    # But that's OK because we fill halos again later.
+    # Note this kernel will fill "interior halos" sometimes.
+    # ("interior halo" here refers to those partly or fully diagnostic slices
+    # that are "inside" the default grid size, (Nx, Ny).)
+    # That's OK because we fill halos after.
+    # But that means we sometimes go out of supergrid index bounds.
 
     i, j = @index(Global, NTuple)
 
     # For λ we just copy from the super grid incrementing by 2 in each direction.
-    # For λCC, of size (Nx, Ny), we have:
+    # Remember the RightFaceFolded grid has an extra row, so we have:
     #
-    #                       ┏━━━━━━┯━━━━━━┳━━━━━━┯━━━━━━┓
-    #                       ┃      │      ┃      │      ┃
-    #                       ┃      │      ┃      │      ┃
-    #  j = 2, 𝑗 = 2j = 4 ─▶ ┠──────┼──────╂──────┼──────┨
-    #                       ┃      │      ┃      │      ┃
-    #                       ┃      │      ┃      │      ┃
-    #                       ┣━━━━━━┿━━━━━━╋━━━━━━┿━━━━━━┫
-    #                       ┃      │      ┃      │      ┃
-    #                       ┃      │      ┃      │      ┃
-    #  j = 1, 𝑗 = 2j = 2 ─▶ u ──── c ─────╂──────┼──────┨
-    #                       ┃      │      ┃      │      ┃
-    #                       ┃      │      ┃      │      ┃
-    #                       ┗━━━━━ v ━━━━━┻━━━━━━┷━━━━━━┛
-    #                              ▲             ▲
-    #                            i = 1         i = 2
-    #                         𝑖 = 2i = 2     𝑖 = 2i = 4
-    #
-    #
-    # And for λFF, size (Nx, Ny + 1):
-    #
-    #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┏━━━━━━┯━━━━━━┳━━━━━━┯━━━━━━┓
+    #                                                         halo
+    #                           ┏━━━━━━┯━━━━━━┳━━━━━━┯━━━━━━┓ ────
+    #                           ┃ ╱╱╱╱ │ ╱╱╱╱ ┃ ╱╱╱╱ │ ╱╱╱╱ ┃
+    #                           ┃ ╱╱╱╱ │ ╱╱╱╱ ┃ ╱╱╱╱ │ ╱╱╱╱ ┃ half-halo
+    #  j = 3,     𝑗 = 2j = 6 ─▶ ┠──────┼──────╂──────┼──────┨ half-interior
+    #                           ┃ ╱╱╱╱ │ ╱╱╱╱ ┃ ╱╱╱╱ │ ╱╱╱╱ ┃
+    #                           ┃ ╱╱╱╱ │ ╱╱╱╱ ┃ ╱╱╱╱ │ ╱╱╱╱ ┃
+    #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┣━━━━━━┿━━━━━━╋━━━━━━┿━━━━━━┫ ────────
+    #                           ┃      │      ┃      │      ┃ interior
     #                           ┃      │      ┃      │      ┃
-    #                           ┃      │      ┃      │      ┃
-    #                           ┠──────┼──────╂──────┼──────┨
+    #  j = 2,     𝑗 = 2j = 4 ─▶ ┠──────┼──────╂──────┼──────┨
     #                           ┃      │      ┃      │      ┃
     #                           ┃      │      ┃      │      ┃
     #  j = 2, 𝑗 = 2j - 1 = 3 ─▶ ┣━━━━━━┿━━━━━━╋━━━━━━┿━━━━━━┫
     #                           ┃      │      ┃      │      ┃
     #                           ┃      │      ┃      │      ┃
-    #                           u ──── c ─────╂──────┼──────┨
+    #  j = 1,     𝑗 = 2j = 2 ─▶ FC ─── CC ────╂──────┼──────┨
     #                           ┃      │      ┃      │      ┃
     #                           ┃      │      ┃      │      ┃
-    #  j = 1, 𝑗 = 2j - 1 = 1 ─▶ ┗━━━━━ v ━━━━━┻━━━━━━┷━━━━━━┛
-    #                           ▲             ▲
-    #                         i = 1         i = 2
-    #                     𝑖 = 2i - 1 = 1    𝑖 = 2i - 1 = 3
+    #  j = 1, 𝑗 = 2j - 1 = 1 ─▶ FF ━━━ CF ━━━━┻━━━━━━┷━━━━━━┛
+    #                           ▲      ▲      ▲      ▲
+    #                       i = 1      1      2      2
+    #              𝑖 =   2i   =        2             4
+    #              𝑖 = 2i - 1 = 1             3
     #
-    # Note that this kernel will try to fill λCC at index j = Ny + 1 (j = 3) above,
-    # which is the halo region. That's OK because the halos will be filled in,
-    # but I cannot grab the value from 𝑗 = 2j = 6 here, so I clamp 𝑗 to valid indices.
-    # TODO: write a cleaner kernel that exactly fills the interior points only.
+    #
+    # Note that this kernel will try to fill CC and FC at index j = Ny (j = 3).
+    # That's OK for the grid we are building because the halos will be filled in,
+    # but it's not OK for the input grid, for which 𝑗 = 2j = 6 is out of bounds.
+    # So I clamp 𝑗 to valid indices.
     λFF[i, j] = x[2i - 1, clamp(2j - 1, 1, ny + 1)]
-    λFC[i, j] = x[2i - 1, clamp(2j    , 1, ny + 1)]
-    λCF[i, j] = x[2i    , clamp(2j - 1, 1, ny + 1)]
-    λCC[i, j] = x[2i    , clamp(2j    , 1, ny + 1)]
-
-    # Ditto for φ
     φFF[i, j] = y[2i - 1, clamp(2j - 1, 1, ny + 1)]
+    λFC[i, j] = x[2i - 1, clamp(2j    , 1, ny + 1)]
     φFC[i, j] = y[2i - 1, clamp(2j    , 1, ny + 1)]
+    λCF[i, j] = x[2i    , clamp(2j - 1, 1, ny + 1)]
     φCF[i, j] = y[2i    , clamp(2j - 1, 1, ny + 1)]
+    λCC[i, j] = x[2i    , clamp(2j    , 1, ny + 1)]
     φCC[i, j] = y[2i    , clamp(2j    , 1, ny + 1)]
 
     # For Δx, I need to sum consecutive dx 2 by 2,
     # and sometimes wrap subgrid 𝑖 indices around with modulo nx.
-    # For ΔxCC, of size (Nx, Ny), we have:
+    # For ΔxCC, we have:
     #
     #                       ┏━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
     #                       ┃         │         ┃         │         ┃
@@ -109,7 +97,7 @@ using GPUArraysCore: @allowscalar
     #                            │         𝑖 = 2i = 2
     #                            𝑖 = 2i - 1 = 1
     #
-    # For ΔxFF, of size (Nx, Ny + 1), we have:
+    # For ΔxFF, we have:
     #
     #  j = 3, 𝑗 = 2j - 1 = 5 ─▶ ┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
     #                           │ ╱╱╱╱╱╱╱ ┃         │         ┃         │         ┃
@@ -139,9 +127,8 @@ using GPUArraysCore: @allowscalar
     ΔxCF[i, j] = dx[2i - 1          , clamp(2j - 1, 1, ny + 1)] + dx[2i    , clamp(2j - 1, 1, ny + 1)]
     ΔxCC[i, j] = dx[2i - 1          , clamp(2j    , 1, ny + 1)] + dx[2i    , clamp(2j    , 1, ny + 1)]
 
-    # For Δy, I need to sum consecutive dy 2 by 2,
-    # but I need to "extend" the grid north and south.
-    # For ΔyCC, of size (Nx, Ny), we have:
+    # For Δy, I need to sum consecutive dy 2 by 2.
+    # For ΔyCC, we have:
     #
     #                       ┏━━━━━━━━━┯━━━━━━━━━┳━━━━━━━━━┯━━━━━━━━━┓
     #                       ┃         │         ┃         │         ┃
@@ -165,16 +152,24 @@ using GPUArraysCore: @allowscalar
     #                            𝑖 = 2i = 2           𝑖 = 2i = 4
     #
     #
-    # For ΔyFF, of size (Nx, Ny + 1), we clamp the j indices at the boundaries:
+    # For ΔyFF:
     #
     #                       ┠─────────┼─────────╂─────────┼─────────┨
-    #    so repeat 𝑗 = 4   ▲┃▲ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
-    #    𝑗 = 2j - 1 = 5 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #     clamp at 𝑗 = 4   ▲┃▲ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #    𝑗 = 2j - 1 = 7 ─▶ ┃┃│dy ╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
     #                      ┃┃▼ halo   │  halo   ┃  halo   │  halo   ┃
-    #            j = 3 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
-    #                      ┃┃▲        │         ┃         │         ┃
-    #    𝑗 = 2j - 2 = 4 ─▶ ┃┃│dy      │         ┃         │         ┃
-    #                      ▼┃▼        │         ┃         │         ┃
+    #            j = 4 ─▶ Δy┣━━━━━━━━ v ━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                      ┃┃▲ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #    𝑗 = 2j - 2 = 6 ─▶ ┃┃│dy ╱╱╱╱ │ inthalo ┃ inthalo │ inthalo ┃
+    #                      ▼┃▼ ╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #                       ┠─────────┼─────────╂─────────┼─────────┨
+    #                       ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #                       ┃ inthalo │ inthalo ┃ inthalo │ inthalo ┃
+    #                       ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃ ╱╱╱╱╱╱╱ │ ╱╱╱╱╱╱╱ ┃
+    #             j = 3 ─▶  ┣━━━━━━━━━┿━━━━━━━━━╋━━━━━━━━━┿━━━━━━━━━┫
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
+    #                       ┃         │         ┃         │         ┃
     #                       ┠─────────┼─────────╂─────────┼─────────┨
     #                       ┃         │         ┃         │         ┃
     #                       ┃         │         ┃         │         ┃
@@ -229,23 +224,23 @@ function tripolargrid_from_supergrid(
     first_pole_longitude = @allowscalar x[i_north_pole, 1]
 
     # Horizontal grid size
-    Nλ, Nφ = nx ÷ 2, ny ÷ 2
+    # Note the RightFaceFolded topology requires an extra row on the north since my FPivot PR
+    Nx = nx ÷ 2
+    Ny = ny ÷ 2 + 1
+    @assert nx == 2Nx
+    @assert ny == 2(Ny - 1)
 
     # Halo size
-    Hλ, Hφ, Hz = halosize
-    gridsize = (Nλ, Nφ, Nz)
-
-    if isodd(Nλ)
-        throw(ArgumentError("The number of cells in the longitude dimension should be even!"))
-    end
+    Hx, Hy, Hz = halosize
+    gridsize = (Nx, Ny, Nz)
 
     # Helper grid to fill halo
-    Nx = Nλ
-    Ny = Nφ
+    Nx = Nx
+    Ny = Ny
     grid = RectilinearGrid(
         CPU(), FT;
         size = (Nx, Ny),
-        halo = (Hλ, Hφ),
+        halo = (Hx, Hy),
         x = (0, 1), y = (0, 1),
         topology = (Periodic, RightFaceFolded, Flat),
     )
@@ -295,9 +290,7 @@ function tripolargrid_from_supergrid(
     AzCC = Field{Center, Center, Center}(grid; boundary_conditions)
 
     # Compute coordinates and metrics from supergrid
-    # but run the kernel up to (Nλ, Nφ + 1) instead of (Nλ, Nφ)!
-    # (We extend the indices to make sure to fill interior points for all locations.)
-    kp = KernelParameters(1:Nλ, 1:(Nφ + 1))
+    kp = KernelParameters(1:Nx, 1:Ny)
     launch!(CPU(), grid, kp, compute_coordinates_and_metrics_from_supergrid!,
         λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
         φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
@@ -307,7 +300,7 @@ function tripolargrid_from_supergrid(
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2Ny)
+        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2(Ny - 1))
     )
 
     # Fill halos (important as we overwrote some halo regions above)
@@ -343,40 +336,6 @@ function tripolargrid_from_supergrid(
     Azᶠᶜᵃ = dropdims(AzFC.data, dims = 3)
     Azᶜᶜᵃ = dropdims(AzCC.data, dims = 3)
 
-    Hx, Hy, Hz = halosize
-
-    # TODO: Check if longitude below is correct.
-    # I recreated longitude = (-180, 180) by hand here, as it does not seem to be used anywhere else
-    # and I assume this is only used to conitnue the Δ metrics south, which should not depend on longitude
-    # (unless the South pole is also shifted like in some models?)
-    latitude_longitude_grid = LatitudeLongitudeGrid(
-        CPU(), FT;
-        size = gridsize,
-        latitude,
-        longitude = (-180, 180),
-        halo = halosize,
-        z = (0, 1), # z does not really matter here
-        radius
-    )
-
-    # Continue the metrics to the south with the LatitudeLongitudeGrid
-    # metrics (probably we don't even need to do this, since the tripolar grid should
-    # terminate below Antartica, but it's better to be safe)
-    continue_south!(Δxᶠᶠᵃ, latitude_longitude_grid.Δxᶠᶠᵃ)
-    continue_south!(Δxᶠᶜᵃ, latitude_longitude_grid.Δxᶠᶜᵃ)
-    continue_south!(Δxᶜᶠᵃ, latitude_longitude_grid.Δxᶜᶠᵃ)
-    continue_south!(Δxᶜᶜᵃ, latitude_longitude_grid.Δxᶜᶜᵃ)
-
-    continue_south!(Δyᶠᶠᵃ, latitude_longitude_grid.Δyᶠᶜᵃ)
-    continue_south!(Δyᶠᶜᵃ, latitude_longitude_grid.Δyᶠᶜᵃ)
-    continue_south!(Δyᶜᶠᵃ, latitude_longitude_grid.Δyᶜᶠᵃ)
-    continue_south!(Δyᶜᶜᵃ, latitude_longitude_grid.Δyᶜᶠᵃ)
-
-    continue_south!(Azᶠᶠᵃ, latitude_longitude_grid.Azᶠᶠᵃ)
-    continue_south!(Azᶠᶜᵃ, latitude_longitude_grid.Azᶠᶜᵃ)
-    continue_south!(Azᶜᶠᵃ, latitude_longitude_grid.Azᶜᶠᵃ)
-    continue_south!(Azᶜᶜᵃ, latitude_longitude_grid.Azᶜᶜᵃ)
-
     # Final grid with correct metrics
     # TODO: remove `on_architecture(arch, ...)` when we shift grid construction to GPU
     grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
@@ -410,7 +369,7 @@ function tripolargrid_from_supergrid(
         Tripolar(north_poles_latitude, first_pole_longitude, southernmost_latitude)
     )
 
-    @warn "This grid uses a Tripolar mapping but it should have its own custom one I think."
+    @warn "This grid uses a `Tripolar` mapping but it should have its own custom one I think."
 
     return grid
 end
@@ -460,7 +419,7 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
     Nx, Ny, Nz = size(grid)
 
-    kp = KernelParameters(1:Nx, 1:(Ny + 1), 1:Nz)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
 
     arch = architecture(grid)
 
