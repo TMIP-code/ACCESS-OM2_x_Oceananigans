@@ -48,6 +48,7 @@ using JLD2
 using Printf
 using CairoMakie
 using NonlinearSolve
+using SpeedMapping
 
 # TODO: Maybe I should only use the supergrid for the locations
 # of center/face/corner points but otherwise use the "standard"
@@ -196,9 +197,9 @@ u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 
 # TODO: Comment/uncomment below. Setting times as 12 days for testing only.
-presribed_Δt = 1month
-# presribed_Δt = 1day
-times = ((1:12) .- 0.5) * presribed_Δt
+# prescribed_Δt = 1month
+prescribed_Δt = 1day
+times = ((1:12) .- 0.5) * prescribed_Δt
 
 u_ts = FieldTimeSeries{Face, Center, Center}(grid, times; time_indexing = Cyclical(1year))
 v_ts = FieldTimeSeries{Center, Face, Center}(grid, times; time_indexing = Cyclical(1year))
@@ -497,7 +498,7 @@ save(joinpath(outputdir, "initial_age_surface_$(typeof(arch)).png"), fig)
 
 @info "7. Simulation"
 
-stop_time = 12 * presribed_Δt
+stop_time = 12 * prescribed_Δt
 
 simulation = Simulation(
     model;
@@ -507,18 +508,19 @@ simulation = Simulation(
 
 function progress_message(sim)
     max_age, idx = findmax(adapt(Array, sim.model.tracers.age)) # in years
+    mean_age = mean(adapt(Array, sim.model.tracers.age))
     walltime = prettytime(sim.run_wall_time)
 
     return @info @sprintf(
         # "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d) wall time: %s\n",
         # iteration(sim), time(sim), sim.Δt, max_age, idx.I..., walltime
-        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age)/time = %.1e at (%d, %d, %d) wall time: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_age / (time(sim)/year), idx.I..., walltime
+        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age)/time = %.1e at (%d, %d, %d), mean(age) = %.1e, wall time: %s\n",
+        iteration(sim), time(sim), sim.Δt, max_age / (time(sim)/year), idx.I..., mean_age, walltime
     )
 end
 
 # add_callback!(simulation, progress_message, TimeInterval(1year))
-add_callback!(simulation, progress_message, TimeInterval(presribed_Δt))
+add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 # add_callback!(simulation, zero_age_callback, IterationInterval(1))
 
 
@@ -532,7 +534,7 @@ output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(typeof(arch))"
 # simulation.output_writers[:fields] = NetCDFWriter(
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;
-    schedule = TimeInterval(presribed_Δt),
+    schedule = TimeInterval(prescribed_Δt),
     # schedule = IterationInterval(1),
     filename = output_prefix,
     # dimensions=output_dims,
@@ -628,30 +630,45 @@ Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"
     n[] = i
 end
 
-##############################################################################
+################################################################################
 ################################################################################
 ################################################################################
 
-
-@info "Krylov solver"
+@info "Periodic-state solver"
 
 function G!(dage, age, p) # SciML syntax
     @show "calling G!"
     model = simulation.model
     reset!(simulation)
-    simulation.stop_time = 1year
-    model.tracers.age.data.parent .= age
+    simulation.stop_time = 12 * prescribed_Δt
+    (Nx, Ny, Nz) = size(model.tracers.age)
+    age3D = zeros(Nx, Ny, Nz)
+    age3D[wet3D_CPU] .= age
+    age3D_arch = on_architecture(arch, age3D)
+    @show typeof(age3D_arch), size(age3D_arch)
+    set!(model, age = age3D_arch)
+    # model.tracers.age.data .= age3D_arch
     run!(simulation)
-    dage .= model.tracers.age.data.parent
+    # dage .= model.tracers.age.data.parent
+    dage .= adapt(Array, interior(model.tracers.age))[wet3D_CPU]
     dage .-= age
+    @show extrema(dage)
     return dage
 end
 
-age0 = CenterField(grid).data.parent
+age0 = CenterField(grid)
+mask_immersed_field!(age0, NaN)
+age0_interior_CPU = on_architecture(CPU(), interior(age0))
+wet3D_CPU = findall(.!isnan.(age0_interior_CPU))
+age0_vec = zeros(length(wet3D_CPU))
 
 f! = NonlinearFunction(G!)
-nonlinearprob! = NonlinearProblem(f!, age0, [])
+nonlinearprob! = NonlinearProblem(f!, age0_vec, [])
 
 # @time sol = solve(nonlinearprob, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs)), verbose = true, reltol=1e-10, abstol=Inf);
 # @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-12)); show_trace = Val(true), reltol = Inf, abstol = 1.0e-10norm(u0, Inf));
-@time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(rtol = 1.0e-12), jvp_autodiff = FiniteDiff()); show_trace = Val(true), reltol = Inf, abstol = 1.0);
+# @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(rtol = 1.0e-12), jvp_autodiff = AutoFiniteDiff()); show_trace = Val(true), reltol = Inf, abstol = 1.0);
+@time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
+
+# TODO: Add the matrix precondioner by usnig the matrix-generation code.
+# Need to use my branch/fork so that it works for WENO!

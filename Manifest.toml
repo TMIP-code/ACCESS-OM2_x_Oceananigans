@@ -2,7 +2,7 @@
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "aecd024133a163354532c8e659df7048ad40801a"
+project_hash = "2d528ed128d332bbdfde5d101a73f0d9496c16e8"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -2708,6 +2708,12 @@ weakdeps = ["ChainRulesCore"]
 
     [deps.SpecialFunctions.extensions]
     SpecialFunctionsChainRulesCoreExt = "ChainRulesCore"
+
+[[deps.SpeedMapping]]
+deps = ["ForwardDiff", "LinearAlgebra", "MaybeInplace", "MuladdMacro", "SparseArrays", "StaticArrays"]
+git-tree-sha1 = "35a2840a27af4dfedb846099e540350a9e1e8cc1"
+uuid = "f1835b91-879b-4a3f-a438-e4baacf14412"
+version = "0.4.1"
 
 [[deps.SplittablesBase]]
 deps = ["Setfield", "Test"]
