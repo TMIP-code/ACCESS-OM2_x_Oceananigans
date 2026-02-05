@@ -12,7 +12,7 @@ include("src/offline_ACCESS-OM2.jl")
 ```
 """
 
-@info "0. Loading packages and functions"
+@info "Loading packages and functions"
 
 using Oceananigans
 
@@ -29,16 +29,20 @@ end
 
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
+# using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: znode
+using Oceananigans.Grids: znode, get_active_cells_map
 using Oceananigans.Simulations: reset!
 using Oceananigans.OutputReaders: Cyclical
-using Adapt: adapt
+using Oceananigans.Advection: div_Uc
+using Oceananigans.Utils: KernelParameters, launch!
+using Oceananigans.Fields: immersed_boundary_condition
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
 month = months = year / 12
 
+using Adapt: adapt
 using Statistics
 using YAXArrays
 using DimensionalData
@@ -49,9 +53,14 @@ using Printf
 using CairoMakie
 using NonlinearSolve
 using SpeedMapping
+using KernelAbstractions: @kernel, @index
+using DifferentiationInterface
+using SparseConnectivityTracer
+using ForwardDiff: ForwardDiff
+using SparseMatrixColorings
 
-# parentmodel = "ACCESS-OM2-1"
-parentmodel = "ACCESS-OM2-025"
+parentmodel = "ACCESS-OM2-1"
+# parentmodel = "ACCESS-OM2-025"
 # parentmodel = "ACCESS-OM2-01"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
 mkpath(outputdir)
@@ -70,7 +79,7 @@ include("tripolargrid_reader.jl")
 ################################################################################
 ################################################################################
 
-@info "1. Horizontal supergrid"
+@info "Horizontal supergrid"
 
 resolution_str = split(parentmodel, "-")[end]
 supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", "mom$(resolution_str)deg.nc")
@@ -123,7 +132,7 @@ end
 ################################################################################
 ################################################################################
 
-@info "2. Vertical grid"
+@info "Vertical grid"
 
 parentmodel_ik11path = parentmodel == "ACCESS-OM2-1" ? "access-om2" : "access-om2-$(resolution_str)"
 # TODO: Fix this string for 0.1°
@@ -250,8 +259,6 @@ if save_grid
 
 end
 
-foo
-
 Nx, Ny, Nz = size(grid)
 
 h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
@@ -271,7 +278,7 @@ save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
 ################################################################################
 ################################################################################
 
-@info "3. Velocities"
+@info "Velocities"
 
 # TODO: Probably factor this out into separate setup file,
 # to be run once to sabe to JLD2 or something else,
@@ -429,7 +436,7 @@ velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 ################################################################################
 ################################################################################
 
-@info "4. Diffusion"
+@info "Diffusion"
 
 # TODO: Try to match ACCESS-OM2 as much as possible
 
@@ -500,7 +507,7 @@ closure = (
 ################################################################################
 ################################################################################
 
-@info "5. Model"
+@info "Model"
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
@@ -564,7 +571,7 @@ model = HydrostaticFreeSurfaceModel(
 ################################################################################
 ################################################################################
 
-@info "6. Initial condition"
+@info "Initial condition"
 
 # set!(model, age = Returns(0.0), age_jvp = Returns(0.0)) # TODO: Unneccessary as fields are initialized to zero by default.
 set!(model, age = Returns(0.0)) # TODO: Unneccessary as fields are initialized to zero by default.
@@ -582,7 +589,7 @@ save(joinpath(outputdir, "initial_age_surface_$(typeof(arch)).png"), fig)
 ################################################################################
 ################################################################################
 
-@info "7. Simulation"
+@info "Simulation"
 
 stop_time = 12 * prescribed_Δt
 
@@ -636,7 +643,7 @@ run!(simulation)
 ################################################################################
 ################################################################################
 
-@info "8. Plotting"
+@info "Plotting"
 
 plottable_age = make_plottable_array(model.tracers.age)
 for k in 1:50
@@ -715,6 +722,117 @@ Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"
     println("frame $i/$(length(frames))")
     n[] = i
 end
+
+################################################################################
+################################################################################
+################################################################################
+
+@info "Build matrix"
+
+@warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
+
+
+ADTypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: ADTypes} = a / b
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: ADTypes} = a / b
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b) where {FT <: ADTypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b::FT) where {FT <: ADTypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: ADTypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: ADTypes} = a / b
+
+J = let
+    f0 = CenterField(grid, Real)
+
+    model = HydrostaticFreeSurfaceModel(
+        grid;
+        velocities = velocities,
+        tracer_advection = WENO(),
+        # tracer_advection = Centered(order = 2),
+        # tracer_advection = UpwindBiased(order = 1),
+        tracers = (c = f0,),
+        closure = closure,
+    )
+
+    @info "Functions to get vector of tendencies"
+
+    Nx′, Ny′, Nz′ = size(f0)
+    N = Nx′ * Ny′ * Nz′
+    fNaN = CenterField(grid)
+    mask_immersed_field!(fNaN, NaN)
+    idx = findall(!isnan, interior(fNaN))
+    Nidx = length(idx)
+    @show N, Nidx
+    c0 = ones(Nidx)
+    c3D = zeros(Real, Nx′, Ny′, Nz′)
+    advection = model.advection[:c]
+    total_velocities = model.transport_velocities
+    kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
+    active_cells_map = get_active_cells_map(grid, Val(:interior))
+
+    @kernel function compute_hydrostatic_free_surface_Gc!(Gc, grid, args)
+        i, j, k = @index(Global, NTuple)
+        @inbounds Gc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
+    end
+
+    function mytendency(c, clock)
+        c3D[idx] .= c
+        set!(model, c = c3D)
+        c_tendency = CenterField(grid, Real)
+
+        c_advection = model.advection[:c]
+        c_forcing = model.forcing[:c]
+        c_immersed_bc = immersed_boundary_condition(model.tracers[:c])
+
+        args = tuple(
+            Val(1),
+            Val(:c),
+            c_advection,
+            model.closure,
+            c_immersed_bc,
+            model.buoyancy,
+            model.biogeochemistry,
+            model.transport_velocities,
+            model.free_surface,
+            model.tracers,
+            model.closure_fields,
+            model.auxiliary_fields,
+            clock,
+            c_forcing
+        )
+
+        launch!(
+            CPU(), grid, kernel_parameters,
+            compute_hydrostatic_free_surface_Gc!,
+            c_tendency,
+            grid,
+            args;
+            active_cells_map
+        )
+
+        return interior(c_tendency)[idx]
+    end
+
+    @info "Autodiff setup"
+
+    sparse_forward_backend = AutoSparse(
+        AutoForwardDiff();
+        sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
+        coloring_algorithm = GreedyColoringAlgorithm(),
+    )
+
+    @info "Prepare sparsity pattern the Jacobian"
+    prep = prepare_jacobian(mytendency, sparse_forward_backend, c0, times[1])
+
+    @info "Compute the Jacobian"
+    J = 1/12 * mapreduce(+, eachindex(times)) do i
+        @info "month $i"
+        jacobian(mytendency, prep, sparse_forward_backend, c0, times[i])
+    end
+
+    J
+end
+
+foo
 
 ################################################################################
 ################################################################################
