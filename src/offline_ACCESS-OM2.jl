@@ -50,6 +50,13 @@ using CairoMakie
 using NonlinearSolve
 using SpeedMapping
 
+# parentmodel = "ACCESS-OM2-1"
+parentmodel = "ACCESS-OM2-025"
+# parentmodel = "ACCESS-OM2-01"
+outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+mkpath(outputdir)
+save_grid = true
+
 # TODO: Maybe I should only use the supergrid for the locations
 # of center/face/corner points but otherwise use the "standard"
 # grid metrics available from the MOM outputs?
@@ -58,12 +65,6 @@ using SpeedMapping
 # from the config file.
 
 include("tripolargrid_reader.jl")
-
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
-mkpath(outputdir)
 
 ################################################################################
 ################################################################################
@@ -165,6 +166,91 @@ grid = ImmersedBoundaryGrid(
     active_cells_map = true,
     active_z_columns = true,
 )
+
+if save_grid
+    @info "Saving grid"
+    code_to_reconstruct_the_grid = """
+        gd = load(grid_file) # gd for grid Dict
+        underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
+            arch,
+            gd["Nx"], gd["Ny"], gd["Nz"],
+            gd["Hx"], gd["Hy"], gd["Hz"],
+            convert(FT, gd["Lz"]),
+            on_architecture(arch, map(FT, gd["λᶜᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["λᶠᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["λᶜᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["λᶠᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["φᶜᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
+            on_architecture(arch, gd["z"]),
+            on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["Δxᶠᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["Δyᶜᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Δyᶠᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Δyᶜᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["Δyᶠᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["Azᶜᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Azᶠᶜᵃ"])),
+            on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
+            on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
+            convert(FT, gd["radius"]),
+            # TODO: this mapping to Tripolar should be replaced with a custom one
+            Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
+        )
+        grid = ImmersedBoundaryGrid(
+            underlying_grid, PartialCellBottom(gd["bottom"]);
+            active_cells_map = true,
+            active_z_columns = true,
+        )
+    """
+    save(
+        joinpath(outputdir, "$(parentmodel)_grid.jld2"),
+        Dict(
+            "Note" => "This file was created by Benoit Pasquier (2026) from work in progress and thus comes with zero guarantees!",
+            "Nx" => underlying_grid.Nx,
+            "Ny" => underlying_grid.Ny,
+            "Nz" => underlying_grid.Nz,
+            "Hx" => underlying_grid.Hx,
+            "Hy" => underlying_grid.Hy,
+            "Hz" => underlying_grid.Hz,
+            "Lz" => underlying_grid.Lz,
+            "λᶜᶜᵃ" => underlying_grid.λᶜᶜᵃ,
+            "λᶠᶜᵃ" => underlying_grid.λᶠᶜᵃ,
+            "λᶜᶠᵃ" => underlying_grid.λᶜᶠᵃ,
+            "λᶠᶠᵃ" => underlying_grid.λᶠᶠᵃ,
+            "φᶜᶜᵃ" => underlying_grid.φᶜᶜᵃ,
+            "φᶠᶜᵃ" => underlying_grid.φᶠᶜᵃ,
+            "φᶜᶠᵃ" => underlying_grid.φᶜᶠᵃ,
+            "φᶠᶠᵃ" => underlying_grid.φᶠᶠᵃ,
+            "Δxᶜᶜᵃ" => underlying_grid.Δxᶜᶜᵃ,
+            "Δxᶠᶜᵃ" => underlying_grid.Δxᶠᶜᵃ,
+            "Δxᶜᶠᵃ" => underlying_grid.Δxᶜᶠᵃ,
+            "Δxᶠᶠᵃ" => underlying_grid.Δxᶠᶠᵃ,
+            "Δyᶜᶜᵃ" => underlying_grid.Δyᶜᶜᵃ,
+            "Δyᶠᶜᵃ" => underlying_grid.Δyᶠᶜᵃ,
+            "Δyᶜᶠᵃ" => underlying_grid.Δyᶜᶠᵃ,
+            "Δyᶠᶠᵃ" => underlying_grid.Δyᶠᶠᵃ,
+            "Azᶜᶜᵃ" => underlying_grid.Azᶜᶜᵃ,
+            "Azᶠᶜᵃ" => underlying_grid.Azᶠᶜᵃ,
+            "Azᶜᶠᵃ" => underlying_grid.Azᶜᶠᵃ,
+            "Azᶠᶠᵃ" => underlying_grid.Azᶠᶠᵃ,
+            "z" => underlying_grid.z,
+            "bottom" => bottom,
+            "radius" => underlying_grid.radius,
+            "north_poles_latitude" => underlying_grid.conformal_mapping.north_poles_latitude,
+            "first_pole_longitude" => underlying_grid.conformal_mapping.first_pole_longitude,
+            "southernmost_latitude" => underlying_grid.conformal_mapping.southernmost_latitude,
+            "code_to_reconstruct_the_grid" => code_to_reconstruct_the_grid,
+        )
+    )
+
+end
+
+foo
 
 Nx, Ny, Nz = size(grid)
 
