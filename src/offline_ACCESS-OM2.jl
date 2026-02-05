@@ -483,12 +483,16 @@ is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
 κVField = CenterField(grid)
 set!(κVField, κVML * is_mld + κVBG * .!is_mld)
 
-vertical_diffusion = VerticalScalarDiffusivity(
-    VerticallyImplicitTimeDiscretization();
+implicit_vertical_diffusion = VerticalScalarDiffusivity(
+    VerticallyImplicitTimeDiscretization(); # <- TODO: Check if needed (I think this is the default)
     # κ = κVField_ts, # <- need FieldTimeSeries support for that
-    κ = κVField,
+    κ = κVField
 )
-
+explicit_vertical_diffusion = VerticalScalarDiffusivity(
+    ExplicitTimeDiscretization();
+    # κ = κVField_ts, # <- need FieldTimeSeries support for that
+    κ = κVField
+)
 horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
 # TODO: Try GM + Redi diffusion
 # horizontal_diffusion = IsopycnalSkewSymmetricDiffusivity(
@@ -500,9 +504,12 @@ horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
 # TODO: Remove mixed_layer_diffusion if 0.1°?
 closure = (
     horizontal_diffusion,
-    vertical_diffusion,
+    implicit_vertical_diffusion,
 )
-
+explicit_closure = (
+    horizontal_diffusion,
+    explicit_vertical_diffusion,
+)
 ################################################################################
 ################################################################################
 ################################################################################
@@ -534,12 +541,18 @@ age_parameters = (;
     source_rate = 1.0 / year,         # Source for the age (in years)
 )
 
-@inline age_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+@inline linear_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, 0.0)
 # @inline age_jvp_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, 0.0)
-# @inline age_source(i, j, k, grid, clock, fields, params) = params.source_rate
+# @inline age_source_sink(i, j, k, grid, clock, fields, params) = params.source_rate
 
 age_dynamics = Forcing(
-    age_source,
+    age_source_sink,
+    parameters = age_parameters,
+    discrete_form = true,
+)
+linear_dynamics = Forcing(
+    linear_source_sink,
     parameters = age_parameters,
     discrete_form = true,
 )
@@ -548,24 +561,41 @@ age_dynamics = Forcing(
 #     parameters = age_parameters,
 #     discrete_form = true,
 # )
-forcing = (;
+forcing = (
     age = age_dynamics,
-    # age_jvp = age_jvp_dynamics,
+)
+linear_forcing = (
+    c = linear_dynamics,
 )
 
+# Tracer for autodiff tracing
+ADtracer0 = CenterField(grid, Real)
+age0 = CenterField(grid)
 
-model = HydrostaticFreeSurfaceModel(
-    grid;
-    # tracers = (:age, :age_jvp),
-    tracers = (:age,),
+# For building the Jacobian via autodiff I need to create a second model
+# with linear forcings and explicit diffusion. So here I use common kwargs
+# to make sure they share all the other pieces.
+model_common_kwargs = (
     tracer_advection = WENO(order = 5),
     # tracer_advection = UpwindBiased(),
     # timestepper = :SplitRungeKutta3, # <- to try and improve numerical stability over AB2
     velocities = velocities,
-    closure = closure,
-    forcing = forcing,
     buoyancy = nothing,
 )
+model_kwargs = (;
+    model_common_kwargs...,
+    tracers = (age = age0),
+    closure = closure,
+    forcing = forcing,
+    )
+jacobian_model_kwargs = (
+    model_common_kwargs...,
+    tracers = (ADtracer = ADtracer0),
+    closure = explicit_closure,
+    forcing = linear_forcing,
+)
+
+model = HydrostaticFreeSurfaceModel(grid; model_kwargs...)
 
 ################################################################################
 ################################################################################
@@ -608,7 +638,7 @@ function progress_message(sim)
         # "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d) wall time: %s\n",
         # iteration(sim), time(sim), sim.Δt, max_age, idx.I..., walltime
         "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age)/time = %.1e at (%d, %d, %d), mean(age) = %.1e, wall time: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_age / (time(sim)/year), idx.I..., mean_age, walltime
+        iteration(sim), time(sim), sim.Δt, max_age / (time(sim) / year), idx.I..., mean_age, walltime
     )
 end
 
@@ -729,9 +759,9 @@ end
 
 @info "Build matrix"
 
+jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
+
 @warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
-
-
 ADTypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
 @inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: ADTypes} = a / b
 @inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: ADTypes} = a / b
@@ -741,21 +771,10 @@ ADTypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTrace
 @inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: ADTypes} = a / b
 
 J = let
-    f0 = CenterField(grid, Real)
-
-    model = HydrostaticFreeSurfaceModel(
-        grid;
-        velocities = velocities,
-        tracer_advection = WENO(),
-        # tracer_advection = Centered(order = 2),
-        # tracer_advection = UpwindBiased(order = 1),
-        tracers = (c = f0,),
-        closure = closure,
-    )
 
     @info "Functions to get vector of tendencies"
 
-    Nx′, Ny′, Nz′ = size(f0)
+    Nx′, Ny′, Nz′ = size(ADtracer0)
     N = Nx′ * Ny′ * Nz′
     fNaN = CenterField(grid)
     mask_immersed_field!(fNaN, NaN)
@@ -763,32 +782,34 @@ J = let
     Nidx = length(idx)
     @show N, Nidx
     c0 = ones(Nidx)
-    c3D = zeros(Real, Nx′, Ny′, Nz′)
-    advection = model.advection[:c]
-    total_velocities = model.transport_velocities
+    ADtracer3D = zeros(Real, Nx′, Ny′, Nz′)
+    ADtracer_advection = jacobian_model.advection[:ADtracer]
+    total_velocities = jacobian_model.transport_velocities
     kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
     active_cells_map = get_active_cells_map(grid, Val(:interior))
 
+    # TODO: Check if I really need to rewrite these. Not sure why but I think I had to.
+    # (These are copy-pasta from Oceananigans.)
     @kernel function compute_hydrostatic_free_surface_Gc!(Gc, grid, args)
         i, j, k = @index(Global, NTuple)
         @inbounds Gc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
     end
 
-    function mytendency(c, clock)
-        c3D[idx] .= c
-        set!(model, c = c3D)
-        c_tendency = CenterField(grid, Real)
+    function mytendency(ADtracer, clock)
+        ADtracer3D[idx] .= ADtracer
+        set!(model, ADtracer = ADtracer3D)
+        ADtracer_tendency = CenterField(grid, Real)
 
-        c_advection = model.advection[:c]
-        c_forcing = model.forcing[:c]
-        c_immersed_bc = immersed_boundary_condition(model.tracers[:c])
+        ADtracer_advection = model.advection[:ADtracer]
+        ADtracer_forcing = model.forcing[:ADtracer]
+        ADtracer_immersed_bc = immersed_boundary_condition(model.tracers[:ADtracer])
 
         args = tuple(
             Val(1),
-            Val(:c),
-            c_advection,
+            Val(:ADtracer),
+            ADtracer_advection,
             model.closure,
-            c_immersed_bc,
+            ADtracer_immersed_bc,
             model.buoyancy,
             model.biogeochemistry,
             model.transport_velocities,
@@ -797,19 +818,19 @@ J = let
             model.closure_fields,
             model.auxiliary_fields,
             clock,
-            c_forcing
+            ADtracer_forcing
         )
 
         launch!(
             CPU(), grid, kernel_parameters,
             compute_hydrostatic_free_surface_Gc!,
-            c_tendency,
+            ADtracer_tendency,
             grid,
             args;
             active_cells_map
         )
 
-        return interior(c_tendency)[idx]
+        return interior(ADtracer_tendency)[idx]
     end
 
     @info "Autodiff setup"
@@ -821,12 +842,12 @@ J = let
     )
 
     @info "Prepare sparsity pattern the Jacobian"
-    prep = prepare_jacobian(mytendency, sparse_forward_backend, c0, times[1])
+    prep = prepare_jacobian(mytendency, sparse_forward_backend, ADtracer0, times[1])
 
     @info "Compute the Jacobian"
-    J = 1/12 * mapreduce(+, eachindex(times)) do i
+    J = 1 / 12 * mapreduce(+, eachindex(times)) do i
         @info "month $i"
-        jacobian(mytendency, prep, sparse_forward_backend, c0, times[i])
+        jacobian(mytendency, prep, sparse_forward_backend, ADtracer0, times[i])
     end
 
     J
