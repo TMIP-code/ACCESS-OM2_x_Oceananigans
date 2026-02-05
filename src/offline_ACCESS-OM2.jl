@@ -569,7 +569,7 @@ linear_forcing = (
 )
 
 # Tracer for autodiff tracing
-ADtracer0 = CenterField(grid, Real)
+autodifftracer0 = CenterField(grid, Real)
 age0 = CenterField(grid)
 
 # For building the Jacobian via autodiff I need to create a second model
@@ -590,7 +590,7 @@ model_kwargs = (;
     )
 jacobian_model_kwargs = (
     model_common_kwargs...,
-    tracers = (ADtracer = ADtracer0),
+    tracers = (autodifftracer = autodifftracer0),
     closure = explicit_closure,
     forcing = linear_forcing,
 )
@@ -762,28 +762,28 @@ end
 jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
 
 @warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
-ADTypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: ADTypes} = a / b
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: ADTypes} = a / b
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b) where {FT <: ADTypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b::FT) where {FT <: ADTypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: ADTypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: ADTypes} = a / b
+autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: autodifftypes} = a / b
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: autodifftypes} = a / b
+@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b) where {FT <: autodifftypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b::FT) where {FT <: autodifftypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: autodifftypes} = a / b
+@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: autodifftypes} = a / b
 
 J = let
 
     @info "Functions to get vector of tendencies"
 
-    Nx′, Ny′, Nz′ = size(ADtracer0)
+    Nx′, Ny′, Nz′ = size(autodifftracer0)
     N = Nx′ * Ny′ * Nz′
     fNaN = CenterField(grid)
     mask_immersed_field!(fNaN, NaN)
     idx = findall(!isnan, interior(fNaN))
     Nidx = length(idx)
     @show N, Nidx
-    c0 = ones(Nidx)
-    ADtracer3D = zeros(Real, Nx′, Ny′, Nz′)
-    ADtracer_advection = jacobian_model.advection[:ADtracer]
+    autodifftracer1D = ones(Nidx)
+    autodifftracer3D = zeros(Real, Nx′, Ny′, Nz′)
+    autodifftracer_advection = jacobian_model.advection[:autodifftracer]
     total_velocities = jacobian_model.transport_velocities
     kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
     active_cells_map = get_active_cells_map(grid, Val(:interior))
@@ -795,21 +795,21 @@ J = let
         @inbounds Gc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
     end
 
-    function mytendency(ADtracer, clock)
-        ADtracer3D[idx] .= ADtracer
-        set!(model, ADtracer = ADtracer3D)
-        ADtracer_tendency = CenterField(grid, Real)
+    function mytendency(autodifftracer1D, clock)
+        autodifftracer3D[idx] .= autodifftracer1D
+        set!(model, autodifftracer = autodifftracer3D)
+        autodifftracer_tendency = CenterField(grid, Real)
 
-        ADtracer_advection = model.advection[:ADtracer]
-        ADtracer_forcing = model.forcing[:ADtracer]
-        ADtracer_immersed_bc = immersed_boundary_condition(model.tracers[:ADtracer])
+        autodifftracer_advection = model.advection[:autodifftracer]
+        autodifftracer_forcing = model.forcing[:autodifftracer]
+        autodifftracer_immersed_bc = immersed_boundary_condition(model.tracers[:autodifftracer])
 
         args = tuple(
             Val(1),
-            Val(:ADtracer),
-            ADtracer_advection,
+            Val(:autodifftracer),
+            autodifftracer_advection,
             model.closure,
-            ADtracer_immersed_bc,
+            autodifftracer_immersed_bc,
             model.buoyancy,
             model.biogeochemistry,
             model.transport_velocities,
@@ -818,19 +818,19 @@ J = let
             model.closure_fields,
             model.auxiliary_fields,
             clock,
-            ADtracer_forcing
+            autodifftracer_forcing
         )
 
         launch!(
             CPU(), grid, kernel_parameters,
             compute_hydrostatic_free_surface_Gc!,
-            ADtracer_tendency,
+            autodifftracer_tendency,
             grid,
             args;
             active_cells_map
         )
 
-        return interior(ADtracer_tendency)[idx]
+        return interior(autodifftracer_tendency)[idx]
     end
 
     @info "Autodiff setup"
@@ -842,12 +842,12 @@ J = let
     )
 
     @info "Prepare sparsity pattern the Jacobian"
-    prep = prepare_jacobian(mytendency, sparse_forward_backend, ADtracer0, times[1])
+    prep = prepare_jacobian(mytendency, sparse_forward_backend, autodifftracer1D, times[1])
 
     @info "Compute the Jacobian"
     J = 1 / 12 * mapreduce(+, eachindex(times)) do i
         @info "month $i"
-        jacobian(mytendency, prep, sparse_forward_backend, ADtracer0, times[i])
+        jacobian(mytendency, prep, sparse_forward_backend, autodifftracer1D, times[i])
     end
 
     J
