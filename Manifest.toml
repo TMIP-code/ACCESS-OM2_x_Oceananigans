@@ -2,7 +2,7 @@
 
 julia_version = "1.12.4"
 manifest_format = "2.0"
-project_hash = "c3614c74aed04c5a1cab4b187c3edcffd4db5285"
+project_hash = "189089b6725b265ec9643e93cc83e4f310d1afbd"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -1946,6 +1946,12 @@ git-tree-sha1 = "7438a59546cf62428fc9d1bc94729146d37a7225"
 uuid = "510215fc-4207-5dde-b226-833fc4488ee2"
 version = "0.5.5"
 
+[[deps.OceanTransportMatrixBuilder]]
+deps = ["Distances", "Graphs", "LinearAlgebra", "SparseArrays", "StaticArrays"]
+git-tree-sha1 = "6f3ed07f0cf48a11dbca61089bac22240e1a0b92"
+uuid = "c2b4a04e-6049-4fc4-aa6a-5508a29a1e1c"
+version = "0.8.2"
+
 [[deps.Oceananigans]]
 deps = ["Adapt", "Crayons", "CubedSphere", "Dates", "Distances", "DocStringExtensions", "FFTW", "GPUArraysCore", "Glob", "InteractiveUtils", "JLD2", "KernelAbstractions", "Krylov", "LinearAlgebra", "Logging", "MPI", "MuladdMacro", "OffsetArrays", "OrderedCollections", "Pkg", "Printf", "ReactantCore", "Rotations", "SeawaterPolynomials", "SparseArrays", "StaticArrays", "Statistics", "StructArrays"]
 git-tree-sha1 = "64780f11485021577efff8881392712262607236"
@@ -2169,6 +2175,12 @@ deps = ["DataStructures", "Distributed", "SplittablesBase"]
 git-tree-sha1 = "704ef2c93e301b6469ba63103a4e7bf935e6990c"
 uuid = "fad6cfc8-4f83-11e9-06cc-151124046ad0"
 version = "0.8.6"
+
+[[deps.Pardiso]]
+deps = ["Libdl", "LinearAlgebra", "MKL_jll", "SparseArrays"]
+git-tree-sha1 = "eb95d6bbd64c54ebb506cdb09826f82d06bee92c"
+uuid = "46dd5b70-b6fb-5a00-ae2d-e8fea33afaf2"
+version = "1.1.2"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]

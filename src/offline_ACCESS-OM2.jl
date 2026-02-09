@@ -37,6 +37,7 @@ using Oceananigans.Simulations: reset!
 using Oceananigans.OutputReaders: Cyclical
 using Oceananigans.Advection: div_Uc
 using Oceananigans.Utils: KernelParameters, launch!
+using Oceananigans.AbstractOperations: volume
 using Oceananigans.Fields: immersed_boundary_condition
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
@@ -44,6 +45,7 @@ month = months = year / 12
 
 using Adapt: adapt
 using Statistics
+using LinearAlgebra
 using YAXArrays
 using DimensionalData
 using NCDatasets
@@ -55,9 +57,13 @@ using NonlinearSolve
 using SpeedMapping
 using KernelAbstractions: @kernel, @index
 using DifferentiationInterface
+using DifferentiationInterface: overloaded_input_type
 using SparseConnectivityTracer
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
+using OceanTransportMatrixBuilder
+import Pardiso # import Pardiso instead of using (to avoid name clash?)
+const nprocs = 12
 
 parentmodel = "ACCESS-OM2-1"
 # parentmodel = "ACCESS-OM2-025"
@@ -80,6 +86,24 @@ include("tripolargrid_reader.jl")
 ################################################################################
 ################################################################################
 ################################################################################
+
+# TODO Split out the following parts so that I don't need to re-run the whole thing
+# every time. But I need to make sure that things remain consistent somehow.
+# I could use hashes or something with git I guess, but that's not human friendly.
+# Not sure what the best solution is.
+# I guess for the grid I could apppend the name with a date or a version, e.g.,
+# `ACCESS-OM-1_grid_v1_20240601.jld2` and then update the code to load that specific file.
+# and do the same for velocites?
+# For the model I am not sure if that's necessary or if should build it on the fly.
+# - grid (save it and load it)
+# - Velocities (save them and load them as NetCDF?)
+# - Diffusion
+# and maybe have the model in a different file
+# - Model
+# And then
+# - Jacobian (make them all from the model)
+# - Run the simulation
+# - Solve the periodic/steady state
 
 @info "Horizontal supergrid"
 
@@ -577,7 +601,8 @@ age0 = CenterField(grid)
 # with linear forcings and explicit diffusion. So here I use common kwargs
 # to make sure they share all the other pieces.
 model_common_kwargs = (
-    tracer_advection = WENO(order = 5),
+    # tracer_advection = WENO(order = 5),
+    tracer_advection = Centered(order = 2),
     # tracer_advection = UpwindBiased(),
     # timestepper = :SplitRungeKutta3, # <- to try and improve numerical stability over AB2
     velocities = velocities,
@@ -588,7 +613,7 @@ model_kwargs = (;
     tracers = (; age = age0),
     closure = closure,
     forcing = forcing,
-    )
+)
 jacobian_model_kwargs = (
     model_common_kwargs...,
     tracers = (; ADc = ADc0),
@@ -783,9 +808,9 @@ Nx′, Ny′, Nz′ = size(ADc0)
 N′ = Nx′ * Ny′ * Nz′
 fNaN = CenterField(grid)
 mask_immersed_field!(fNaN, NaN)
-idx = findall(!isnan, interior(fNaN))
+wet3D = .!isnan.(interior(fNaN))
+idx = findall(wet3D)
 Nidx = length(idx)
-
 
 ADc_advection = jacobian_model.advection[:ADc]
 total_velocities = jacobian_model.transport_velocities
@@ -839,82 +864,132 @@ function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
     )
 
     # Fill output vector with interior wet values
-    GADcvec .= interior(GADc)[idx]
+    GADcvec .= view(interior(GADc), idx)
 
     return GADcvec
 end
 
-J = let
 
-    @info "benchmark tendency function"
-    ADcvec = ones(Nidx)
-    GADcvec = ones(Nidx)
-    @time mytendency!(GADcvec, ADcvec, 0.0)
-    @time mytendency!(GADcvec, ADcvec, 0.0)
+@info "benchmark tendency function"
+ADcvec = ones(Nidx)
+GADcvec = ones(Nidx)
+@time mytendency!(GADcvec, ADcvec, 0.0)
+@time mytendency!(GADcvec, ADcvec, 0.0)
 
-    @info "Autodiff setup"
+@info "Autodiff setup"
 
-    sparse_forward_backend = AutoSparse(
-        AutoForwardDiff();
-        sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
-        coloring_algorithm = GreedyColoringAlgorithm(),
+sparse_forward_backend = AutoSparse(
+    AutoForwardDiff();
+    sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
+    coloring_algorithm = GreedyColoringAlgorithm(),
+)
+
+# strict mode false to allow different (preallocated) function
+@time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
+    mytendency!,
+    GADcvec,
+    sparse_forward_backend,
+    ADcvec,
+    Constant(0.0);
+    strict = Val(false),
+)
+
+DualType = eltype(overloaded_input_type(jac_prep_sparse))
+# Preallocate 3D array with type T and fill wet points
+ADc3D_dual = zeros(DualType, Nx′, Ny′, Nz′)
+# Preallocate Field with type T and fill it with 3D array
+ADc_dual = CenterField(grid, DualType)
+# Preallocate "output" Field with type T
+Gc_dual = CenterField(grid, DualType)
+
+function mytendency_preallocated!(GADcvec::Vector{DualType}, ADcvec::Vector{DualType}, clock)
+
+    ADc3D_dual[idx] .= ADcvec
+    set!(ADc_dual, ADc3D_dual)
+
+    # bits and pieces from model
+    c_advection = jacobian_model.advection[:ADc]
+    c_forcing = jacobian_model.forcing[:ADc]
+    c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
+
+    args = tuple(
+        Val(1),
+        Val(:ADc),
+        c_advection,
+        jacobian_model.closure,
+        c_immersed_bc,
+        jacobian_model.buoyancy,
+        jacobian_model.biogeochemistry,
+        jacobian_model.transport_velocities,
+        jacobian_model.free_surface,
+        (; ADc = ADc_dual),
+        jacobian_model.closure_fields,
+        jacobian_model.auxiliary_fields,
+        clock,
+        c_forcing
     )
 
-    @time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
-        mytendency!,
-        GADcvec,
-        sparse_forward_backend,
-        ADcvec,
-        Constant(0.0)
+    launch!(
+        CPU(), grid, kernel_parameters,
+        compute_hydrostatic_free_surface_GADc!,
+        Gc_dual,
+        grid,
+        args;
+        active_cells_map
     )
 
-    @time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
+    # Fill output vector with interior wet values
+    GADcvec .= view(interior(Gc_dual), idx)
 
-    @time "Compute Jacobian" jacobian!(
-        mytendency!,
+    return GADcvec
+end
+
+@time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
+
+@time "Compute Jacobian" jacobian!(
+    mytendency_preallocated!,
+    GADcvec,
+    jac_buffer,
+    jac_prep_sparse,
+    sparse_forward_backend,
+    ADcvec,
+    Constant(0.0)
+)
+
+@info "Compute the Jacobian"
+M = mapreduce(+, eachindex(fts_times)) do i
+    @info "month = $i / 12"
+    jacobian!(
+        mytendency_preallocated!,
         GADcvec,
         jac_buffer,
         jac_prep_sparse,
         sparse_forward_backend,
         ADcvec,
-        Constant(0.0)
+        Constant(fts_times[i])
     )
-
-    @info "Compute the Jacobian"
-    J = mapreduce(+, eachindex(fts_times)) do i
-        @info "month = $i / 12"
-        jacobian!(
-            mytendency!,
-            GADcvec,
-            jac_buffer,
-            jac_prep_sparse,
-            sparse_forward_backend,
-            ADcvec,
-            Constant(fts_times[i])
-        )
-    end
-
-    # divide by 12 for the mean
-    J / 12
 end
 
+# divide by 12 for the mean
+M ./= 12
+
+
 # Show me the Jacobian!
-display(J)
+display(M)
 fig = Figure()
 ax = Axis(fig[1, 1])
 plt = spy!(
-    0.5..size(J,1)+0.5,
-    0.5..size(J,2)+0.5,
-    J;
+    0.5 .. size(M, 1) + 0.5,
+    0.5 .. size(M, 2) + 0.5,
+    M;
     colormap = :coolwarm,
-    colorrange = maximum(abs.(J)) .* (-1, 1),
-    markersize = size(J,2) / 1000, # adjust marker size based on matrix size
+    colorrange = maximum(abs.(M)) .* (-1, 1),
+    markersize = size(M, 2) / 1000, # adjust marker size based on matrix size
 )
-ylims!(ax, size(J,2)+0.5, 0.5)
+ylims!(ax, size(M, 2) + 0.5, 0.5)
 Colorbar(fig[1, 2], plt)
 save(joinpath(outputdir, "$(parentmodel)_jacobian2.png"), fig)
 
-foo
 
 ################################################################################
 ################################################################################
@@ -922,39 +997,119 @@ foo
 
 @info "Periodic-state solver"
 
+@info "Extra for vector of volumes"
+
+@kernel function compute_volume!(vol, grid)
+    i, j, k = @index(Global, NTuple)
+    @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
+end
+
+function compute_volume(grid)
+    vol = CenterField(grid)
+    (Nx, Ny, Nz) = size(vol)
+    kernel_parameters = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    launch!(CPU(), grid, kernel_parameters, compute_volume!, vol, grid)
+    return vol
+end
+
+v1D = interior(compute_volume(grid))[idx]
+
+age3D = zeros(Nx′, Ny′, Nz′)
+
 function G!(dage, age, p) # SciML syntax
     @show "calling G!"
+    @show extrema(age)
     model = simulation.model
     reset!(simulation)
-    simulation.stop_time = 12 * prescribed_Δt
-    (Nx, Ny, Nz) = size(model.tracers.age)
-    age3D = zeros(Nx, Ny, Nz)
-    age3D[wet3D_CPU] .= age
+    simulation.stop_time = stop_time
+    age3D[idx] .= age
     age3D_arch = on_architecture(arch, age3D)
-    @show typeof(age3D_arch), size(age3D_arch)
     set!(model, age = age3D_arch)
     # model.tracers.age.data .= age3D_arch
     run!(simulation)
     # dage .= model.tracers.age.data.parent
-    dage .= adapt(Array, interior(model.tracers.age))[wet3D_CPU]
+    # dage .= adapt(Array, interior(model.tracers.age))[wet3D]
+    dage .= view(interior(model.tracers.age), idx)
     dage .-= age
     @show extrema(dage)
     return dage
 end
 
-age0 = CenterField(grid)
-mask_immersed_field!(age0, NaN)
-age0_interior_CPU = on_architecture(CPU(), interior(age0))
-wet3D_CPU = findall(.!isnan.(age0_interior_CPU))
-age0_vec = zeros(length(wet3D_CPU))
-
-f! = NonlinearFunction(G!)
-nonlinearprob! = NonlinearProblem(f!, age0_vec, [])
-
 # @time sol = solve(nonlinearprob, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs)), verbose = true, reltol=1e-10, abstol=Inf);
 # @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-12)); show_trace = Val(true), reltol = Inf, abstol = 1.0e-10norm(u0, Inf));
 # @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(rtol = 1.0e-12), jvp_autodiff = AutoFiniteDiff()); show_trace = Val(true), reltol = Inf, abstol = 1.0);
-@time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
+# @time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
 
-# TODO: Add the matrix precondioner by usnig the matrix-generation code.
-# Need to use my branch/fork so that it works for WENO!
+@info "LUMP and SPRAY matrices"
+LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+display(LUMP)
+display(SPRAY)
+
+@info "coarsened Jacobian"
+Mc = LUMP * M * SPRAY
+display(Mc)
+
+@info "Setting up Pardiso solver"
+matrix_type = Pardiso.REAL_SYM
+@show solver = MKLPardisoIterate(; nprocs, matrix_type)
+
+@info "Set up preconditioner problem"
+# Left Preconditioner needs a new type
+struct MyPreconditioner
+    prob
+end
+# P = S Qc⁻¹ L - I
+# Q = stop_time * M
+# Qc = L Q S = stop_time * Mc
+Qc = stop_time * Mc
+Plprob = LinearProblem(Qc, ones(size(Qc, 1)))  # following Bardin et al. (2014)
+Plprob = init(Plprob, solver, rtol = 1.0e-12)
+Pl = MyPreconditioner(Plprob)
+Base.eltype(::MyPreconditioner) = Float64
+function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
+    Pl.prob.b = LUMP * x
+    solve!(Pl.prob) # solves Qc u = b = L x
+    x .= SPRAY * Pl.prob.u .- x # x <- (S Qc⁻¹ L - I) x = P x
+    return x
+end
+function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
+    Pl.prob.b = LUMP * x
+    solve!(Pl.prob) # solves Qc u = b = L x
+    y .= SPRAY * Pl.prob.u .- x # y <- (S Qc⁻¹ L - I) x = P x
+    return y
+end
+
+# SciML syntax for left and right preconditioners
+Pr = I
+precs = Returns((Pl, Pr))
+
+# For initial guess, use the coarsened solution
+# Steady state solution is
+# ∂age/∂t = 0 = F(age) = M age + source_rate
+# since M is the Jacobian of the tendency function age -> F(age) = ∂age/∂t
+# so age = M \ -1
+# But here age is in units of years
+# and ∂age/∂t is in units of year/s
+# so M is in units of 1/s and u = M \ -1s/year is in units of s * s / year
+init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1))) # initial guess for preconditioner solve (can be tuned)
+init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
+@time "solve initial age" age_init_vec = SPRAY * solve!(init_prob_coarsened).u / year
+
+init_prob_full = LinearProblem(M, -ones(size(M, 1))) # initial guess for preconditioner solve (can be tuned)
+init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
+@time "solve initial age full" age_init_vec = solve!(init_prob_full).u / year
+
+f! = NonlinearFunction(G!)
+nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
+
+@info "Solving nonlinear problem with GMRES and lump-and-spray preconditioner (Bardin et al., 2014)"
+@time sol! = solve(nonlinearprob!,
+    NewtonRaphson(
+        linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
+        jvp_autodiff = AutoFiniteDiff(relstep = 0.01)
+    );
+    show_trace = Val(true),
+    reltol = Inf,
+    abstol = 0.001 * stop_time,
+    verbose = true
+);
