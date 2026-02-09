@@ -291,15 +291,15 @@ save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
 u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 
-# TODO: Comment/uncomment below. Setting times as 12 days for testing only.
+# TODO: Comment/uncomment below. Setting very short fts_times for testing
 # prescribed_Δt = 1month
 # prescribed_Δt = 1day
 prescribed_Δt = 1Δt
-times = ((1:12) .- 0.5) * prescribed_Δt
+fts_times = ((1:12) .- 0.5) * prescribed_Δt
 
-u_ts = FieldTimeSeries{Face, Center, Center}(grid, times; time_indexing = Cyclical(1year))
-v_ts = FieldTimeSeries{Center, Face, Center}(grid, times; time_indexing = Cyclical(1year))
-w_ts = FieldTimeSeries{Center, Center, Face}(grid, times; time_indexing = Cyclical(1year))
+u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; time_indexing = Cyclical(1year))
+v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; time_indexing = Cyclical(1year))
+w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; time_indexing = Cyclical(1year))
 
 print("month ")
 for month in 1:12
@@ -446,7 +446,7 @@ velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-# κVField_ts = FieldTimeSeries{Center, Center, Center}(grid, times)
+# κVField_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times)
 
 # # Load MLD to add strong vertical diffusion in the mixed layer
 # mld_ds = open_dataset(joinpath(inputdir, "mld_periodic.nc"))
@@ -468,7 +468,7 @@ velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 #     #     axis = (; title = "Vertical diffusivity at k = 10"),
 #     #     colorrange = (1e-5, 3e-1),
 #     #     lowclip = :red,
-#     #     highclip = :cyan,
+#     #     highclip = :ADcyan,
 #     # )
 #     # Colorbar(fig[1, 2], plt, ticks = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1])
 #     # save(joinpath(outputdir, "vertical_diffusivity_k10_month$(month)_$(typeof(arch)).png"), fig)
@@ -696,7 +696,7 @@ end
 # age_lazy = open_dataset(simulation.output_writers[:fields].filepath)["age"]
 age_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "age")
 # u_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "u")
-times = age_lazy.times
+output_times = age_lazy.times
 
 set_theme!(Theme(fontsize = 30))
 
@@ -705,8 +705,8 @@ fig = Figure(size = (1200, 600))
 
 n = Observable(1)
 k = 25
-agetitle = @lift "age and u on offline OM2 at k = $k, t = " * prettytime(times[$n])
-# utitle = @lift "u at k = $k, t = " * prettytime(times[$n])
+agetitle = @lift "age and u on offline OM2 at k = $k, t = " * prettytime(output_times[$n])
+# utitle = @lift "u at k = $k, t = " * prettytime(output_times[$n])
 
 # agekₙ = @lift readcubedata(age_lazy[At(k = $k, times = [$n])]) # in years
 agekₙ = @lift make_plottable_array(age_lazy[$n])[:, :, k] # in years
@@ -745,7 +745,7 @@ Colorbar(fig[1, 2], hm)
 # )
 # Colorbar(fig[2, 2], hm)
 
-frames = 1:length(times)
+frames = 1:length(output_times)
 
 @info "Making an animation..."
 
@@ -786,39 +786,45 @@ mask_immersed_field!(fNaN, NaN)
 idx = findall(!isnan, interior(fNaN))
 Nidx = length(idx)
 
+
+ADc_advection = jacobian_model.advection[:ADc]
+total_velocities = jacobian_model.transport_velocities
+kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
+active_cells_map = get_active_cells_map(grid, Val(:interior))
+
 function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
 
     # Preallocate 3D array with type T and fill wet points
     # TODO find a way to preallocate 3D arrays outside of function?
-    c3D = zeros(T, Nx′, Ny′, Nz′)
-    c3D[idx] .= ADcvec
+    ADc3D = zeros(T, Nx′, Ny′, Nz′)
+    ADc3D[idx] .= ADcvec
 
     # Preallocate Field with type T and fill it with 3D array
     # TODO find a way to preallocate fields outside of function?
-    c = CenterField(grid, T)
-    set!(c, c3D)
+    ADc = CenterField(grid, T)
+    set!(ADc, ADc3D)
 
     # Preallocate "output" Field with type T
     GADc = CenterField(grid, T)
 
     # bits and pieces from model
-    c_advection = model.advection[:c]
-    c_forcing = model.forcing[:c]
-    c_immersed_bc = immersed_boundary_condition(model.tracers[:c])
+    c_advection = jacobian_model.advection[:ADc]
+    c_forcing = jacobian_model.forcing[:ADc]
+    c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
 
     args = tuple(
         Val(1),
-        Val(:c),
+        Val(:ADc),
         c_advection,
-        model.closure,
+        jacobian_model.closure,
         c_immersed_bc,
-        model.buoyancy,
-        model.biogeochemistry,
-        model.transport_velocities,
-        model.free_surface,
-        (; c = c),
-        model.closure_fields,
-        model.auxiliary_fields,
+        jacobian_model.buoyancy,
+        jacobian_model.biogeochemistry,
+        jacobian_model.transport_velocities,
+        jacobian_model.free_surface,
+        (; ADc = ADc),
+        jacobian_model.closure_fields,
+        jacobian_model.auxiliary_fields,
         clock,
         c_forcing
     )
@@ -840,18 +846,11 @@ end
 
 J = let
 
-    @info "Functions to get vector of tendencies"
-
-    ADc_advection = jacobian_model.advection[:ADc]
-    total_velocities = jacobian_model.transport_velocities
-    kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
-    active_cells_map = get_active_cells_map(grid, Val(:interior))
-
     @info "benchmark tendency function"
-    ADcvec = ones(N′)
-    GADcvec = ones(N′)
-    @time mytendency!(GADcvec, ADcvec)
-    @time mytendency!(GADcvec, ADcvec)
+    ADcvec = ones(Nidx)
+    GADcvec = ones(Nidx)
+    @time mytendency!(GADcvec, ADcvec, 0.0)
+    @time mytendency!(GADcvec, ADcvec, 0.0)
 
     @info "Autodiff setup"
 
@@ -861,13 +860,17 @@ J = let
         coloring_algorithm = GreedyColoringAlgorithm(),
     )
 
-    @info "Prepare Jacobian sparsity pattern"
-    jac_prep_sparse = prepare_jacobian(mytendency!, GADcvec, sparse_forward_backend, ADcvec, Constant(0.0))
+    @time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
+        mytendency!,
+        GADcvec,
+        sparse_forward_backend,
+        ADcvec,
+        Constant(0.0)
+    )
 
-    @info "Prepare buffer for Jacobian"
-    jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADvec))
+    @time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
 
-    @time jacobian!(
+    @time "Compute Jacobian" jacobian!(
         mytendency!,
         GADcvec,
         jac_buffer,
@@ -878,7 +881,7 @@ J = let
     )
 
     @info "Compute the Jacobian"
-    J = mapreduce(+, eachindex(times)) do i
+    J = mapreduce(+, eachindex(fts_times)) do i
         @info "month = $i / 12"
         jacobian!(
             mytendency!,
@@ -887,7 +890,7 @@ J = let
             jac_prep_sparse,
             sparse_forward_backend,
             ADcvec,
-            Constant(times[i])
+            Constant(fts_times[i])
         )
     end
 
@@ -895,7 +898,21 @@ J = let
     J / 12
 end
 
+# Show me the Jacobian!
 display(J)
+fig = Figure()
+ax = Axis(fig[1, 1])
+plt = spy!(
+    0.5..size(J,1)+0.5,
+    0.5..size(J,2)+0.5,
+    J;
+    colormap = :coolwarm,
+    colorrange = maximum(abs.(J)) .* (-1, 1),
+    markersize = size(J,2) / 1000, # adjust marker size based on matrix size
+)
+ylims!(ax, size(J,2)+0.5, 0.5)
+Colorbar(fig[1, 2], plt)
+save(joinpath(outputdir, "$(parentmodel)_jacobian2.png"), fig)
 
 foo
 
