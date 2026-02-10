@@ -173,6 +173,8 @@ ht = replace(ht, missing => 0.0)
 kmt = readcubedata(MOM_output_grid_ds.kmt).data
 kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
 
+# TODO: check that Δz from kmt is ≥ 0.2Δz from z levels (from ocean vgrid)
+
 @show MOM_input_topo_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/topog.nc"
 bottom_ds = open_dataset(MOM_input_topo_file)
 bottom = -readcubedata(bottom_ds["depth"]).data
@@ -289,7 +291,7 @@ Nx, Ny, Nz = size(grid)
 
 h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
 fig = Figure()
-ax = Axis(fig[2, 1], aspect = 1)
+ax = Axis(fig[2, 1], aspect = 2.0)
 hm = surface!(
     ax,
     1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
@@ -335,18 +337,16 @@ for month in 1:12
     # Place u and v data on Oceananigans B-grid
     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
-    plottable_u = make_plottable_array(u_Bgrid)
-    plottable_v = make_plottable_array(v_Bgrid)
     # for k in 1:50
     for k in 25:25
         local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "C-grid u")
-        local velocity2D = plottable_u[:, :, k]
+        local ax = Axis(fig[1, 1], title = "B-grid u[k=$k, month=$month]")
+        local velocity2D = view(make_plottable_array(u_Bgrid), :, :, k)
         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v")
-        velocity2D = plottable_v[:, :, k]
+        ax = Axis(fig[2, 1], title = "B-grid v[k=$k, month=$month]")
+        velocity2D = view(make_plottable_array(v_Bgrid), :, :, k)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[2, 2], hm)
@@ -356,18 +356,16 @@ for month in 1:12
     # Then interpolate to C-grid
     u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
 
-    plottable_u = make_plottable_array(u)
-    plottable_v = make_plottable_array(v)
     # for k in 1:50
     for k in 25:25
         local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "C-grid u")
-        local velocity2D = plottable_u[:, :, k]
+        local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
+        local velocity2D = view(make_plottable_array(u), :, :, k)
         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v")
-        velocity2D = plottable_v[:, :, k]
+        ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
+        velocity2D = view(make_plottable_array(v), :, :, k)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[2, 2], hm)
@@ -384,24 +382,21 @@ for month in 1:12
     HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
     u, v, w = velocities
 
-    plottable_u = make_plottable_array(u)
-    plottable_v = make_plottable_array(v)
-    plottable_w = make_plottable_array(w)
-    # for k in 1:50
-    for k in 25:25
+    for k in 1:50
+    # for k in 25:25
         local fig = Figure(size = (1200, 1800))
-        local ax = Axis(fig[1, 1], title = "C-grid u")
-        local velocity2D = plottable_u[:, :, k]
+        local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
+        local velocity2D = view(make_plottable_array(u), :, :, k)
         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v")
-        velocity2D = plottable_v[:, :, k]
+        ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
+        velocity2D = view(make_plottable_array(v), :, :, k)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[2, 2], hm)
-        ax = Axis(fig[3, 1], title = "C-grid w")
-        velocity2D = plottable_w[:, :, k + 1]
+        ax = Axis(fig[3, 1], title = "C-grid w[k=$k, month=$month]")
+        velocity2D = view(make_plottable_array(w), :, :, k + 1)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[3, 2], hm)
@@ -562,11 +557,12 @@ explicit_closure = (
 
 
 age_parameters = (;
-    relaxation_timescale = 3Δt,     # Relaxation timescale for removing age at surface
-    source_rate = 1.0 / year,         # Source for the age (in years)
+    relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
+    source_rate = 1.0,          # Source for the age (1 second / second)
 )
 
 @inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+# TODO Do I really need a linear age source/sink? Maybe just rename ADc to age and reuse the same source/sink?
 @inline linear_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.ADc[i, j, k] / params.relaxation_timescale, 0.0)
 # @inline age_jvp_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, 0.0)
 # @inline age_source_sink(i, j, k, grid, clock, fields, params) = params.source_rate
@@ -656,8 +652,8 @@ simulation = Simulation(
 )
 
 function progress_message(sim)
-    max_age, idx = findmax(adapt(Array, sim.model.tracers.age)) # in years
-    mean_age = mean(adapt(Array, sim.model.tracers.age))
+    max_age, idx = findmax(adapt(Array, sim.model.tracers.age) / year) # in years
+    mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
 
     return @info @sprintf(
@@ -704,7 +700,7 @@ run!(simulation)
 plottable_age = make_plottable_array(model.tracers.age)
 for k in 1:50
     local fig, ax, plt = heatmap(
-        plottable_age[:, :, k];
+        plottable_age[:, :, k] / year;
         # on_architecture(CPU(), model.tracers.age.data.parent)[:, :, Nz];
         nan_color = :black,
         colorrange = (0, stop_time / year),
@@ -734,7 +730,7 @@ agetitle = @lift "age and u on offline OM2 at k = $k, t = " * prettytime(output_
 # utitle = @lift "u at k = $k, t = " * prettytime(output_times[$n])
 
 # agekₙ = @lift readcubedata(age_lazy[At(k = $k, times = [$n])]) # in years
-agekₙ = @lift make_plottable_array(age_lazy[$n])[:, :, k] # in years
+agekₙ = @lift make_plottable_array(age_lazy[$n])[:, :, k] / year # in years
 # ukₙ = @lift make_plottable_array(u_lazy[$n])[:, :, k] # in m/s
 
 ax = fig[1, 1] = Axis(
@@ -946,6 +942,10 @@ end
 
 @time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
 
+@info "Compute the Jacobian"
+
+i = 1
+@info "month = $i / 12"
 @time "Compute Jacobian" jacobian!(
     mytendency_preallocated!,
     GADcvec,
@@ -953,11 +953,12 @@ end
     jac_prep_sparse,
     sparse_forward_backend,
     ADcvec,
-    Constant(0.0)
+    Constant(fts_times[i])
 )
 
-@info "Compute the Jacobian"
-M = mapreduce(+, eachindex(fts_times)) do i
+M = jac_buffer / 12 # <- contains the first-month part of the Jacobian
+
+for i in 2:12
     @info "month = $i / 12"
     jacobian!(
         mytendency_preallocated!,
@@ -968,11 +969,8 @@ M = mapreduce(+, eachindex(fts_times)) do i
         ADcvec,
         Constant(fts_times[i])
     )
+    M .+= jac_buffer / 12
 end
-
-# divide by 12 for the mean
-M ./= 12
-
 
 # Show me the Jacobian!
 display(M)
@@ -1090,14 +1088,22 @@ precs = Returns((Pl, Pr))
 # so age = M \ -1
 # But here age is in units of years
 # and ∂age/∂t is in units of year/s
-# so M is in units of 1/s and u = M \ -1s/year is in units of s * s / year
+# so M is in units of 1/s and u = M \ -1s/s is in units of s * s / s = s
 init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1))) # initial guess for preconditioner solve (can be tuned)
 init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
 @time "solve initial age" age_init_vec = SPRAY * solve!(init_prob_coarsened).u / year
 
+fig, ax, plt = hist(age_init_vec)
+save(joinpath(outputdir, "initial_steady_age_coarsened_histogram_$(parentmodel).png"), fig)
+
 init_prob_full = LinearProblem(M, -ones(size(M, 1))) # initial guess for preconditioner solve (can be tuned)
 init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
 @time "solve initial age full" age_init_vec = solve!(init_prob_full).u / year
+
+fig, ax, plt = hist(age_init_vec)
+save(joinpath(outputdir, "initial_steady_age_full_histogram_$(parentmodel).png"), fig)
+
+foo
 
 f! = NonlinearFunction(G!)
 nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
