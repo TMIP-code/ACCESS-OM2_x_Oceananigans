@@ -1954,25 +1954,26 @@ version = "0.8.2"
 
 [[deps.Oceananigans]]
 deps = ["Adapt", "Crayons", "CubedSphere", "Dates", "Distances", "DocStringExtensions", "FFTW", "GPUArraysCore", "Glob", "InteractiveUtils", "JLD2", "KernelAbstractions", "Krylov", "LinearAlgebra", "Logging", "MPI", "MuladdMacro", "OffsetArrays", "OrderedCollections", "Pkg", "Printf", "ReactantCore", "Rotations", "SeawaterPolynomials", "SparseArrays", "StaticArrays", "Statistics", "StructArrays"]
-git-tree-sha1 = "64780f11485021577efff8881392712262607236"
-repo-rev = "glw-bp/prescribed-time-series"
+git-tree-sha1 = "215b2e0feed3af9c1cca36b36736c4d43ed0aa4a"
+repo-rev = "glw/prescribed-free-surface"
 repo-url = "https://github.com/CliMA/Oceananigans.jl.git"
 uuid = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
-version = "0.104.2"
+version = "0.104.4"
 
     [deps.Oceananigans.extensions]
-    OceananigansAMDGPUExt = "AMDGPU"
+    OceananigansAMDGPUExt = ["AMDGPU", "AbstractFFTs"]
     OceananigansCUDAExt = ["CUDA", "GPUArrays", "GPUArraysCore"]
     OceananigansEnzymeExt = "Enzyme"
     OceananigansMakieExt = "Makie"
     OceananigansMetalExt = "Metal"
     OceananigansNCDatasetsExt = "NCDatasets"
     OceananigansOneAPIExt = "oneAPI"
-    OceananigansReactantExt = ["Reactant", "KernelAbstractions", "ConstructionBase"]
+    OceananigansReactantExt = ["Reactant", "KernelAbstractions", "ConstructionBase", "AbstractFFTs"]
     OceananigansXESMFExt = ["XESMF"]
 
     [deps.Oceananigans.weakdeps]
     AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
+    AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
     CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
     ConstructionBase = "187b0558-2788-49d3-abe0-74a17ed4e7c9"
     Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
