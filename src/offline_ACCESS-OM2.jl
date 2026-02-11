@@ -1,439 +1,382 @@
-"""
-To run this on Gadi interactively on the GPU queue, use
+# """
+# To run this on Gadi interactively on the GPU queue, use
 
-```
-qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
-qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
-cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
-julia --project
-include("src/offline_ACCESS-OM2.jl")
-```
-"""
+# ```
+# qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
+# qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
+# cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
+# module load cuda/12.9.0
+# export JULIA_CUDA_USE_COMPAT=false
+# julia --project
+# include("src/offline_ACCESS-OM2.jl")
+# ```
+# """
 
-@info "Loading packages and functions"
+# # TODO: Check the minimum Δz
+# #   TODO: check that Δz from kmt is ≥ 0.2Δz from z levels (from ocean vgrid)
 
-using Oceananigans
+# # TODO: Check
 
-# Comment/uncomment the following lines to enable/disable GPU
-if contains(ENV["HOSTNAME"], "gpu")
-    using CUDA
-    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
-    @show CUDA.versioninfo()
-    arch = GPU()
-else
-    arch = CPU()
-end
-@info "Using $arch architecture"
+# @info "Loading packages and functions"
 
-using Oceananigans.TurbulenceClosures
-using Oceananigans.Models.HydrostaticFreeSurfaceModels
-using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency
-using Oceananigans.ImmersedBoundaries: mask_immersed_field!
-using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: znode, get_active_cells_map
-using Oceananigans.Simulations: reset!
-using Oceananigans.OutputReaders: Cyclical
-using Oceananigans.Advection: div_Uc
-using Oceananigans.Utils: KernelParameters, launch!
-using Oceananigans.AbstractOperations: volume
-using Oceananigans.Fields: immersed_boundary_condition
-using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
-year = years = 365.25days
-month = months = year / 12
+# using Oceananigans
 
-using Adapt: adapt
-using Statistics
-using LinearAlgebra
-using YAXArrays
-using DimensionalData
-using NCDatasets
-using NetCDF
-using JLD2
-using Printf
-using CairoMakie
-using NonlinearSolve
-using SpeedMapping
-using KernelAbstractions: @kernel, @index
-using DifferentiationInterface
-using DifferentiationInterface: overloaded_input_type
-using SparseConnectivityTracer
-using ForwardDiff: ForwardDiff
-using SparseMatrixColorings
-using OceanTransportMatrixBuilder
-import Pardiso # import Pardiso instead of using (to avoid name clash?)
-const nprocs = 12
+# # Comment/uncomment the following lines to enable/disable GPU
+# if contains(ENV["HOSTNAME"], "gpu")
+#     using CUDA
+#     CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
+#     @show CUDA.versioninfo()
+#     arch = GPU()
+# else
+#     arch = CPU()
+# end
+# @info "Using $arch architecture"
 
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
-mkpath(outputdir)
-save_grid = false
+# using Oceananigans.TurbulenceClosures
+# using Oceananigans.Models.HydrostaticFreeSurfaceModels
+# using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency
+# using Oceananigans.ImmersedBoundaries: mask_immersed_field!
+# using Oceananigans.Architectures: CPU
+# using Oceananigans.Grids: znode, get_active_cells_map
+# using Oceananigans.Simulations: reset!
+# using Oceananigans.OutputReaders: Cyclical
+# using Oceananigans.Advection: div_Uc
+# using Oceananigans.Utils: KernelParameters, launch!
+# using Oceananigans.AbstractOperations: volume
+# using Oceananigans.Fields: immersed_boundary_condition
+# using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
+# year = years = 365.25days
+# month = months = year / 12
 
-Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
+# using Adapt: adapt
+# using Statistics
+# using LinearAlgebra
+# using YAXArrays
+# using DimensionalData
+# using NCDatasets
+# using NetCDF
+# using JLD2
+# using Printf
+# using CairoMakie
+# using NonlinearSolve
+# using SpeedMapping
+# using KernelAbstractions: @kernel, @index
+# using DifferentiationInterface
+# using DifferentiationInterface: overloaded_input_type
+# using SparseConnectivityTracer
+# using ForwardDiff: ForwardDiff
+# using SparseMatrixColorings
+# using OceanTransportMatrixBuilder
+# import Pardiso # import Pardiso instead of using (to avoid name clash?)
+# const nprocs = 12
 
-# TODO: Maybe I should only use the supergrid for the locations
-# of center/face/corner points but otherwise use the "standard"
-# grid metrics available from the MOM outputs?
-# -> No, instead I should use the same inputs! I think that is what I am doing now,
-# but needs to be checked. I think best would be to read the input file location
-# from the config file.
+# parentmodel = "ACCESS-OM2-1"
+# # parentmodel = "ACCESS-OM2-025"
+# # parentmodel = "ACCESS-OM2-01"
+# outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+# mkpath(outputdir)
+# save_grid = false
 
-include("tripolargrid_reader.jl")
+# Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
-################################################################################
-################################################################################
-################################################################################
+# # TODO: Maybe I should only use the supergrid for the locations
+# # of center/face/corner points but otherwise use the "standard"
+# # grid metrics available from the MOM outputs?
+# # -> No, instead I should use the same inputs! I think that is what I am doing now,
+# # but needs to be checked. I think best would be to read the input file location
+# # from the config file.
 
-# TODO Split out the following parts so that I don't need to re-run the whole thing
-# every time. But I need to make sure that things remain consistent somehow.
-# I could use hashes or something with git I guess, but that's not human friendly.
-# Not sure what the best solution is.
-# I guess for the grid I could apppend the name with a date or a version, e.g.,
-# `ACCESS-OM-1_grid_v1_20240601.jld2` and then update the code to load that specific file.
-# and do the same for velocites?
-# For the model I am not sure if that's necessary or if should build it on the fly.
-# - grid (save it and load it)
-# - Velocities (save them and load them as NetCDF?)
-# - Diffusion
-# and maybe have the model in a different file
-# - Model
-# And then
-# - Jacobian (make them all from the model)
-# - Run the simulation
-# - Solve the periodic/steady state
+# include("tripolargrid_reader.jl")
 
-@info "Horizontal supergrid"
+# ################################################################################
+# ################################################################################
+# ################################################################################
 
-resolution_str = split(parentmodel, "-")[end]
-supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", "mom$(resolution_str)deg.nc")
-supergrid_ds = open_dataset(supergridfile)
+# # TODO Split out the following parts so that I don't need to re-run the whole thing
+# # every time. But I need to make sure that things remain consistent somehow.
+# # I could use hashes or something with git I guess, but that's not human friendly.
+# # Not sure what the best solution is.
+# # I guess for the grid I could apppend the name with a date or a version, e.g.,
+# # `ACCESS-OM-1_grid_v1_20240601.jld2` and then update the code to load that specific file.
+# # and do the same for velocites?
+# # For the model I am not sure if that's necessary or if should build it on the fly.
+# # - grid (save it and load it)
+# # - Velocities (save them and load them as NetCDF?)
+# # - Diffusion
+# # and maybe have the model in a different file
+# # - Model
+# # And then
+# # - Jacobian (make them all from the model)
+# # - Run the simulation
+# # - Solve the periodic/steady state
 
-# Unpack supergrid data
-# TODO: I think best to extract the raw data here
-# instead of passing YAXArrays
-println("Reading supergrid data into memory...")
-MOMsupergrid = (;
-    x = readcubedata(supergrid_ds.x).data,
-    y = readcubedata(supergrid_ds.y).data,
-    dx = readcubedata(supergrid_ds.dx).data,
-    dy = readcubedata(supergrid_ds.dy).data,
-    area = readcubedata(supergrid_ds.area).data,
-    # For dimensions, use indices lengths instead of full ranges.
-    # This is more consistent with Oceananigans.jl conventions for Nx, Ny, etc.
-    nx = length(supergrid_ds.nx.val),
-    nxp = length(supergrid_ds.nxp.val),
-    ny = length(supergrid_ds.ny.val),
-    nyp = length(supergrid_ds.nyp.val),
-)
+# @info "Horizontal supergrid"
 
-println("Reading vertical grid data into memory...")
-@show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/ocean_vgrid.nc"
-z_ds = open_dataset(MOM_input_vgrid_file)
-z = -reverse(vec(z_ds["zeta"].data[1:2:end])) # from surface to bottom
-Nz = length(z) - 1
+# resolution_str = split(parentmodel, "-")[end]
+# supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", "mom$(resolution_str)deg.nc")
+# supergrid_ds = open_dataset(supergridfile)
 
-println("Building Horizontal grid...")
-underlying_grid = tripolargrid_from_supergrid(
-    arch;
-    MOMsupergrid...,
-    halosize = (4, 4, 4),
-    radius = Oceananigans.defaults.planet_radius,
-    z,
-    Nz,
-)
+# # Unpack supergrid data
+# # TODO: I think best to extract the raw data here
+# # instead of passing YAXArrays
+# println("Reading supergrid data into memory...")
+# MOMsupergrid = (;
+#     x = readcubedata(supergrid_ds.x).data,
+#     y = readcubedata(supergrid_ds.y).data,
+#     dx = readcubedata(supergrid_ds.dx).data,
+#     dy = readcubedata(supergrid_ds.dy).data,
+#     area = readcubedata(supergrid_ds.area).data,
+#     # For dimensions, use indices lengths instead of full ranges.
+#     # This is more consistent with Oceananigans.jl conventions for Nx, Ny, etc.
+#     nx = length(supergrid_ds.nx.val),
+#     nxp = length(supergrid_ds.nxp.val),
+#     ny = length(supergrid_ds.ny.val),
+#     nyp = length(supergrid_ds.nyp.val),
+# )
 
-for metric in (
-        :λᶜᶜᵃ, :φᶜᶜᵃ, :Δxᶜᶜᵃ, :Δyᶜᶜᵃ, :Azᶜᶜᵃ,
-        :λᶜᶠᵃ, :φᶜᶠᵃ, :Δxᶜᶠᵃ, :Δyᶜᶠᵃ, :Azᶜᶠᵃ,
-        :λᶠᶜᵃ, :φᶠᶜᵃ, :Δxᶠᶜᵃ, :Δyᶠᶜᵃ, :Azᶠᶜᵃ,
-        :λᶠᶠᵃ, :φᶠᶠᵃ, :Δxᶠᶠᵃ, :Δyᶠᶠᵃ, :Azᶠᶠᵃ,
-    )
-    plot_surface_field(underlying_grid, metric)
-end
+# println("Reading vertical grid data into memory...")
+# @show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/ocean_vgrid.nc"
+# z_ds = open_dataset(MOM_input_vgrid_file)
+# zeta = -reverse(vec(z_ds["zeta"].data[1:2:end]))
+# z = MutableVerticalDiscretization(zeta) # from surface to bottom
+# Nz = length(zeta) - 1
 
-################################################################################
-################################################################################
-################################################################################
+# println("Building Horizontal grid...")
+# underlying_grid = tripolargrid_from_supergrid(
+#     arch;
+#     MOMsupergrid...,
+#     halosize = (4, 4, 4),
+#     radius = Oceananigans.defaults.planet_radius,
+#     z,
+#     Nz,
+# )
 
-@info "Vertical grid"
+# for metric in (
+#         :λᶜᶜᵃ, :φᶜᶜᵃ, :Δxᶜᶜᵃ, :Δyᶜᶜᵃ, :Azᶜᶜᵃ,
+#         :λᶜᶠᵃ, :φᶜᶠᵃ, :Δxᶜᶠᵃ, :Δyᶜᶠᵃ, :Azᶜᶠᵃ,
+#         :λᶠᶜᵃ, :φᶠᶜᵃ, :Δxᶠᶜᵃ, :Δyᶠᶜᵃ, :Azᶠᶜᵃ,
+#         :λᶠᶠᵃ, :φᶠᶠᵃ, :Δxᶠᶠᵃ, :Δyᶠᶠᵃ, :Azᶠᶠᵃ,
+#     )
+#     plot_surface_field(underlying_grid, metric)
+# end
 
-parentmodel_ik11path = parentmodel == "ACCESS-OM2-1" ? "access-om2" : "access-om2-$(resolution_str)"
-# TODO: Fix this string for 0.1°
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-# Here I use the z-coordinate grid (not using time-dependent dht output)
-# TODO: use the dht from zstar coordinate (commented out below)
-# FIXME: This path will need to be updated for different models/experiments
-@show MOM_output_grid_inputdir = "/g/data/ik11/outputs/$(parentmodel_ik11path)/$experiment/output305/ocean/"
-MOM_output_grid_ds = open_dataset(joinpath(MOM_output_grid_inputdir, "ocean_grid.nc"))
-ht = readcubedata(MOM_output_grid_ds.ht).data
-ht = replace(ht, missing => 0.0)
-kmt = readcubedata(MOM_output_grid_ds.kmt).data
-kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
+# ################################################################################
+# ################################################################################
+# ################################################################################
 
-# TODO: check that Δz from kmt is ≥ 0.2Δz from z levels (from ocean vgrid)
+# @info "Vertical grid"
 
-@show MOM_input_topo_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/topog.nc"
-bottom_ds = open_dataset(MOM_input_topo_file)
-bottom = -readcubedata(bottom_ds["depth"]).data
-bottom = replace(bottom, 9999.0 => 0.0)
+# parentmodel_ik11path = parentmodel == "ACCESS-OM2-1" ? "access-om2" : "access-om2-$(resolution_str)"
+# # TODO: Fix this string for 0.1°
+# experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
+# # Here I use the z-coordinate grid (not using time-dependent dht output)
+# # TODO: use the dht from zstar coordinate (commented out below)
+# # FIXME: This path will need to be updated for different models/experiments
+# @show MOM_output_grid_inputdir = "/g/data/ik11/outputs/$(parentmodel_ik11path)/$experiment/output305/ocean/"
+# MOM_output_grid_ds = open_dataset(joinpath(MOM_output_grid_inputdir, "ocean_grid.nc"))
+# ht = readcubedata(MOM_output_grid_ds.ht).data
+# ht = replace(ht, missing => 0.0)
+# kmt = readcubedata(MOM_output_grid_ds.kmt).data
+# kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
 
-# Check if topography matches kmt and ht
-@assert ht == -bottom
-for idx in eachindex(kbottom)
-    local k = kbottom[idx]
-    ismissing(kmt[idx]) && continue
-    @assert z[k] ≤ bottom[idx] < z[k + 1]
-end
-@info "z coordinate/grid checks passed."
+# @show MOM_input_topo_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/topog.nc"
+# bottom_ds = open_dataset(MOM_input_topo_file)
+# bottom = -readcubedata(bottom_ds["depth"]).data
+# bottom = replace(bottom, 9999.0 => 0.0)
 
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
+# # Check if topography matches kmt and ht
+# @assert ht == -bottom
+# for idx in eachindex(kbottom)
+#     local k = kbottom[idx]
+#     ismissing(kmt[idx]) && continue
+#     @assert zeta[k] ≤ bottom[idx] < zeta[k + 1]
+# end
+# @info "z coordinate/grid checks passed."
 
-# TODO: use time-dependent dht or η to adjust the vertical coordinates like in MOM.
-# dht_ds = open_dataset(joinpath(inputdir, "dht.nc")) # <- (new) cell thickness?
+# time_window = "Jan1960-Dec1979"
+# @show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
+
+# # TODO: use time-dependent dht or η to adjust the vertical coordinates like in MOM.
+# dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc")) # <- (new) cell thickness?
 # dht = readcubedata(dht_ds.dht)
 
-# Then immerge the grid cells with partial cells at the bottom
-bottom = on_architecture(arch, bottom)
-grid = ImmersedBoundaryGrid(
-    underlying_grid, PartialCellBottom(bottom);
-    active_cells_map = true,
-    active_z_columns = true,
-)
+# # Then immerge the grid cells with partial cells at the bottom
+# bottom = on_architecture(arch, bottom)
+# grid = ImmersedBoundaryGrid(
+#     underlying_grid, PartialCellBottom(bottom);
+#     active_cells_map = true,
+#     active_z_columns = true,
+# )
 
-if save_grid
-    @info "Saving grid"
-    code_to_reconstruct_the_grid = """
-        gd = load(grid_file) # gd for grid Dict
-        underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
-            arch,
-            gd["Nx"], gd["Ny"], gd["Nz"],
-            gd["Hx"], gd["Hy"], gd["Hz"],
-            convert(FT, gd["Lz"]),
-            on_architecture(arch, map(FT, gd["λᶜᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["λᶠᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["λᶜᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["λᶠᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["φᶜᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
-            on_architecture(arch, gd["z"]),
-            on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["Δxᶠᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["Δyᶜᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Δyᶠᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Δyᶜᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["Δyᶠᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["Azᶜᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Azᶠᶜᵃ"])),
-            on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
-            on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
-            convert(FT, gd["radius"]),
-            # TODO: this mapping to Tripolar should be replaced with a custom one
-            Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
-        )
-        grid = ImmersedBoundaryGrid(
-            underlying_grid, PartialCellBottom(gd["bottom"]);
-            active_cells_map = true,
-            active_z_columns = true,
-        )
-    """
-    save(
-        joinpath(outputdir, "$(parentmodel)_grid.jld2"),
-        Dict(
-            "Note" => "This file was created by Benoit Pasquier (2026) from work in progress and thus comes with zero guarantees!",
-            "Nx" => underlying_grid.Nx,
-            "Ny" => underlying_grid.Ny,
-            "Nz" => underlying_grid.Nz,
-            "Hx" => underlying_grid.Hx,
-            "Hy" => underlying_grid.Hy,
-            "Hz" => underlying_grid.Hz,
-            "Lz" => underlying_grid.Lz,
-            "λᶜᶜᵃ" => underlying_grid.λᶜᶜᵃ,
-            "λᶠᶜᵃ" => underlying_grid.λᶠᶜᵃ,
-            "λᶜᶠᵃ" => underlying_grid.λᶜᶠᵃ,
-            "λᶠᶠᵃ" => underlying_grid.λᶠᶠᵃ,
-            "φᶜᶜᵃ" => underlying_grid.φᶜᶜᵃ,
-            "φᶠᶜᵃ" => underlying_grid.φᶠᶜᵃ,
-            "φᶜᶠᵃ" => underlying_grid.φᶜᶠᵃ,
-            "φᶠᶠᵃ" => underlying_grid.φᶠᶠᵃ,
-            "Δxᶜᶜᵃ" => underlying_grid.Δxᶜᶜᵃ,
-            "Δxᶠᶜᵃ" => underlying_grid.Δxᶠᶜᵃ,
-            "Δxᶜᶠᵃ" => underlying_grid.Δxᶜᶠᵃ,
-            "Δxᶠᶠᵃ" => underlying_grid.Δxᶠᶠᵃ,
-            "Δyᶜᶜᵃ" => underlying_grid.Δyᶜᶜᵃ,
-            "Δyᶠᶜᵃ" => underlying_grid.Δyᶠᶜᵃ,
-            "Δyᶜᶠᵃ" => underlying_grid.Δyᶜᶠᵃ,
-            "Δyᶠᶠᵃ" => underlying_grid.Δyᶠᶠᵃ,
-            "Azᶜᶜᵃ" => underlying_grid.Azᶜᶜᵃ,
-            "Azᶠᶜᵃ" => underlying_grid.Azᶠᶜᵃ,
-            "Azᶜᶠᵃ" => underlying_grid.Azᶜᶠᵃ,
-            "Azᶠᶠᵃ" => underlying_grid.Azᶠᶠᵃ,
-            "z" => underlying_grid.z,
-            "bottom" => bottom,
-            "radius" => underlying_grid.radius,
-            "north_poles_latitude" => underlying_grid.conformal_mapping.north_poles_latitude,
-            "first_pole_longitude" => underlying_grid.conformal_mapping.first_pole_longitude,
-            "southernmost_latitude" => underlying_grid.conformal_mapping.southernmost_latitude,
-            "code_to_reconstruct_the_grid" => code_to_reconstruct_the_grid,
-        )
-    )
 
-end
+# if save_grid
+#     @info "Saving grid"
+#     code_to_reconstruct_the_grid = """
+#         gd = load(grid_file) # gd for grid Dict
+#         underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
+#             arch,
+#             gd["Nx"], gd["Ny"], gd["Nz"],
+#             gd["Hx"], gd["Hy"], gd["Hz"],
+#             convert(FT, gd["Lz"]),
+#             on_architecture(arch, map(FT, gd["λᶜᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["λᶠᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["λᶜᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["λᶠᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["φᶜᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
+#             on_architecture(arch, gd["z"]),
+#             on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δxᶠᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δyᶜᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δyᶠᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δyᶜᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["Δyᶠᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["Azᶜᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Azᶠᶜᵃ"])),
+#             on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
+#             on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
+#             convert(FT, gd["radius"]),
+#             # TODO: this mapping to Tripolar should be replaced with a custom one
+#             Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
+#         )
+#         grid = ImmersedBoundaryGrid(
+#             underlying_grid, PartialCellBottom(gd["bottom"]);
+#             active_cells_map = true,
+#             active_z_columns = true,
+#         )
+#     """
+#     save(
+#         joinpath(outputdir, "$(parentmodel)_grid.jld2"),
+#         Dict(
+#             "Note" => "This file was created by Benoit Pasquier (2026) from work in progress and thus comes with zero guarantees!",
+#             "Nx" => underlying_grid.Nx,
+#             "Ny" => underlying_grid.Ny,
+#             "Nz" => underlying_grid.Nz,
+#             "Hx" => underlying_grid.Hx,
+#             "Hy" => underlying_grid.Hy,
+#             "Hz" => underlying_grid.Hz,
+#             "Lz" => underlying_grid.Lz,
+#             "λᶜᶜᵃ" => underlying_grid.λᶜᶜᵃ,
+#             "λᶠᶜᵃ" => underlying_grid.λᶠᶜᵃ,
+#             "λᶜᶠᵃ" => underlying_grid.λᶜᶠᵃ,
+#             "λᶠᶠᵃ" => underlying_grid.λᶠᶠᵃ,
+#             "φᶜᶜᵃ" => underlying_grid.φᶜᶜᵃ,
+#             "φᶠᶜᵃ" => underlying_grid.φᶠᶜᵃ,
+#             "φᶜᶠᵃ" => underlying_grid.φᶜᶠᵃ,
+#             "φᶠᶠᵃ" => underlying_grid.φᶠᶠᵃ,
+#             "Δxᶜᶜᵃ" => underlying_grid.Δxᶜᶜᵃ,
+#             "Δxᶠᶜᵃ" => underlying_grid.Δxᶠᶜᵃ,
+#             "Δxᶜᶠᵃ" => underlying_grid.Δxᶜᶠᵃ,
+#             "Δxᶠᶠᵃ" => underlying_grid.Δxᶠᶠᵃ,
+#             "Δyᶜᶜᵃ" => underlying_grid.Δyᶜᶜᵃ,
+#             "Δyᶠᶜᵃ" => underlying_grid.Δyᶠᶜᵃ,
+#             "Δyᶜᶠᵃ" => underlying_grid.Δyᶜᶠᵃ,
+#             "Δyᶠᶠᵃ" => underlying_grid.Δyᶠᶠᵃ,
+#             "Azᶜᶜᵃ" => underlying_grid.Azᶜᶜᵃ,
+#             "Azᶠᶜᵃ" => underlying_grid.Azᶠᶜᵃ,
+#             "Azᶜᶠᵃ" => underlying_grid.Azᶜᶠᵃ,
+#             "Azᶠᶠᵃ" => underlying_grid.Azᶠᶠᵃ,
+#             "z" => underlying_grid.z,
+#             "bottom" => bottom,
+#             "radius" => underlying_grid.radius,
+#             "north_poles_latitude" => underlying_grid.conformal_mapping.north_poles_latitude,
+#             "first_pole_longitude" => underlying_grid.conformal_mapping.first_pole_longitude,
+#             "southernmost_latitude" => underlying_grid.conformal_mapping.southernmost_latitude,
+#             "code_to_reconstruct_the_grid" => code_to_reconstruct_the_grid,
+#         )
+#     )
 
-Nx, Ny, Nz = size(grid)
+# end
 
-h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
-fig = Figure()
-ax = Axis(fig[2, 1], aspect = 2.0)
-hm = surface!(
-    ax,
-    1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
-    1:Ny, #view(grid.underlying_grid.φᶜᶜᵃ, 1:Nx, 1:Ny),
-    view(h.data, 1:Nx, 1:Ny, 1);
-    colormap = :viridis
-)
-Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
+# Nx, Ny, Nz = size(grid)
 
-################################################################################
-################################################################################
-################################################################################
+# h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
+# fig = Figure()
+# ax = Axis(fig[2, 1], aspect = 2.0)
+# hm = surface!(
+#     ax,
+#     1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
+#     1:Ny, #view(grid.underlying_grid.φᶜᶜᵃ, 1:Nx, 1:Ny),
+#     view(h.data, 1:Nx, 1:Ny, 1);
+#     colormap = :viridis
+# )
+# Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
+# save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
 
-@info "Velocities"
+# ################################################################################
+# ################################################################################
+# ################################################################################
 
-# TODO: Probably factor this out into separate setup file,
-# to be run once to sabe to JLD2 or something else,
-# And then just load it here.
-# just in case it fills up all the GPU memory (not sure it does)
-# TODO: Figure out the best way to load the data for performance (IO).
+# @info "Velocities"
 
-u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
-v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
+# # TODO: Probably factor this out into separate setup file,
+# # to be run once to sabe to JLD2 or something else,
+# # And then just load it here.
+# # just in case it fills up all the GPU memory (not sure it does)
+# # TODO: Figure out the best way to load the data for performance (IO).
 
-# TODO: Comment/uncomment below. Setting very short fts_times for testing
-# prescribed_Δt = 1month
-# prescribed_Δt = 1day
-prescribed_Δt = 1Δt
-fts_times = ((1:12) .- 0.5) * prescribed_Δt
+# u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
+# v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 
-u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; time_indexing = Cyclical(1year))
-v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; time_indexing = Cyclical(1year))
-w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; time_indexing = Cyclical(1year))
+# # TODO: Comment/uncomment below. Setting very short fts_times for testing
+# # prescribed_Δt = 1month
+# # prescribed_Δt = 1day
+# prescribed_Δt = 1Δt
+# fts_times = ((1:12) .- 0.5) * prescribed_Δt
 
-print("month ")
-for month in 1:12
-    print("$month, ")
+# u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; time_indexing = Cyclical(1year))
+# v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; time_indexing = Cyclical(1year))
+# w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; time_indexing = Cyclical(1year))
 
-    u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
-    v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+# print("month ")
+# for month in 1:12
+#     print("$month, ")
 
-    # Place u and v data on Oceananigans B-grid
-    u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-
-    # for k in 1:50
-    for k in 25:25
-        local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "B-grid u[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(u_Bgrid), :, :, k)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "B-grid v[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(v_Bgrid), :, :, k)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[2, 2], hm)
-        save(joinpath(outputdir, "velocities/BGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
-    end
-
-    # Then interpolate to C-grid
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
-
-    # for k in 1:50
-    for k in 25:25
-        local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(u), :, :, k)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(v), :, :, k)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[2, 2], hm)
-        save(joinpath(outputdir, "velocities/CGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
-    end
-
-    # Then compute w from continuity
-    w = Field{Center, Center, Face}(grid)
-    mask_immersed_field!(u, 0.0)
-    mask_immersed_field!(v, 0.0)
-    fill_halo_regions!(u)
-    fill_halo_regions!(v)
-    velocities = (u, v, w)
-    HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
-    u, v, w = velocities
-
-    for k in 1:50
-    # for k in 25:25
-        local fig = Figure(size = (1200, 1800))
-        local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(u), :, :, k)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(v), :, :, k)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[2, 2], hm)
-        ax = Axis(fig[3, 1], title = "C-grid w[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(w), :, :, k + 1)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[3, 2], hm)
-        save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_month$(month)_$(typeof(arch)).png"), fig)
-    end
-
-    # u2, v2, w2 = deepcopy(u), deepcopy(v), deepcopy(w)
-    # mask_immersed_field!(v2, NaN)
-    # mask_immersed_field!(w2, NaN)
-    # mask_immersed_field!(u2, NaN)
-    # k = Nz
-    # opt = (; colormap = :RdBu, colorrange = (-1, 1), nan_color = (:black, 1))
-    # fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
-    # plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
-    # Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
-    # save(joinpath(outputdir, "velocities/surface_u_heatmap_$(typeof(arch)).png"), fig)
-
-    set!(u_ts, u, month)
-    set!(v_ts, v, month)
-    set!(w_ts, w, month)
-
-end
-println("Done!")
-
-velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
-
-# TODO: Below was attemps at a callback before GLW PR for prescribed time series.
-# Can probably already delete.
-#
-# month = 1
-#
-# function get_monthly_velocities(grid, month)
 #     u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
 #     v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+
+#     # Place u and v data on Oceananigans B-grid
 #     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+
+#     # for k in 1:50
+#     for k in 25:25
+#         local fig = Figure(size = (1200, 1200))
+#         local ax = Axis(fig[1, 1], title = "B-grid u[k=$k, month=$month]")
+#         local velocity2D = view(make_plottable_array(u_Bgrid), :, :, k)
+#         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[1, 2], hm)
+#         ax = Axis(fig[2, 1], title = "B-grid v[k=$k, month=$month]")
+#         velocity2D = view(make_plottable_array(v_Bgrid), :, :, k)
+#         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[2, 2], hm)
+#         save(joinpath(outputdir, "velocities/BGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
+#     end
+
 #     # Then interpolate to C-grid
 #     u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
+
+#     # for k in 1:50
+#     for k in 25:25
+#         local fig = Figure(size = (1200, 1200))
+#         local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
+#         local velocity2D = view(make_plottable_array(u), :, :, k)
+#         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[1, 2], hm)
+#         ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
+#         velocity2D = view(make_plottable_array(v), :, :, k)
+#         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[2, 2], hm)
+#         save(joinpath(outputdir, "velocities/CGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
+#     end
+
 #     # Then compute w from continuity
 #     w = Field{Center, Center, Face}(grid)
 #     mask_immersed_field!(u, 0.0)
@@ -443,155 +386,218 @@ velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 #     velocities = (u, v, w)
 #     HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
 #     u, v, w = velocities
-#     return PrescribedVelocityFields(; u, v, w)
-# end
-# velocities = get_monthly_velocities(grid, 1)
-# # Add callback to update velocities
-# function update_monthly_mean_velocities(sim)
-#     current_time = time(sim)
-#     current_month = current_time \div month
-#     last_time = current_time - sim.Δt
-#     velocities = get_monthly_velocities(grid, 1)
-# add_callback!(sim, update_monthly_mean_velocities, IterationInterval(1), name = :update_velocities)
 
-################################################################################
-################################################################################
-################################################################################
+#     # for k in 1:50
+#     for k in 25:25
+#         local fig = Figure(size = (1200, 1800))
+#         local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
+#         local velocity2D = view(make_plottable_array(u), :, :, k)
+#         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[1, 2], hm)
+#         ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
+#         velocity2D = view(make_plottable_array(v), :, :, k)
+#         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[2, 2], hm)
+#         ax = Axis(fig[3, 1], title = "C-grid w[k=$k, month=$month]")
+#         velocity2D = view(make_plottable_array(w), :, :, k + 1)
+#         # maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+#         maxvelocity = maximum(abs.(velocity2D[.!isnan.(velocity2D)]))
+#         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+#         Colorbar(fig[3, 2], hm)
+#         save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_month$(month)_$(typeof(arch)).png"), fig)
+#     end
 
-@info "Diffusion"
+#     # u2, v2, w2 = deepcopy(u), deepcopy(v), deepcopy(w)
+#     # mask_immersed_field!(v2, NaN)
+#     # mask_immersed_field!(w2, NaN)
+#     # mask_immersed_field!(u2, NaN)
+#     # k = Nz
+#     # opt = (; colormap = :RdBu, colorrange = (-1, 1), nan_color = (:black, 1))
+#     # fig, ax, plt = heatmap(view(u2.data, 1:Nx, 1:Ny, k); opt..., axis = (; title = "u at k = $k"))
+#     # plt2 = heatmap(fig[2, 1], view(u2.data, 1:Nx, 1:Ny, k - 1); opt..., axis = (; title = "u at k = $(k - 1)"))
+#     # Label(fig[0, 1], "Near surface u (black = NaNs)", tellwidth = false)
+#     # save(joinpath(outputdir, "velocities/surface_u_heatmap_$(typeof(arch)).png"), fig)
 
-# TODO: Try to match ACCESS-OM2 as much as possible
+#     set!(u_ts, u, month)
+#     set!(v_ts, v, month)
+#     set!(w_ts, w, month)
 
-κVML = 0.1    # m^2/s in the mixed layer
-κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
-
-# κVField_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times)
-
-# # Load MLD to add strong vertical diffusion in the mixed layer
-# mld_ds = open_dataset(joinpath(inputdir, "mld_periodic.nc"))
-
-# print("month ")
-# for month in 1:12
-#     print("$month, ")
-
-#     mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld[month = At(month)]).data, NaN => 0.0))
-#     z_center = znodes(grid, Center(), Center(), Center())
-#     is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-#     κVField = CenterField(grid)
-#     set!(κVField, κVML * is_mld + κVBG * .!is_mld)
-
-#     # fig, ax, plt = heatmap(
-#     #     make_plottable_array(κVField)[:, :, 10];
-#     #     colorscale = log10,
-#     #     colormap = :viridis,
-#     #     axis = (; title = "Vertical diffusivity at k = 10"),
-#     #     colorrange = (1e-5, 3e-1),
-#     #     lowclip = :red,
-#     #     highclip = :ADcyan,
-#     # )
-#     # Colorbar(fig[1, 2], plt, ticks = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1])
-#     # save(joinpath(outputdir, "vertical_diffusivity_k10_month$(month)_$(typeof(arch)).png"), fig)
-
-#     set!(κVField_ts, κVField, month)
 # end
 # println("Done!")
 
-# TODO: Implement FieldTimeSeries support for diffusivity closures?
-# Load MLD to add strong vertical diffusion in the mixed layer
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
-mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
-z_center = znodes(grid, Center(), Center(), Center())
-is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-κVField = CenterField(grid)
-set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+# velocities = PrescribedVelocityFields(; u = u_ts, v = v_ts, w = w_ts)
 
-implicit_vertical_diffusion = VerticalScalarDiffusivity(
-    VerticallyImplicitTimeDiscretization(); # <- TODO: Check if needed (I think this is the default)
-    # κ = κVField_ts, # <- need FieldTimeSeries support for that
-    κ = κVField
-)
-explicit_vertical_diffusion = VerticalScalarDiffusivity(
-    ExplicitTimeDiscretization();
-    # κ = κVField_ts, # <- need FieldTimeSeries support for that
-    κ = κVField
-)
-horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
-# TODO: Try GM + Redi diffusion
-# horizontal_diffusion = IsopycnalSkewSymmetricDiffusivity(
-#     κ_skew = 300,
-#     κ_symmetric = 300,
+# # TODO: Below was attemps at a callback before GLW PR for prescribed time series.
+# # Can probably already delete.
+# #
+# # month = 1
+# #
+# # function get_monthly_velocities(grid, month)
+# #     u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
+# #     v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+# #     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+# #     # Then interpolate to C-grid
+# #     u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
+# #     # Then compute w from continuity
+# #     w = Field{Center, Center, Face}(grid)
+# #     mask_immersed_field!(u, 0.0)
+# #     mask_immersed_field!(v, 0.0)
+# #     fill_halo_regions!(u)
+# #     fill_halo_regions!(v)
+# #     velocities = (u, v, w)
+# #     HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
+# #     u, v, w = velocities
+# #     return PrescribedVelocityFields(; u, v, w)
+# # end
+# # velocities = get_monthly_velocities(grid, 1)
+# # # Add callback to update velocities
+# # function update_monthly_mean_velocities(sim)
+# #     current_time = time(sim)
+# #     current_month = current_time \div month
+# #     last_time = current_time - sim.Δt
+# #     velocities = get_monthly_velocities(grid, 1)
+# # add_callback!(sim, update_monthly_mean_velocities, IterationInterval(1), name = :update_velocities)
+
+# ################################################################################
+# ################################################################################
+# ################################################################################
+
+# @info "Diffusion"
+
+# # TODO: Try to match ACCESS-OM2 as much as possible
+
+# κVML = 0.1    # m^2/s in the mixed layer
+# κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
+
+# # κVField_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times)
+
+# # # Load MLD to add strong vertical diffusion in the mixed layer
+# # mld_ds = open_dataset(joinpath(inputdir, "mld_periodic.nc"))
+
+# # print("month ")
+# # for month in 1:12
+# #     print("$month, ")
+
+# #     mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld[month = At(month)]).data, NaN => 0.0))
+# #     z_center = znodes(grid, Center(), Center(), Center())
+# #     is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+# #     κVField = CenterField(grid)
+# #     set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+
+# #     # fig, ax, plt = heatmap(
+# #     #     make_plottable_array(κVField)[:, :, 10];
+# #     #     colorscale = log10,
+# #     #     colormap = :viridis,
+# #     #     axis = (; title = "Vertical diffusivity at k = 10"),
+# #     #     colorrange = (1e-5, 3e-1),
+# #     #     lowclip = :red,
+# #     #     highclip = :ADcyan,
+# #     # )
+# #     # Colorbar(fig[1, 2], plt, ticks = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1])
+# #     # save(joinpath(outputdir, "vertical_diffusivity_k10_month$(month)_$(typeof(arch)).png"), fig)
+
+# #     set!(κVField_ts, κVField, month)
+# # end
+# # println("Done!")
+
+# # TODO: Implement FieldTimeSeries support for diffusivity closures?
+# # Load MLD to add strong vertical diffusion in the mixed layer
+# mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
+# mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
+# z_center = znodes(grid, Center(), Center(), Center())
+# is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+# κVField = CenterField(grid)
+# set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+
+# implicit_vertical_diffusion = VerticalScalarDiffusivity(
+#     VerticallyImplicitTimeDiscretization(); # <- TODO: Check if needed (I think this is the default)
+#     # κ = κVField_ts, # <- need FieldTimeSeries support for that
+#     κ = κVField
+# )
+# explicit_vertical_diffusion = VerticalScalarDiffusivity(
+#     ExplicitTimeDiscretization();
+#     # κ = κVField_ts, # <- need FieldTimeSeries support for that
+#     κ = κVField
+# )
+# horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+# # TODO: Try GM + Redi diffusion
+# # horizontal_diffusion = IsopycnalSkewSymmetricDiffusivity(
+# #     κ_skew = 300,
+# #     κ_symmetric = 300,
+# # )
+
+# # Combine them all into a single diffusion closure
+# # TODO: Remove mixed_layer_diffusion if 0.1°?
+# closure = (
+#     horizontal_diffusion,
+#     implicit_vertical_diffusion,
+# )
+# explicit_closure = (
+#     horizontal_diffusion,
+#     explicit_vertical_diffusion,
+# )
+# ################################################################################
+# ################################################################################
+# ################################################################################
+
+# @info "Model"
+
+# # Maybe I should clamp the age manually after all?
+# # @kernel function _age_forcing_callback(age, Nz, age_initial, elapsed_time)
+# #     i, j, k = @index(Global, NTuple)
+
+# #     age[i, j, k] = ifelse(k == Nz, 0, age[i, j, k])
+# #     age[i, j, k] = max(age[i, j, k], 0)
+# #     age[i, j, k] = min(age[i, j, k], age_initial[i, j, k] + elapsed_time)
+
+# # end
+
+# # function age_forcing_callback(sim)
+# #     age = sim.model.tracers.age
+# #     Nz = sim.model.grid.Nz
+# #     age[:,:,Nz] .= 0.0
+# #     clamp!(age[:,:,Nz], 0.0, Inf)
+# # end
+
+
+# age_parameters = (;
+#     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
+#     source_rate = 1.0,          # Source for the age (1 second / second)
 # )
 
-# Combine them all into a single diffusion closure
-# TODO: Remove mixed_layer_diffusion if 0.1°?
-closure = (
-    horizontal_diffusion,
-    implicit_vertical_diffusion,
-)
-explicit_closure = (
-    horizontal_diffusion,
-    explicit_vertical_diffusion,
-)
-################################################################################
-################################################################################
-################################################################################
+# @inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+# # TODO Do I really need a linear age source/sink? Maybe just rename ADc to age and reuse the same source/sink?
+# @inline linear_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.ADc[i, j, k] / params.relaxation_timescale, 0.0)
+# # @inline age_jvp_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, 0.0)
+# # @inline age_source_sink(i, j, k, grid, clock, fields, params) = params.source_rate
 
-@info "Model"
-
-# Maybe I should clamp the age manually after all?
-# @kernel function _age_forcing_callback(age, Nz, age_initial, elapsed_time)
-#     i, j, k = @index(Global, NTuple)
-
-#     age[i, j, k] = ifelse(k == Nz, 0, age[i, j, k])
-#     age[i, j, k] = max(age[i, j, k], 0)
-#     age[i, j, k] = min(age[i, j, k], age_initial[i, j, k] + elapsed_time)
-
-# end
-
-# function age_forcing_callback(sim)
-#     age = sim.model.tracers.age
-#     Nz = sim.model.grid.Nz
-#     age[:,:,Nz] .= 0.0
-#     clamp!(age[:,:,Nz], 0.0, Inf)
-# end
-
-
-age_parameters = (;
-    relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
-    source_rate = 1.0,          # Source for the age (1 second / second)
-)
-
-@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
-# TODO Do I really need a linear age source/sink? Maybe just rename ADc to age and reuse the same source/sink?
-@inline linear_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.ADc[i, j, k] / params.relaxation_timescale, 0.0)
-# @inline age_jvp_source(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, 0.0)
-# @inline age_source_sink(i, j, k, grid, clock, fields, params) = params.source_rate
-
-age_dynamics = Forcing(
-    age_source_sink,
-    parameters = age_parameters,
-    discrete_form = true,
-)
-linear_dynamics = Forcing(
-    linear_source_sink,
-    parameters = age_parameters,
-    discrete_form = true,
-)
-# age_jvp_dynamics = Forcing(
-#     age_jvp_source,
+# age_dynamics = Forcing(
+#     age_source_sink,
 #     parameters = age_parameters,
 #     discrete_form = true,
 # )
-forcing = (
-    age = age_dynamics,
-)
-linear_forcing = (
-    ADc = linear_dynamics,
-)
+# linear_dynamics = Forcing(
+#     linear_source_sink,
+#     parameters = age_parameters,
+#     discrete_form = true,
+# )
+# # age_jvp_dynamics = Forcing(
+# #     age_jvp_source,
+# #     parameters = age_parameters,
+# #     discrete_form = true,
+# # )
+# forcing = (
+#     age = age_dynamics,
+# )
+# linear_forcing = (
+#     ADc = linear_dynamics,
+# )
 
-# Tracer for autodiff tracing
-ADc0 = CenterField(grid)
-age0 = CenterField(grid)
+# # Tracer for autodiff tracing
+# ADc0 = CenterField(grid)
+# age0 = CenterField(grid)
 
 # For building the Jacobian via autodiff I need to create a second model
 # with linear forcings and explicit diffusion. So here I use common kwargs
@@ -602,7 +608,6 @@ model_common_kwargs = (
     # tracer_advection = UpwindBiased(),
     # timestepper = :SplitRungeKutta3, # <- to try and improve numerical stability over AB2
     velocities = velocities,
-    buoyancy = nothing,
 )
 model_kwargs = (;
     model_common_kwargs...,
@@ -618,6 +623,12 @@ jacobian_model_kwargs = (
 )
 
 model = HydrostaticFreeSurfaceModel(grid; model_kwargs...)
+
+# TODO: This does not work with a MutableVerticalDiscretization, without a
+# free_surface kwarg I guess. But I would rather a PrescribedFreeSurface() instead.
+# I asked on Slack but this might be a tall order.
+
+foo
 
 ################################################################################
 ################################################################################
