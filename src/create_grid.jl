@@ -111,6 +111,10 @@ grid = ImmersedBoundaryGrid(
 # Save grid to JLD2
 ################################################################################
 
+# TODO turn this into a function and place it in tripolargrid_reader.jl,
+# and then here just call that function to save the grid.
+# TODO: Maybe someone can write a NetCDF writer/reader for OrthogonalSphericalShellGrid
+
 @info "Saving grid to JLD2"
 
 code_to_reconstruct_the_grid = """

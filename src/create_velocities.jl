@@ -53,52 +53,98 @@ include("tripolargrid_reader.jl")
 # Load grid from JLD2
 ################################################################################
 
-@info "Loading grid data from JLD2"
-
-FT = Float64
+@info "Loading and reconstructing grid from JLD2 data"
 grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
-
-@info "Constructing grid"
-# This below is copy-pasted from the saved string in gd
-gd = load(grid_file) # gd for grid Dict
-underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
-    arch,
-    gd["Nx"], gd["Ny"], gd["Nz"],
-    gd["Hx"], gd["Hy"], gd["Hz"],
-    convert(FT, gd["Lz"]),
-    on_architecture(arch, map(FT, gd["λᶜᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["λᶠᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["λᶜᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["λᶠᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["φᶜᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
-    on_architecture(arch, gd["z"]),
-    on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["Δxᶠᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["Δyᶜᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Δyᶠᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Δyᶜᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["Δyᶠᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["Azᶜᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Azᶠᶜᵃ"])),
-    on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
-    on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
-    convert(FT, gd["radius"]),
-    Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
-)
-
-grid = ImmersedBoundaryGrid(
-    underlying_grid, PartialCellBottom(gd["bottom"]);
-    active_cells_map = true,
-    active_z_columns = true,
-)
+grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
+
+################################################################################
+# Functions + kernels for creating velocities
+################################################################################
+
+@kernel function compute_Bgrid_velocity_from_MOM_output!(
+        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        u_data, v_data    # B-grid u and v from MOM
+    )
+
+    i, j, k = @index(Global, NTuple)
+
+    # The MOM B-grid places u and V at NE corners of the cells,
+    # while Oceananigans places them at SW corners.
+    # So we need to shift the data by one index in both i and j.
+    # That means we need to wrap around the i index (periodic longitude),
+    # and set j = 1 row to zero (both u and v).
+    # Also, MOM vertical coordinate is flipped compared to Oceananigans,
+    # so we need to flip that as well.
+
+    𝑖 = mod1(i - 1, Nx)
+    𝑗 = max(j - 1, 1)
+    zero_first_row = ifelse(j == 1, 0.0, 1.0)
+    𝑘 = Nz - k + 1 # flip vertical
+
+    u[i, j, k] = zero_first_row * u_data[𝑖, 𝑗, 𝑘]
+    v[i, j, k] = zero_first_row * v_data[𝑖, 𝑗, 𝑘]
+end
+
+"""
+Places u or v data on the Oceananigans B-grid from MOM output.
+
+It shifts the data from the NE corners (MOM convention)
+to the SW corners (Oceananigans convention).
+It also flips the vertical coordinate.
+j = 1 row is set to zero (both u and v).
+i = 1 column is set by wrapping around the data (periodic longitude).
+"""
+function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+    # north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper{FPivot}(), -1)
+    north = FPivotZipperBoundaryCondition(-1)
+
+    loc = (Face(), Face(), Center())
+    boundary_conditions = FieldBoundaryConditions(grid, loc; north)
+
+    u = Field(loc, grid; boundary_conditions)
+    v = Field(loc, grid; boundary_conditions)
+
+    Nx, Ny, Nz = size(grid)
+
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+
+    arch = architecture(grid)
+
+    launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
+        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        on_architecture(arch, u_data), on_architecture(arch, v_data)    # B-grid u and v from MOM
+    )
+
+    Oceananigans.BoundaryConditions.fill_halo_regions!(u)
+    Oceananigans.BoundaryConditions.fill_halo_regions!(v)
+
+    return u, v
+end
+
+function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
+
+    north = FPivotZipperBoundaryCondition(-1)
+
+    ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north)
+    vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north)
+
+    u = XFaceField(grid; boundary_conditions = ubcs)
+    v = YFaceField(grid; boundary_conditions = vbcs)
+
+    interp_u = @at (Face, Center, Center) 1 * uFF
+    interp_v = @at (Center, Face, Center) 1 * vFF
+
+    u .= interp_u
+    v .= interp_v
+
+    return u, v
+end
+
+
+
 
 ################################################################################
 # Create velocities
@@ -203,15 +249,10 @@ for month in 1:12
 
     fig = Figure(size = (1200, 600))
     ax = Axis(fig[1, 1], title = "sea surface height[month=$month]")
-    @info "plottable_η"
     plottable_η = view(make_plottable_array(η), :, :, 1)
-    @info "maxη"
     maxη = maximum(abs.(plottable_η[.!isnan.(plottable_η)]))
-    @info "hm"
     hm = heatmap!(ax, plottable_η; colormap = :RdBu_9, colorrange = maxη .* (-1, 1), nan_color = :black)
-    @info "colorbar"
     Colorbar(fig[1, 2], hm)
-    @info "savefig"
     save(joinpath(outputdir, "velocities/sea_surface_height_month$(month)_$(typeof(arch)).png"), fig)
 
     #  TODO move this visualization to after a simulation that outputs u, v, w, and η,
@@ -241,4 +282,9 @@ for month in 1:12
 end
 println("Done!")
 
-@info "Velocities and sea surface height saved to $(u_file), $(v_file), and $(η_file)"
+@info("""
+Velocities and sea surface height saved to
+- $(u_file)
+- $(v_file)
+- $(η_file)
+""")

@@ -55,6 +55,7 @@ using YAXArrays
 using DimensionalData
 using NCDatasets
 using NetCDF
+using TOML
 using JLD2
 using Printf
 using CairoMakie
@@ -70,14 +71,34 @@ using OceanTransportMatrixBuilder
 import Pardiso # import Pardiso instead of using (to avoid name clash?)
 const nprocs = 12
 
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+# Determine which model profile to use. Priority:
+# 1. ARGS[1] passed to julia
+# 2. ENV["PARENTMODEL"]
+# 3. `defaults.parentmodel` in LocalPreferences.toml
+# 4. fallback to ACCESS-OM2-1
+cfg_file = "LocalPreferences.toml"
+cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
+
+parentmodel = if !isempty(ARGS)
+    ARGS[1]
+elseif haskey(ENV, "PARENTMODEL")
+    ENV["PARENTMODEL"]
+else
+    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
+end
+
+profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
+if profile === nothing
+    @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
+    outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+    Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
+else
+    outputdir = profile["outputdir"]
+    Δt = profile["dt_seconds"] * second
+end
+
 mkpath(outputdir)
 save_grid = false
-
-Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
 # TODO: Maybe I should only use the supergrid for the locations
 # of center/face/corner points but otherwise use the "standard"
@@ -96,73 +117,26 @@ include("tripolargrid_reader.jl")
 # Load grid from JLD2
 ################################################################################
 
-@info "Loading grid from JLD2"
-
-FT = Float64
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-
+@info "Loading and reconstructing grid from JLD2 data"
 grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
-if !isfile(grid_file)
-    error("Grid file not found: $grid_file\nPlease run create_grid.jl first")
-end
-
-gd = load(grid_file)
-
-# Reconstruct the grid from saved data
-underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
-    arch,
-    gd["Nx"], gd["Ny"], gd["Nz"],
-    gd["Hx"], gd["Hy"], gd["Hz"],
-    convert(FT, gd["Lz"]),
-    on_architecture(arch, map(FT, Array(gd["λᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶠᶠᵃ"]))),
-    on_architecture(arch, Array(gd["z"])),
-    on_architecture(arch, map(FT, Array(gd["Δxᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶠᶠᵃ"]))),
-    convert(FT, gd["radius"]),
-    Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
-)
-
-grid = ImmersedBoundaryGrid(
-    underlying_grid, PartialCellBottom(on_architecture(arch, gd["bottom"]));
-    active_cells_map = true,
-    active_z_columns = true,
-)
+grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
 
-# Plot bottom height
-h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
-fig = Figure()
-ax = Axis(fig[2, 1], aspect = 2.0)
-hm = surface!(
-    ax,
-    1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
-    1:Ny, #view(grid.underlying_grid.φᶜᶜᵃ, 1:Nx, 1:Ny),
-    view(h.data, 1:Nx, 1:Ny, 1);
-    colormap = :viridis
-)
-Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
+# # Plot bottom height
+# h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
+# fig = Figure()
+# ax = Axis(fig[2, 1], aspect = 2.0)
+# hm = surface!(
+#     ax,
+#     1:Nx, #view(grid.underlying_grid.λᶜᶜᵃ, 1:Nx, 1:Ny),
+#     1:Ny, #view(grid.underlying_grid.φᶜᶜᵃ, 1:Nx, 1:Ny),
+#     view(h.data, 1:Nx, 1:Ny, 1);
+#     colormap = :viridis
+# )
+# Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
+# save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
 
 ################################################################################
 ################################################################################
@@ -170,87 +144,52 @@ save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
 
 @info "Loading velocities from disk"
 
-velocities_file = joinpath(outputdir, "$(parentmodel)_velocities.jld2")
-if !isfile(velocities_file)
-    error("Velocities file not found: $velocities_file\nPlease run create_velocities.jl first")
-end
+u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
+v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
+η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
 
 # Load FieldTimeSeries from disk using InMemory backend
 # N_in_mem specifies how many timesteps to keep in memory at a time
+# Not sure how many I should use.
 N_in_mem = 4  # Keep 4 timesteps in memory (monthly data)
 
-u_ts = FieldTimeSeries(velocities_file, "u"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
-v_ts = FieldTimeSeries(velocities_file, "v"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
-w_ts = FieldTimeSeries(velocities_file, "w"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
-η_ts = FieldTimeSeries(velocities_file, "η"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
+u_ts = FieldTimeSeries(u_file, "u"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
+v_ts = FieldTimeSeries(v_file, "v"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
+η_ts = FieldTimeSeries(η_file, "η"; backend = InMemory(N_in_mem), time_indexing = Cyclical(1year))
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
 @info "Velocities loaded (InMemory backend with $N_in_mem timesteps in memory)"
 
-velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = w_ts)
+velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = DiagnosticVerticalVelocity())
 free_surface = PrescribedFreeSurface(displacement = η_ts)
 
-
-# TODO: Below was attemps at a callback before GLW PR for prescribed time series.
-# Can probably already delete.
-#
-# month = 1
-#
-# function get_monthly_velocities(grid, month)
-#     u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
-#     v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
-#     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-#     # Then interpolate to C-grid
-#     u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
-#     # Then compute w from continuity
-#     w = Field{Center, Center, Face}(grid)
-#     mask_immersed_field!(u, 0.0)
-#     mask_immersed_field!(v, 0.0)
-#     fill_halo_regions!(u)
-#     fill_halo_regions!(v)
-#     velocities = (u, v, w)
-#     HydrostaticFreeSurfaceModels.compute_w_from_continuity!(velocities, grid)
-#     u, v, w = velocities
-#     return PrescribedVelocityFields(; u, v, w)
-# end
-# velocities = get_monthly_velocities(grid, 1)
-# # Add callback to update velocities
-# function update_monthly_mean_velocities(sim)
-#     current_time = time(sim)
-#     current_month = current_time \div month
-#     last_time = current_time - sim.Δt
-#     velocities = get_monthly_velocities(grid, 1)
-# add_callback!(sim, update_monthly_mean_velocities, IterationInterval(1), name = :update_velocities)
-
 ################################################################################
 ################################################################################
 ################################################################################
 
-################################################################################
-################################################################################
-################################################################################
+# TODO implement PrescribedActiveTracers?
 
-@info "Loading closures from JLD2"
+@info "Creating closures"
 
-closures_file = joinpath(outputdir, "$(parentmodel)_closures.jld2")
-if !isfile(closures_file)
-    error("Closures file not found: $closures_file\nPlease run create_closures.jl first")
-end
+resolution_str = split(parentmodel, "-")[end]
+experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
+time_window = "Jan1960-Dec1979"
+@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
 
-closure_data = load(closures_file)
+# Vertical diffusivity parameters
+κVML = 0.1    # m^2/s in the mixed layer
+κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-# Extract parameters
-κVML = closure_data["κVML"]
-κVBG = closure_data["κVBG"]
-κVField_data = closure_data["κVField"]
-
-# Reconstruct κVField
+# Load MLD to add strong vertical diffusion in the mixed layer
+mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
+mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
+z_center = znodes(grid, Center(), Center(), Center())
+is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
 κVField = CenterField(grid)
-set!(κVField, on_architecture(arch, κVField_data))
+set!(κVField, κVML * is_mld + κVBG * .!is_mld)
 
-# Recreate closures
 implicit_vertical_diffusion = VerticalScalarDiffusivity(
     VerticallyImplicitTimeDiscretization();
     κ = κVField
@@ -271,34 +210,13 @@ explicit_closure = (
     explicit_vertical_diffusion,
 )
 
-@info "Closures loaded"
+@info "Closures created"
 
-################################################################################
-################################################################################
-################################################################################
 ################################################################################
 ################################################################################
 ################################################################################
 
 @info "Model"
-
-# Maybe I should clamp the age manually after all?
-# @kernel function _age_forcing_callback(age, Nz, age_initial, elapsed_time)
-#     i, j, k = @index(Global, NTuple)
-
-#     age[i, j, k] = ifelse(k == Nz, 0, age[i, j, k])
-#     age[i, j, k] = max(age[i, j, k], 0)
-#     age[i, j, k] = min(age[i, j, k], age_initial[i, j, k] + elapsed_time)
-
-# end
-
-# function age_forcing_callback(sim)
-#     age = sim.model.tracers.age
-#     Nz = sim.model.grid.Nz
-#     age[:,:,Nz] .= 0.0
-#     clamp!(age[:,:,Nz], 0.0, Inf)
-# end
-
 
 age_parameters = (;
     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
@@ -321,11 +239,7 @@ linear_dynamics = Forcing(
     parameters = age_parameters,
     discrete_form = true,
 )
-# age_jvp_dynamics = Forcing(
-#     age_jvp_source,
-#     parameters = age_parameters,
-#     discrete_form = true,
-# )
+
 forcing = (
     age = age_dynamics,
 )
@@ -444,61 +358,61 @@ run!(simulation)
 ################################################################################
 ################################################################################
 
-@info "Plotting"
+# @info "Plotting"
 
-plottable_age = make_plottable_array(model.tracers.age)
-for k in 1:50
-    local fig, ax, plt = heatmap(
-        plottable_age[:, :, k] / year;
-        # on_architecture(CPU(), model.tracers.age.data.parent)[:, :, Nz];
-        nan_color = :black,
-        colorrange = (0, stop_time / year),
-        colormap = cgrad(cgrad(:tab20b; categorical = true)[1:16], categorical = true),
-        lowclip = :red,
-        highclip = :yellow,
-        axis = (; title = "Final age (years) at level k = $k"),
-    )
-    Colorbar(fig[1, 2], plt)
-    save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(typeof(arch)).png"), fig)
-end
+# plottable_age = make_plottable_array(model.tracers.age)
+# for k in 1:50
+#     local fig, ax, plt = heatmap(
+#         plottable_age[:, :, k] / year;
+#         # on_architecture(CPU(), model.tracers.age.data.parent)[:, :, Nz];
+#         nan_color = :black,
+#         colorrange = (0, stop_time / year),
+#         colormap = cgrad(cgrad(:tab20b; categorical = true)[1:16], categorical = true),
+#         lowclip = :red,
+#         highclip = :yellow,
+#         axis = (; title = "Final age (years) at level k = $k"),
+#     )
+#     Colorbar(fig[1, 2], plt)
+#     save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(typeof(arch)).png"), fig)
+# end
 
 
-# age_lazy = open_dataset(simulation.output_writers[:fields].filepath)["age"]
-age_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "age")
-# u_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "u")
-output_times = age_lazy.times
+# # age_lazy = open_dataset(simulation.output_writers[:fields].filepath)["age"]
+# age_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "age")
+# # u_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "u")
+# output_times = age_lazy.times
 
-set_theme!(Theme(fontsize = 30))
+# set_theme!(Theme(fontsize = 30))
 
-# fig = Figure(size = (1200, 1200))
-fig = Figure(size = (1200, 600))
+# # fig = Figure(size = (1200, 1200))
+# fig = Figure(size = (1200, 600))
 
-n = Observable(1)
-k = 25
-agetitle = @lift "age and u on offline OM2 at k = $k, t = " * prettytime(output_times[$n])
-# utitle = @lift "u at k = $k, t = " * prettytime(output_times[$n])
+# n = Observable(1)
+# k = 25
+# agetitle = @lift "age and u on offline OM2 at k = $k, t = " * prettytime(output_times[$n])
+# # utitle = @lift "u at k = $k, t = " * prettytime(output_times[$n])
 
-# agekₙ = @lift readcubedata(age_lazy[At(k = $k, times = [$n])]) # in years
-agekₙ = @lift make_plottable_array(age_lazy[$n])[:, :, k] / year # in years
-# ukₙ = @lift make_plottable_array(u_lazy[$n])[:, :, k] # in m/s
+# # agekₙ = @lift readcubedata(age_lazy[At(k = $k, times = [$n])]) # in years
+# agekₙ = @lift make_plottable_array(age_lazy[$n])[:, :, k] / year # in years
+# # ukₙ = @lift make_plottable_array(u_lazy[$n])[:, :, k] # in m/s
 
-ax = fig[1, 1] = Axis(
-    fig,
-    xlabel = "longitude index",
-    ylabel = "latitude index",
-    title = agetitle,
-)
+# ax = fig[1, 1] = Axis(
+#     fig,
+#     xlabel = "longitude index",
+#     ylabel = "latitude index",
+#     title = agetitle,
+# )
 
-hm = heatmap!(
-    ax, agekₙ;
-    colorrange = (0, stop_time / year),
-    # extendhigh = auto,
-    # extendlow = auto,
-    # colorscale = SymLog(0.01),
-    colormap = :viridis,
-    nan_color = (:black, 1),
-)
-Colorbar(fig[1, 2], hm)
+# hm = heatmap!(
+#     ax, agekₙ;
+#     colorrange = (0, stop_time / year),
+#     # extendhigh = auto,
+#     # extendlow = auto,
+#     # colorscale = SymLog(0.01),
+#     colormap = :viridis,
+#     nan_color = (:black, 1),
+# )
+# Colorbar(fig[1, 2], hm)
 
 # ax = fig[2, 1] = Axis(
 #     fig,
@@ -515,18 +429,21 @@ Colorbar(fig[1, 2], hm)
 # )
 # Colorbar(fig[2, 2], hm)
 
-frames = 1:length(output_times)
+# frames = 1:length(output_times)
 
-@info "Making an animation..."
+# @info "Making an animation..."
 
-Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"), frames, framerate = 25) do i
-    println("frame $i/$(length(frames))")
-    n[] = i
-end
+# Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"), frames, framerate = 25) do i
+#     println("frame $i/$(length(frames))")
+#     n[] = i
+# end
 
 ################################################################################
 ################################################################################
 ################################################################################
+
+foo
+
 
 @info "Build matrix"
 

@@ -13,9 +13,12 @@ using Oceananigans
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Architectures: CPU
 using Oceananigans.Grids: znode
+using Adapt: adapt
+
 using YAXArrays
 using DimensionalData
 using NCDatasets
+using NetCDF
 using JLD2
 
 # Set up architecture
@@ -34,7 +37,6 @@ parentmodel = "ACCESS-OM2-1"
 # parentmodel = "ACCESS-OM2-025"
 # parentmodel = "ACCESS-OM2-01"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
-mkpath(outputdir)
 
 include("tripolargrid_reader.jl")
 
@@ -42,48 +44,16 @@ include("tripolargrid_reader.jl")
 # Load grid from JLD2
 ################################################################################
 
-@info "Loading grid from JLD2"
+error("""
+Something is wrong below. I did not check it and I think I might as well create the closures
+on the fly until a PrescribedActiveTracer implementation is available
+to compute the GM-Redi closure from the outputs.
+Or at least a PrescribedTracer that I can use to compute my simplified horizontal/vertical closures.
+""")
 
-FT = Float64
+@info "Loading and reconstructing grid from JLD2 data"
 grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
-gd = load(grid_file)
-
-# Reconstruct the grid from saved data
-underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
-    arch,
-    gd["Nx"], gd["Ny"], gd["Nz"],
-    gd["Hx"], gd["Hy"], gd["Hz"],
-    convert(FT, gd["Lz"]),
-    on_architecture(arch, map(FT, Array(gd["λᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["λᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["φᶠᶠᵃ"]))),
-    on_architecture(arch, Array(gd["z"])),
-    on_architecture(arch, map(FT, Array(gd["Δxᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δxᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Δyᶠᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶜᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶠᶜᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶜᶠᵃ"]))),
-    on_architecture(arch, map(FT, Array(gd["Azᶠᶠᵃ"]))),
-    convert(FT, gd["radius"]),
-    Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
-)
-
-grid = ImmersedBoundaryGrid(
-    underlying_grid, PartialCellBottom(on_architecture(arch, gd["bottom"]));
-    active_cells_map = true,
-    active_z_columns = true,
-)
+grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
