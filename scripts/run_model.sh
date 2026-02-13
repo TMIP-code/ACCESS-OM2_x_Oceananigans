@@ -7,8 +7,7 @@ parent=${1:-${PARENTMODEL:-ACCESS-OM2-1}}
 export PARENTMODEL="$parent"
 
 # locate repo root by walking up to the directory named ACCESS-OM2_x_Oceananigans
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/.." && pwd)"
+repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
 
 # Run the scripts
