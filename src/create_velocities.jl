@@ -131,56 +131,42 @@ rm(η_file; force = true)
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
 u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_file, name = "u", time_indexing = Cyclical(stop_time))
 v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_file, name = "v", time_indexing = Cyclical(stop_time))
-η_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
+η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
 
 print("month ")
 for month in 1:12
     print("$month, ")
 
-    u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
-    v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+    # Do η first because it's smaller and thus faster
     η_data = replace(readcubedata(eta_ds.eta_t[month = At(month)]).data, NaN => 0.0)
-
-    # For sea surface height just fill the field and halos
-    η = CenterField(grid, indices=(:, :, Nz))
+    # For sea surface height use a ReducedField (Nothing in the z direction otherwise segfaults)
+    η = Field{Center, Center, Nothing}(grid, indices=(:, :, Nz))
     set!(η, η_data)
-    fill_halo_regions!(η)
 
-    # Place u and v data on Oceananigans B-grid
-    u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-
-    # Then interpolate to C-grid
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
-
-    # Mask immersed fields
-    # TODO: this should not be needed. If some data is erased with zeros it means there is an issue!
-    error("""Fix masking before you any further: You probably don't need it anyway.
-             Maybe check that it does not erase anything for u and v,
-             But do not mask η at all, as it will silently mess everything up
-             as it calls a kernel expecting the full vertical column,
-             which ends up with segfaults and malloc errors
-             (because of elided bounds checks with @inbounds).
-             """)
-    @info "masking u"
-    mask_immersed_field!(u, 0.0)
-    @info "masking v"
-    mask_immersed_field!(v, 0.0)
-    @info "masking η"
+    # Check if masking immersed fields is needed
+    ηold = deepcopy(η)
     mask_immersed_field!(η, 0.0)
-
-    # Fill halos
-    @info "Filling u"
-    fill_halo_regions!(u)
-    @info "Filling v"
-    fill_halo_regions!(v)
-    @info "Filling η"
+    @assert interior(η) == interior(ηold)
     fill_halo_regions!(η)
-
-    @info "Setting field time series for month $month"
-    set!(u_ts, u, month)
-    set!(v_ts, v, month)
     set!(η_ts, η, month)
 
+    # Load u and v data
+    u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
+    v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+    # Place u and v data on Oceananigans B-grid
+    u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
+    # Then interpolate to C-grid
+    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
+    uold = deepcopy(u)
+    vold = deepcopy(v)
+    mask_immersed_field!(u, 0.0)
+    mask_immersed_field!(v, 0.0)
+    @assert interior(u) == interior(uold)
+    @assert interior(v) == interior(vold)
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+    set!(u_ts, u, month)
+    set!(v_ts, v, month)
 
     # Visualization (for k=25 only, as in original)
     for k in 25:25
@@ -218,8 +204,7 @@ for month in 1:12
     fig = Figure(size = (1200, 600))
     ax = Axis(fig[1, 1], title = "sea surface height[month=$month]")
     @info "plottable_η"
-    plottable_η = view(η.data, 1:Nx, 1:Ny, Nz)
-    @show typeof(plottable_η)
+    plottable_η = view(make_plottable_array(η), :, :, 1)
     @info "maxη"
     maxη = maximum(abs.(plottable_η[.!isnan.(plottable_η)]))
     @info "hm"
@@ -256,4 +241,4 @@ for month in 1:12
 end
 println("Done!")
 
-@info "Velocities and sea surface height saved to $(velocities_file)"
+@info "Velocities and sea surface height saved to $(u_file), $(v_file), and $(η_file)"
