@@ -6,7 +6,7 @@
 #PBS -q express
 #PBS -l walltime=01:00:00
 #PBS -l ncpus=48
-#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99
+#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o scratch_output/PBS/
 #PBS -e scratch_output/PBS/

@@ -7,7 +7,7 @@
 #PBS -l walltime=01:00:00
 #PBS -l ngpus=1
 #PBS -l ncpus=12
-#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99
+#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o scratch_output/PBS/
 #PBS -e scratch_output/PBS/
@@ -19,6 +19,10 @@ PARENTMODEL=ACCESS-OM2-1
 # locate repo root by walking up to the directory named ACCESS-OM2_x_Oceananigans
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
+
+echo "Loading CUDA module"
+module load cuda/12.9.0
+export JULIA_CUDA_USE_COMPAT=false
 
 echo "Running model on GPU with PARENTMODEL=$PARENTMODEL"
 source $repo_root/scripts/run_model.sh $PARENTMODEL

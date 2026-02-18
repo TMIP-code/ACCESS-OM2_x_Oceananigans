@@ -2,8 +2,8 @@
 To run this on Gadi interactively on the GPU queue, use
 
 ```
-qsub -I -P y99 -N RungeKutta3bug -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
-qsub -I -P y99 -N RungeKutta3bug -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
+qsub -I -P y99 -N RungeKutta3bug -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o scratch_output/PBS/ -j oe
+qsub -I -P y99 -N RungeKutta3bug -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o scratch_output/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
