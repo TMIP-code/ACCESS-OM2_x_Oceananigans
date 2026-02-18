@@ -15,7 +15,10 @@ using Oceananigans.Grids: znode
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.OutputReaders: Cyclical, OnDisk, InMemory
-using Oceananigans.Units: seconds
+using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
+year = years = 365.25days
+month = months = year / 12
+
 using Adapt: adapt
 using YAXArrays
 using DimensionalData
@@ -161,7 +164,8 @@ u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
 
-prescribed_Δt = 1Δt
+# prescribed_Δt = 1Δt
+prescribed_Δt = 1month
 fts_times = ((1:12) .- 0.5) * prescribed_Δt
 stop_time = 12 * prescribed_Δt
 
@@ -255,29 +259,7 @@ for month in 1:12
     Colorbar(fig[1, 2], hm)
     save(joinpath(outputdir, "velocities/sea_surface_height_month$(month)_$(typeof(arch)).png"), fig)
 
-    #  TODO move this visualization to after a simulation that outputs u, v, w, and η,
-    # to confirm that the interpolated velocities and computed w look reasonable when used
-    # in a simulation context (i.e. with the grid's z updated by the free surface height)
-    # # Visualization
-    # for k in 25:25
-    #     local fig = Figure(size = (1200, 1800))
-    #     local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
-    #     local velocity2D = view(make_plottable_array(u), :, :, k)
-    #     local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-    #     local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    #     Colorbar(fig[1, 2], hm)
-    #     ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
-    #     velocity2D = view(make_plottable_array(v), :, :, k)
-    #     maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    #     Colorbar(fig[2, 2], hm)
-    #     ax = Axis(fig[3, 1], title = "C-grid w[k=$k, month=$month]")
-    #     velocity2D = view(make_plottable_array(w), :, :, k + 1)
-    #     maxvelocity = maximum(abs.(velocity2D[.!isnan.(velocity2D)]))
-    #     hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-    #     Colorbar(fig[3, 2], hm)
-    #     save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_month$(month)_$(typeof(arch)).png"), fig)
-    # end
+
 
 end
 println("Done!")

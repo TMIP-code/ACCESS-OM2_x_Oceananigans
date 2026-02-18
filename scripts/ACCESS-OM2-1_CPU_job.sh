@@ -19,5 +19,14 @@ PARENTMODEL=ACCESS-OM2-1
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
 
-echo "Running model on CPU with PARENTMODEL=$PARENTMODEL"
-source $repo_root/scripts/run_model.sh $PARENTMODEL
+# echo "Create grid on CPU with PARENTMODEL=$PARENTMODEL"
+# source $repo_root/scripts/create_grid.sh $PARENTMODEL
+# echo "Done creating grid on CPU with PARENTMODEL=$PARENTMODEL"
+
+echo "Create velocities on CPU with PARENTMODEL=$PARENTMODEL"
+source $repo_root/scripts/create_velocities.sh $PARENTMODEL
+echo "Done creating velocities on CPU with PARENTMODEL=$PARENTMODEL"
+
+# echo "Create closures on CPU with PARENTMODEL=$PARENTMODEL"
+# source $repo_root/scripts/create_closures.sh $PARENTMODEL
+# echo "Done creating closures on CPU with PARENTMODEL=$PARENTMODEL"

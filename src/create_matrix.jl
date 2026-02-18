@@ -3,11 +3,7 @@ To run this on Gadi interactively on the GPU queue, use
 
 ```
 qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
-qsub -I -P y99 -l mem=47GB -q gpuvolta -l walltime=01:00:00 -l ncpus=12 -l ngpus=1 -l storage=gdata/xp65+gdata/ik11+scratch/y99 -o scratch_output/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
-julia --project
 include("src/offline_ACCESS-OM2.jl")
 ```
 """
@@ -21,15 +17,9 @@ include("src/offline_ACCESS-OM2.jl")
 
 using Oceananigans
 
-# Comment/uncomment the following lines to enable/disable GPU
-if contains(ENV["HOSTNAME"], "gpu")
-    using CUDA
-    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
-    @show CUDA.versioninfo()
-    arch = GPU()
-else
-    arch = CPU()
-end
+# Build matrices on the CPU because sparsity detection and coloring
+# cannot be performed on the GPU.
+arch = CPU()
 @info "Using $arch architecture"
 
 using Oceananigans.TurbulenceClosures
@@ -148,11 +138,8 @@ u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
 v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
 η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
 
-# Load FieldTimeSeries from disk using InMemory backend
-# N_in_mem specifies how many timesteps to keep in memory at a time
-# Not sure how many I should use.
-N_in_mem = 4  # Keep 4 timesteps in memory (monthly data)
-
+# Herre I am not doing any time-stepping just using 1 slice each time.
+N_in_mem = 1
 backend = InMemory(N_in_mem)
 time_indexing = Cyclical(1year)
 
@@ -160,13 +147,28 @@ u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, backend, time_indexing)
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, backend, time_indexing)
 η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, backend, time_indexing)
 
-prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
 @info "Velocities loaded (InMemory backend with $N_in_mem timesteps in memory)"
 
-velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = DiagnosticVerticalVelocity())
-free_surface = PrescribedFreeSurface(displacement = η_ts)
+# velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = DiagnosticVerticalVelocity())
+# free_surface = PrescribedFreeSurface(displacement = η_ts)
+
+# Problem:
+# I want to create the TM of the average tracer tendency.
+# options:
+# - A: run the model liie A . Bardin and use 7/30-ish IRF tracers
+#   Problems:
+#   - IRF tracers not implemented in oceananigans
+#   - Might be quite slow / memory intensive
+# - B: Use ForwardDiff once on each month.
+#   Problems:
+#   - might be less accurate
+#   - need to carry 2 tracers instead of 1 get a chekpoint or some time slot from the normal run with an extra
+#     tracer that has the correct dual type?
+# - C Use ForwardDiff directly on the tendency function like before but manually update Δz?
+
+# I prefer option B as I think I can make it clean.
 
 ################################################################################
 ################################################################################
@@ -413,12 +415,11 @@ for itime in eachindex(u_lazy.times)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[3, 2], hm)
-        @show fig_file_name = joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(typeof(arch)).png")
-        save(fig_file_name, fig)
+        save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(typeof(arch)).png"), fig)
     end
 end
 
-foo
+
 
 set_theme!(Theme(fontsize = 30))
 

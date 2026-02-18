@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-# Usage: source scripts/run_model.sh [PARENTMODEL]
-
 # parent model (falls back to existing env or sensible default)
 parent=${1:-${PARENTMODEL:-ACCESS-OM2-1}}
 export PARENTMODEL="$parent"
@@ -12,6 +10,6 @@ echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
 
 # Run the script
 
-echo "Running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
-julia --project $repo_root/src/offline_ACCESS-OM2.jl
-echo "Done running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
+echo "Creating velocities on CPU for PARENTMODEL=$PARENTMODEL"
+julia --project $repo_root/src/create_velocities.jl
+echo "Done creating velocities on CPU for PARENTMODEL=$PARENTMODEL"

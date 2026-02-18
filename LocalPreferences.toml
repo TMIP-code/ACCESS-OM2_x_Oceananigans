@@ -1,25 +1,21 @@
-# LocalPreferences.toml
+[CUDA_Runtime_jll]
+local = "true"
+version = "12.9"
 
 [defaults]
 parentmodel = "ACCESS-OM2-1"
 
-[models.ACCESS-OM2-1]
-dt_seconds = 5400
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-1"
-input_prefix = "/path/to/ACCESS-OM2-1/inputs"
+[models.ACCESS-OM2-01]
+dt_seconds = 400
+input_prefix = "/path/to/ACCESS-OM2-01/inputs"
+outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-01"
 
 [models.ACCESS-OM2-025]
 dt_seconds = 1800
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-025"
 input_prefix = "/path/to/ACCESS-OM2-025/inputs"
+outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-025"
 
-[models.ACCESS-OM2-01]
-dt_seconds = 400
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-01"
-input_prefix = "/path/to/ACCESS-OM2-01/inputs"
-
-# You can add other model-specific keys (e.g., filenames, netcdf paths)
-# and reference them from the scripts via the `profile` variable.
-[CUDA_Runtime_jll]
-local = "true"
-version = "12.9"
+[models.ACCESS-OM2-1]
+dt_seconds = 5400
+input_prefix = "/path/to/ACCESS-OM2-1/inputs"
+outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/ACCESS-OM2-1"
