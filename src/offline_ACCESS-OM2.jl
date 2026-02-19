@@ -160,6 +160,18 @@ u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, backend, time_indexing)
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, backend, time_indexing)
 η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, backend, time_indexing)
 
+# TODO: self note about using velocities.
+# The problem is that the horizontal flux divergence for a given cell is
+# (assuming v = 0) the difference in u * Δy * Δz across the left and right faces, i.e.
+#   uᶠ[i] * Δᶠy[i] * Δᶠz[i] - uᶠ[i+1] * Δᶠy[i+1] * Δᶠz[i+1]
+# but u and Δz can vary independently in time, so I lose some information when taking
+# averages in time:
+#   ∫ u Δz dt ≠ ∫ u dt * ∫ Δz dt !
+# So I NEED to use the mass transports to compute w...
+# need to make sure to use the same time for both when computing the flux divergence.
+
+# so I need to make sure to use the same time for both when computing the flux divergence.
+
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
@@ -167,6 +179,7 @@ fts_times = u_ts.times
 
 velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, formulation = DiagnosticVerticalVelocity())
 free_surface = PrescribedFreeSurface(displacement = η_ts)
+# free_surface = PrescribedFreeSurface(displacement = (x, y, z, t) -> 0.0)
 
 ################################################################################
 ################################################################################
@@ -339,7 +352,8 @@ output_fields = Dict(
     "age" => model.tracers.age,
     "u" => model.velocities.u,
     "v" => model.velocities.v,
-    "w" => model.velocities.w.field,
+    "w" => model.velocities.w,
+    "eta" => model.free_surface.displacement,
 )
 
 output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(typeof(arch))")
@@ -387,6 +401,7 @@ run!(simulation)
 u_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "u")
 v_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "v")
 w_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "w")
+η_lazy = FieldTimeSeries(simulation.output_writers[:fields].filepath, "eta")
 output_times = u_lazy.times
 
 #  TODO move this visualization to after a simulation that outputs u, v, w, and η,
@@ -397,7 +412,7 @@ for itime in eachindex(u_lazy.times)
     itime_str = "$itime/$(length(u_lazy.times))"
     @info "Visualizing output $itime_str"
     for k in 25:25
-        local fig = Figure(size = (1200, 1800))
+        local fig = Figure(size = (1200, 2400))
         local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, output=$itime_str]")
         local velocity2D = view(make_plottable_array(u_lazy[itime]), :, :, k)
         local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
@@ -413,6 +428,11 @@ for itime in eachindex(u_lazy.times)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[3, 2], hm)
+        ax = Axis(fig[4, 1], title = "C-grid η[output=$itime_str]")
+        velocity2D = make_plottable_array(η_lazy[itime])
+        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+        Colorbar(fig[4, 2], hm)
         @show fig_file_name = joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(typeof(arch)).png")
         save(fig_file_name, fig)
     end
