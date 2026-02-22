@@ -3,7 +3,7 @@
 #PBS -N run_OM2-1_CPU
 #PBS -P y99
 #PBS -l mem=47GB
-#PBS -q normal
+#PBS -q express
 #PBS -l walltime=01:00:00
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
@@ -26,6 +26,10 @@ echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
 echo "Create velocities on CPU with PARENTMODEL=$PARENTMODEL"
 source $repo_root/scripts/create_velocities.sh $PARENTMODEL
 echo "Done creating velocities on CPU with PARENTMODEL=$PARENTMODEL"
+
+# echo "Create velocities from transports on CPU with PARENTMODEL=$PARENTMODEL"
+# source $repo_root/scripts/create_velocities_from_transports.sh $PARENTMODEL
+# echo "Done creating velocities from transports on CPU with PARENTMODEL=$PARENTMODEL"
 
 # echo "Create closures on CPU with PARENTMODEL=$PARENTMODEL"
 # source $repo_root/scripts/create_closures.sh $PARENTMODEL

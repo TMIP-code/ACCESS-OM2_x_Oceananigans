@@ -18,6 +18,7 @@ include("src/offline_ACCESS-OM2.jl")
 # TODO: Check
 
 @info "Loading packages and functions"
+flush(stdout)
 
 using Oceananigans
 
@@ -27,10 +28,13 @@ if contains(ENV["HOSTNAME"], "gpu")
     CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
     @show CUDA.versioninfo()
     arch = GPU()
+    arch_str = "GPU"
 else
     arch = CPU()
+    arch_str = "CPU"
 end
 @info "Using $arch architecture"
+flush(stdout)
 
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
@@ -97,6 +101,10 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
+VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "mom")
+@assert VELOCITY_SOURCE in ("mass_transports", "mom") "VELOCITY_SOURCE must be one of: mass_transports, mom"
+run_suffix = VELOCITY_SOURCE
+
 mkpath(outputdir)
 save_grid = false
 
@@ -118,11 +126,13 @@ include("tripolargrid_reader.jl")
 ################################################################################
 
 @info "Reconstructing grid (loading data from JLD2)"
+flush(stdout)
 grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
+flush(stdout)
 
 # # Plot bottom height
 # h = on_architecture(CPU(), grid.immersed_boundary.bottom_height)
@@ -136,16 +146,30 @@ Nx, Ny, Nz = size(grid)
 #     colormap = :viridis
 # )
 # Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-# save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
+# save(joinpath(outputdir, "bottom_height_heatmap_$(arch_str).png"), fig)
 
 ################################################################################
 ################################################################################
 ################################################################################
 
 @info "Loading velocities from disk"
+flush(stdout)
 
-u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
-v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
+if VELOCITY_SOURCE == "mass_transports"
+    @info "Loading velocities from MOM mass transport outputs"
+    flush(stdout)
+    u_file = joinpath(outputdir, "$(parentmodel)_u_ts_from_mass_transports.jld2")
+    v_file = joinpath(outputdir, "$(parentmodel)_v_ts_from_mass_transports.jld2")
+    w_file = joinpath(outputdir, "$(parentmodel)_w_ts_from_mass_transports.jld2")
+elseif VELOCITY_SOURCE == "mom"
+    @info "Loading velocities from MOM velocity outputs"
+    flush(stdout)
+    u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
+    v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
+end
+
+@info "Loading sea surface height from MOM output"
+flush(stdout)
 η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
 
 # Load FieldTimeSeries from disk using InMemory backend
@@ -156,9 +180,12 @@ N_in_mem = 4  # Keep 4 timesteps in memory (monthly data)
 backend = InMemory(N_in_mem)
 time_indexing = Cyclical(1year)
 
-u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, backend, time_indexing)
-v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, backend, time_indexing)
-η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, backend, time_indexing)
+u_ts = on_architecture(arch, FieldTimeSeries(u_file, "u"; architecture = arch, backend, time_indexing))
+v_ts = on_architecture(arch, FieldTimeSeries(v_file, "v"; architecture = arch, backend, time_indexing))
+if VELOCITY_SOURCE == "mass_transports"
+    w_ts = on_architecture(arch, FieldTimeSeries(w_file, "w"; architecture = arch, backend, time_indexing))
+end
+η_ts = on_architecture(arch, FieldTimeSeries(η_file, "η"; architecture = arch, backend, time_indexing))
 
 # TODO: self note about using velocities.
 # The problem is that the horizontal flux divergence for a given cell is
@@ -176,8 +203,20 @@ prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
 @info "Velocities loaded (InMemory backend with $N_in_mem timesteps in memory)"
+flush(stdout)
 
-velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, formulation = DiagnosticVerticalVelocity())
+if VELOCITY_SOURCE == "mass_transports"
+    @info "Precribing u, v, and w from mass transport outputs"
+    flush(stdout)
+    velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = w_ts)
+elseif VELOCITY_SOURCE == "mom"
+    @info "Precribing u and v from MOM velocity outputs; diagnosing w"
+    flush(stdout)
+    velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, formulation = DiagnosticVerticalVelocity())
+end
+
+@info "Prescribing free surface height from MOM sea surface height output"
+flush(stdout)
 free_surface = PrescribedFreeSurface(displacement = η_ts)
 # free_surface = PrescribedFreeSurface(displacement = (x, y, z, t) -> 0.0)
 
@@ -188,6 +227,7 @@ free_surface = PrescribedFreeSurface(displacement = η_ts)
 # TODO implement PrescribedActiveTracers?
 
 @info "Creating closures"
+flush(stdout)
 
 resolution_str = split(parentmodel, "-")[end]
 experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
@@ -227,12 +267,14 @@ explicit_closure = (
 )
 
 @info "Closures created"
+flush(stdout)
 
 ################################################################################
 ################################################################################
 ################################################################################
 
 @info "Model"
+flush(stdout)
 
 age_parameters = (;
     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
@@ -303,6 +345,7 @@ model = HydrostaticFreeSurfaceModel(grid; model_kwargs...)
 ################################################################################
 
 @info "Initial condition"
+flush(stdout)
 
 # set!(model, age = Returns(0.0), age_jvp = Returns(0.0)) # TODO: Unneccessary as fields are initialized to zero by default.
 set!(model, age = Returns(0.0)) # TODO: Unneccessary as fields are initialized to zero by default.
@@ -314,13 +357,14 @@ set!(model, age = Returns(0.0)) # TODO: Unneccessary as fields are initialized t
 #     axis = (; title = "Initial age at surface (years)"),
 # )
 # Colorbar(fig[1, 2], plt)
-# save(joinpath(outputdir, "initial_age_surface_$(typeof(arch)).png"), fig)
+# save(joinpath(outputdir, "initial_age_surface_$(arch_str).png"), fig)
 
 ################################################################################
 ################################################################################
 ################################################################################
 
 @info "Simulation"
+flush(stdout)
 
 stop_time = 12 * prescribed_Δt
 
@@ -335,6 +379,7 @@ function progress_message(sim)
     mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
 
+    flush(stdout)
     return @info @sprintf(
         # "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d) wall time: %s\n",
         # iteration(sim), time(sim), sim.Δt, max_age, idx.I..., walltime
@@ -356,7 +401,7 @@ output_fields = Dict(
     "eta" => model.free_surface.displacement,
 )
 
-output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(typeof(arch))")
+output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(arch_str)_$(run_suffix)")
 
 # simulation.output_writers[:fields] = NetCDFWriter(
 simulation.output_writers[:fields] = JLD2Writer(
@@ -378,6 +423,7 @@ run!(simulation)
 ################################################################################
 
 @info "Plotting"
+flush(stdout)
 
 # plottable_age = make_plottable_array(model.tracers.age)
 # for k in 1:50
@@ -392,7 +438,7 @@ run!(simulation)
 #         axis = (; title = "Final age (years) at level k = $k"),
 #     )
 #     Colorbar(fig[1, 2], plt)
-#     save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(typeof(arch)).png"), fig)
+#     save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(arch_str).png"), fig)
 # end
 
 
@@ -411,6 +457,7 @@ output_times = u_lazy.times
 for itime in eachindex(u_lazy.times)
     itime_str = "$itime/$(length(u_lazy.times))"
     @info "Visualizing output $itime_str"
+    flush(stdout)
     for k in 25:25
         local fig = Figure(size = (1200, 2400))
         local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, output=$itime_str]")
@@ -433,7 +480,8 @@ for itime in eachindex(u_lazy.times)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[4, 2], hm)
-        @show fig_file_name = joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(typeof(arch)).png")
+        @show fig_file_name = joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(arch_str)_$(run_suffix).png")
+        flush(stdout)
         save(fig_file_name, fig)
     end
 end
@@ -490,8 +538,9 @@ Colorbar(fig[2, 2], hm)
 frames = 1:length(output_times)
 
 @info "Making an animation..."
+flush(stdout)
 
-Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"), frames, framerate = 25) do i
+Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(arch_str)_$(run_suffix).mp4"), frames, framerate = 25) do i
     println("frame $i/$(length(frames))")
     n[] = i
 end
@@ -509,6 +558,7 @@ end
 
 
 @info "Build matrix"
+flush(stdout)
 
 jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
 
@@ -596,12 +646,14 @@ end
 
 
 @info "benchmark tendency function"
+flush(stdout)
 ADcvec = ones(Nidx)
 GADcvec = ones(Nidx)
 @time mytendency!(GADcvec, ADcvec, 0.0)
 @time mytendency!(GADcvec, ADcvec, 0.0)
 
 @info "Autodiff setup"
+flush(stdout)
 
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
@@ -672,9 +724,11 @@ end
 @time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
 
 @info "Compute the Jacobian"
+flush(stdout)
 
 i = 1
 @info "month = $i / 12"
+flush(stdout)
 @time "Compute Jacobian" jacobian!(
     mytendency_preallocated!,
     GADcvec,
@@ -689,6 +743,7 @@ M = jac_buffer / 12 # <- contains the first-month part of the Jacobian
 
 for i in 2:12
     @info "month = $i / 12"
+    flush(stdout)
     jacobian!(
         mytendency_preallocated!,
         GADcvec,
@@ -715,7 +770,7 @@ plt = spy!(
 )
 ylims!(ax, size(M, 2) + 0.5, 0.5)
 Colorbar(fig[1, 2], plt)
-save(joinpath(outputdir, "$(parentmodel)_jacobian2.png"), fig)
+save(joinpath(outputdir, "$(parentmodel)_jacobian2_$(run_suffix).png"), fig)
 # This above throws now? Not sure why, skipping for now (in a rush)
 
 ################################################################################
@@ -723,8 +778,10 @@ save(joinpath(outputdir, "$(parentmodel)_jacobian2.png"), fig)
 ################################################################################
 
 @info "Periodic-state solver"
+flush(stdout)
 
 @info "Extra for vector of volumes"
+flush(stdout)
 
 @kernel function compute_volume!(vol, grid)
     i, j, k = @index(Global, NTuple)
@@ -768,19 +825,23 @@ end
 # @time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
 
 @info "LUMP and SPRAY matrices"
+flush(stdout)
 LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
 display(LUMP)
 display(SPRAY)
 
 @info "coarsened Jacobian"
+flush(stdout)
 Mc = LUMP * M * SPRAY
 display(Mc)
 
 @info "Setting up Pardiso solver"
+flush(stdout)
 matrix_type = Pardiso.REAL_SYM
 @show solver = MKLPardisoIterate(; nprocs, matrix_type)
 
 @info "Set up preconditioner problem"
+flush(stdout)
 # Left Preconditioner needs a new type
 struct MyPreconditioner
     prob
@@ -823,14 +884,14 @@ init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12) # initia
 @time "solve initial age" age_init_vec = SPRAY * solve!(init_prob_coarsened).u / year
 
 fig, ax, plt = hist(age_init_vec)
-save(joinpath(outputdir, "initial_steady_age_coarsened_histogram_$(parentmodel).png"), fig)
+save(joinpath(outputdir, "initial_steady_age_coarsened_histogram_$(parentmodel)_$(run_suffix).png"), fig)
 
 init_prob_full = LinearProblem(M, -ones(size(M, 1))) # initial guess for preconditioner solve (can be tuned)
 init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
 @time "solve initial age full" age_init_vec = solve!(init_prob_full).u / year
 
 fig, ax, plt = hist(age_init_vec)
-save(joinpath(outputdir, "initial_steady_age_full_histogram_$(parentmodel).png"), fig)
+save(joinpath(outputdir, "initial_steady_age_full_histogram_$(parentmodel)_$(run_suffix).png"), fig)
 
 foo
 
@@ -838,6 +899,7 @@ f! = NonlinearFunction(G!)
 nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
 
 @info "Solving nonlinear problem with GMRES and lump-and-spray preconditioner (Bardin et al., 2014)"
+flush(stdout)
 @time sol! = solve(nonlinearprob!,
     NewtonRaphson(
         linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),

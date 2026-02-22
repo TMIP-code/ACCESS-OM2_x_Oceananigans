@@ -14,6 +14,7 @@ using Oceananigans.Architectures: CPU
 using Oceananigans.Grids: znode
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
+using Oceananigans.Operators: ℑxᶜᵃᵃ, ℑyᵃᶜᵃ
 using Oceananigans.OutputReaders: Cyclical, OnDisk, InMemory
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
@@ -82,13 +83,8 @@ Nx, Ny, Nz = size(grid)
     # Also, MOM vertical coordinate is flipped compared to Oceananigans,
     # so we need to flip that as well.
 
-    𝑖 = mod1(i - 1, Nx)
-    𝑗 = max(j - 1, 1)
-    zero_first_row = ifelse(j == 1, 0.0, 1.0)
-    𝑘 = Nz - k + 1 # flip vertical
-
-    u[i, j, k] = zero_first_row * u_data[𝑖, 𝑗, 𝑘]
-    v[i, j, k] = zero_first_row * v_data[𝑖, 𝑗, 𝑘]
+    u[mod1(i + 1, Nx), j + 1, k] = u_data[i, j, Nz + 1 - k]
+    v[mod1(i + 1, Nx), j + 1, k] = v_data[i, j, Nz + 1 - k]
 end
 
 """
@@ -112,12 +108,12 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 
     Nx, Ny, Nz = size(grid)
 
-    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nz)
 
     arch = architecture(grid)
 
     launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
-        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        u, v, Nx, Ny - 1, Nz, # (Face, Face) u and v fields on Oceananigans
         on_architecture(arch, u_data), on_architecture(arch, v_data)    # B-grid u and v from MOM
     )
 
@@ -142,6 +138,33 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
 
     u .= interp_u
     v .= interp_v
+
+    return u, v
+end
+
+@kernel function interpolate_velocities_from_Bgrid_to_Cgrid_bis!(u, v, grid, uFF, vFF)
+    i, j, k = @index(Global, NTuple)
+
+    u[i, j, k] = ℑyᵃᶜᵃ(i, j, k, grid, uFF)
+    v[i, j, k] = ℑxᶜᵃᵃ(i, j, k, grid, vFF)
+end
+
+function interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, uFF, vFF)
+    north = FPivotZipperBoundaryCondition(-1)
+
+    ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north)
+    vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north)
+
+    u = XFaceField(grid; boundary_conditions = ubcs)
+    v = YFaceField(grid; boundary_conditions = vbcs)
+
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+
+    launch!(architecture(grid), grid, kp, interpolate_velocities_from_Bgrid_to_Cgrid_bis!, u, v, grid, uFF, vFF)
+
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
 
     return u, v
 end
@@ -207,6 +230,12 @@ for month in 1:12
     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     # Then interpolate to C-grid
     u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
+    u_bis, v_bis = interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, u_Bgrid, v_Bgrid)
+
+    Δu_interp = maximum(abs.(adapt(Array, interior(u)) .- adapt(Array, interior(u_bis))))
+    Δv_interp = maximum(abs.(adapt(Array, interior(v)) .- adapt(Array, interior(v_bis))))
+    println("Interpolation comparison month=$month: max|u-u_bis|=$Δu_interp, max|v-v_bis|=$Δv_interp")
+
     uold = deepcopy(u)
     vold = deepcopy(v)
     mask_immersed_field!(u, 0.0)

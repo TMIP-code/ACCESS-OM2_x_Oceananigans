@@ -13,5 +13,5 @@ echo "Sourced: PARENTMODEL=$PARENTMODEL, REPO_ROOT=$repo_root"
 # Run the script
 
 echo "Running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
-julia --project $repo_root/src/offline_ACCESS-OM2.jl
+julia --project $repo_root/src/offline_ACCESS-OM2.jl &> scratch_output/offline_ACCESS-OM2.$PBS_JOBID.out
 echo "Done running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
