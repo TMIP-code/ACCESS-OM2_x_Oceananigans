@@ -11,7 +11,7 @@ Usage:
 
 using Oceananigans
 using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: znode
+using Oceananigans.Grids: znode, xspacings, yspacings
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.Operators: ℑxᶜᵃᵃ, ℑyᵃᶜᵃ
@@ -123,6 +123,18 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     return u, v
 end
 
+@kernel function interpolate_velocities_from_Bgrid_to_Cgrid_weighted!(u, v, grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
+    i, j, k = @index(Global, NTuple)
+
+    u_num = ℑyᵃᶜᵃ(i, j, k, grid, uFF * Δyᶠᶠᶜ)
+    u_den = Δyᶠᶜᶜ[i, j, k]
+    v_num = ℑxᶜᵃᵃ(i, j, k, grid, vFF * Δxᶠᶠᶜ)
+    v_den = Δxᶜᶠᶜ[i, j, k]
+
+    u[i, j, k] = ifelse(iszero(u_den), 0.0, u_num / u_den)
+    v[i, j, k] = ifelse(iszero(v_den), 0.0, v_num / v_den)
+end
+
 function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
 
     north = FPivotZipperBoundaryCondition(-1)
@@ -133,20 +145,29 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
 
-    interp_u = @at (Face, Center, Center) 1 * uFF
-    interp_v = @at (Center, Face, Center) 1 * vFF
+    Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
+    Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
+    Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
+    Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
+    compute!(Δyᶠᶠᶜ)
+    compute!(Δxᶠᶠᶜ)
+    compute!(Δyᶠᶜᶜ)
+    compute!(Δxᶜᶠᶜ)
+    fill_halo_regions!(Δyᶠᶠᶜ)
+    fill_halo_regions!(Δxᶠᶠᶜ)
+    fill_halo_regions!(Δyᶠᶜᶜ)
+    fill_halo_regions!(Δxᶜᶠᶜ)
+
+    interp_u = (@at (Face, Center, Center) uFF * Δyᶠᶠᶜ) / Δyᶠᶜᶜ
+    interp_v = (@at (Center, Face, Center) vFF * Δxᶠᶠᶜ) / Δxᶜᶠᶜ
 
     u .= interp_u
     v .= interp_v
 
+    fill_halo_regions!(u)
+    fill_halo_regions!(v)
+
     return u, v
-end
-
-@kernel function interpolate_velocities_from_Bgrid_to_Cgrid_bis!(u, v, grid, uFF, vFF)
-    i, j, k = @index(Global, NTuple)
-
-    u[i, j, k] = ℑyᵃᶜᵃ(i, j, k, grid, uFF)
-    v[i, j, k] = ℑxᶜᵃᵃ(i, j, k, grid, vFF)
 end
 
 function interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, uFF, vFF)
@@ -158,10 +179,23 @@ function interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, uFF, vFF)
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
 
+    Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
+    Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
+    Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
+    Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
+    compute!(Δyᶠᶠᶜ)
+    compute!(Δxᶠᶠᶜ)
+    compute!(Δyᶠᶜᶜ)
+    compute!(Δxᶜᶠᶜ)
+    fill_halo_regions!(Δyᶠᶠᶜ)
+    fill_halo_regions!(Δxᶠᶠᶜ)
+    fill_halo_regions!(Δyᶠᶜᶜ)
+    fill_halo_regions!(Δxᶜᶠᶜ)
+
     Nx, Ny, Nz = size(grid)
     kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
 
-    launch!(architecture(grid), grid, kp, interpolate_velocities_from_Bgrid_to_Cgrid_bis!, u, v, grid, uFF, vFF)
+    launch!(architecture(grid), grid, kp, interpolate_velocities_from_Bgrid_to_Cgrid_weighted!, u, v, grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
 
     fill_halo_regions!(u)
     fill_halo_regions!(v)

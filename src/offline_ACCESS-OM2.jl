@@ -180,12 +180,12 @@ N_in_mem = 4  # Keep 4 timesteps in memory (monthly data)
 backend = InMemory(N_in_mem)
 time_indexing = Cyclical(1year)
 
-u_ts = on_architecture(arch, FieldTimeSeries(u_file, "u"; architecture = arch, backend, time_indexing))
-v_ts = on_architecture(arch, FieldTimeSeries(v_file, "v"; architecture = arch, backend, time_indexing))
+u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_indexing)
+v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
 if VELOCITY_SOURCE == "mass_transports"
-    w_ts = on_architecture(arch, FieldTimeSeries(w_file, "w"; architecture = arch, backend, time_indexing))
+    w_ts = FieldTimeSeries(w_file, "w"; architecture = arch, grid, backend, time_indexing)
 end
-η_ts = on_architecture(arch, FieldTimeSeries(η_file, "η"; architecture = arch, backend, time_indexing))
+η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 
 # TODO: self note about using velocities.
 # The problem is that the horizontal flux divergence for a given cell is

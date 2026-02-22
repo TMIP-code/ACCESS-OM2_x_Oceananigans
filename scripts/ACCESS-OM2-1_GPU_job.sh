@@ -24,10 +24,7 @@ echo "Loading CUDA module"
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
-echo "Running model on GPU with PARENTMODEL=$PARENTMODEL"
-source $repo_root/scripts/run_model.sh $PARENTMODEL
-
 echo "Running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
-julia --project $repo_root/src/offline_ACCESS-OM2.jl &> scratch_output/offline_ACCESS-OM2.$PBS_JOBID.out
+julia --project --check-bounds=yes $repo_root/src/offline_ACCESS-OM2.jl &> scratch_output/offline_ACCESS-OM2.$PBS_JOBID.out
 echo "Done running offline ACCESS-OM2 for PARENTMODEL=$PARENTMODEL"
 
