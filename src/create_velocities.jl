@@ -78,12 +78,10 @@ Nx, Ny, Nz = size(grid)
 ################################################################################
 
 @kernel function compute_Bgrid_velocity_from_MOM_output!(
-        u, v, Nx, Ny, Nz, # (Face, Face) u and v fields on Oceananigans
+        u, v, Nx, Nz,     # (Face, Face) u and v fields on Oceananigans
         u_data, v_data    # B-grid u and v from MOM
     )
-
     i, j, k = @index(Global, NTuple)
-
     # The MOM B-grid places u and V at NE corners of the cells,
     # while Oceananigans places them at SW corners.
     # So we need to shift the data by one index in both i and j.
@@ -91,23 +89,18 @@ Nx, Ny, Nz = size(grid)
     # and set j = 1 row to zero (both u and v).
     # Also, MOM vertical coordinate is flipped compared to Oceananigans,
     # so we need to flip that as well.
-
     @inbounds begin
         u[mod1(i + 1, Nx), j + 1, k] = u_data[i, j, Nz + 1 - k]
         v[mod1(i + 1, Nx), j + 1, k] = v_data[i, j, Nz + 1 - k]
     end
 end
 
-@kernel function compute_w_from_MOM_output!(
-        w, Nx, Ny, Nzw, # (Center, Center, Face) w field on Oceananigans
-        w_data, Nzw_data
-    )
-
+@kernel function compute_w_from_MOM_output!(w, w_data, Nz)
     i, j, k = @index(Global, NTuple)
-
+    # The w is on the C grid already but flipped in the vertical
+    # and starts at the bottom of the top layer (k = 1)
     @inbounds begin
-        𝑘 = clamp(Nzw_data + 1 - k, 1, Nzw_data)
-        w[mod1(i + 1, Nx), j + 1, k] = w_data[i, j, 𝑘]
+        w[i, j, Nz + 1 - k] = w_data[i, j, k]
     end
 end
 
@@ -130,14 +123,15 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     u = Field(loc, grid; boundary_conditions)
     v = Field(loc, grid; boundary_conditions)
 
-    Nx, Ny, Nz = size(grid)
+    Nx, Ny, Nz = size(u_data)
+    @assert size(v_data) == (Nx, Ny, Nz)
 
-    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nz)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
 
     arch = architecture(grid)
 
     launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
-        u, v, Nx, Ny - 1, Nz, # (Face, Face) u and v fields on Oceananigans
+        u, v, Nx, Nz, # (Face, Face) u and v fields on Oceananigans
         on_architecture(arch, u_data), on_architecture(arch, v_data)    # B-grid u and v from MOM
     )
 
@@ -148,21 +142,19 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
 end
 
 function w_from_MOM_output(grid, w_data)
-    north = FPivotZipperBoundaryCondition(-1)
+    north = FPivotZipperBoundaryCondition(1)
 
     loc = (Center(), Center(), Face())
     boundary_conditions = FieldBoundaryConditions(grid, loc; north)
     w = Field(loc, grid; boundary_conditions)
 
-    Nx, Ny, Nzw = size(w)
-    Nzw_data = size(w_data, 3)
+    Nx, Ny, Nz = size(w_data)
 
-    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nzw)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
     arch = architecture(grid)
 
     launch!(arch, grid, kp, compute_w_from_MOM_output!,
-        w, Nx, Ny - 1, Nzw,
-        on_architecture(arch, w_data), Nzw_data
+        w, on_architecture(arch, w_data), Nz
     )
 
     Oceananigans.BoundaryConditions.fill_halo_regions!(w)
@@ -293,7 +285,7 @@ for month in 1:12
     println("  - loading from MOM wt output")
     wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
     w_data = replace(readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data, NaN => 0.0)
-    println("  - index shift to Oceananigans C grid")
+    println("  - to Oceananigans C grid")
     w = w_from_MOM_output(grid, w_data)
     println("  - Masking immersed w")
     mask_immersed_field!(w, 0.0)
