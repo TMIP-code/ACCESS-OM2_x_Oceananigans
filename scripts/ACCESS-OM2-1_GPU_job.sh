@@ -17,9 +17,9 @@ set -euo pipefail
 
 # parent model (falls back to existing env or sensible default)
 PARENT_MODEL=ACCESS-OM2-1
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-mom}
-W_FORMULATION=${W_FORMULATION:-diagnose}
-FREE_SURFACE=${FREE_SURFACE:-prescribed_eta}
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-bgridvelocities}
+W_FORMULATION=${W_FORMULATION:-wdiagnosed}
+FREE_SURFACE=${FREE_SURFACE:-etaprescribed}
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${FREE_SURFACE}"
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION FREE_SURFACE
 echo "environment variables set:"

@@ -80,7 +80,7 @@ end
 
 mkpath(outputdir)
 mkpath(joinpath(outputdir, "velocities"))
-run_mode_tag = get(ENV, "RUN_MODE_TAG", "mass_transports_prescribed_prescribed_eta")
+run_mode_tag = get(ENV, "RUN_MODE_TAG", "cgridtransports_wprescribed_etaprescribed")
 u_plot_dir = joinpath(outputdir, "velocities", "u", run_mode_tag)
 v_plot_dir = joinpath(outputdir, "velocities", "v", run_mode_tag)
 w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)

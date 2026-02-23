@@ -11,7 +11,7 @@ Usage:
 
 using Oceananigans
 using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: znode, xspacings, yspacings
+using Oceananigans.Grids: znode, xspacings, yspacings, zspacings
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.Operators: ℑxᶜᵃᵃ, ℑyᵃᶜᵃ
@@ -50,7 +50,7 @@ parentmodel = "ACCESS-OM2-1"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
 mkpath(outputdir)
 mkpath(joinpath(outputdir, "velocities"))
-run_mode_tag = get(ENV, "RUN_MODE_TAG", "mom_interpolated_prescribed_eta")
+run_mode_tag = get(ENV, "RUN_MODE_TAG", "bgridvelocities_wdiagnosed_etaprescribed")
 uv_plot_dir = joinpath(outputdir, "velocities", "uv", run_mode_tag)
 w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)
 eta_plot_dir = joinpath(outputdir, "velocities", "eta", run_mode_tag)
@@ -170,7 +170,7 @@ function w_from_MOM_output(grid, w_data)
     return w
 end
 
-function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
+function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δzᶠᶠᶜ)
 
     north = FPivotZipperBoundaryCondition(-1)
 
@@ -180,8 +180,9 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δyᶠᶠᶜ
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
 
-    interp_u = (@at (Face, Center, Center) uFF * Δyᶠᶠᶜ) / Δyᶠᶜᶜ
-    interp_v = (@at (Center, Face, Center) vFF * Δxᶠᶠᶜ) / Δxᶜᶠᶜ
+    # Δy * Δz weighted average for the interpolation
+    interp_u = (@at (Face, Center, Center) uFF * Δyᶠᶠᶜ * Δzᶠᶠᶜ) / (@at (Face, Center, Center) Δyᶠᶠᶜ * Δzᶠᶠᶜ)
+    interp_v = (@at (Center, Face, Center) vFF * Δxᶠᶠᶜ * Δzᶠᶠᶜ) / (@at (Center, Face, Center) Δxᶠᶠᶜ * Δzᶠᶠᶜ)
 
     u .= interp_u
     v .= interp_v
@@ -234,18 +235,15 @@ w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk()
 η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
-Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
-Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
-Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
-compute!(Δyᶠᶠᶜ)
+Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
+Δzᶠᶠᶜ = Field(zspacings(grid, Face(), Face(), Center()))
 compute!(Δxᶠᶠᶜ)
-compute!(Δyᶠᶜᶜ)
-compute!(Δxᶜᶠᶜ)
-fill_halo_regions!(Δyᶠᶠᶜ)
+compute!(Δyᶠᶠᶜ)
+compute!(Δzᶠᶠᶜ)
 fill_halo_regions!(Δxᶠᶠᶜ)
-fill_halo_regions!(Δyᶠᶜᶜ)
-fill_halo_regions!(Δxᶜᶠᶜ)
+fill_halo_regions!(Δyᶠᶠᶜ)
+fill_halo_regions!(Δzᶠᶠᶜ)
 
 for month in 1:12
     println("month $month")
@@ -274,7 +272,7 @@ for month in 1:12
     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     # Then interpolate to C-grid
     println("  - Interpolate to Oceananigans C grid")
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
+    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δzᶠᶠᶜ)
 
     uold = deepcopy(u)
     vold = deepcopy(v)
