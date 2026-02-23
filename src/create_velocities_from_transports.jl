@@ -62,8 +62,8 @@ cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "de
 
 parentmodel = if !isempty(ARGS)
 	ARGS[1]
-elseif haskey(ENV, "PARENTMODEL")
-	ENV["PARENTMODEL"]
+elseif haskey(ENV, "PARENT_MODEL")
+	ENV["PARENT_MODEL"]
 else
 	get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
 end
@@ -80,10 +80,11 @@ end
 
 mkpath(outputdir)
 mkpath(joinpath(outputdir, "velocities"))
-u_plot_dir = joinpath(outputdir, "velocities", "from_mass_transport", "u")
-v_plot_dir = joinpath(outputdir, "velocities", "from_mass_transport", "v")
-w_plot_dir = joinpath(outputdir, "velocities", "from_mass_transport", "w")
-tz_plot_dir = joinpath(outputdir, "velocities", "from_mass_transport", "tz")
+run_mode_tag = get(ENV, "RUN_MODE_TAG", "mass_transports_prescribed_prescribed_eta")
+u_plot_dir = joinpath(outputdir, "velocities", "u", run_mode_tag)
+v_plot_dir = joinpath(outputdir, "velocities", "v", run_mode_tag)
+w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)
+tz_plot_dir = joinpath(outputdir, "velocities", "tz", run_mode_tag)
 mkpath(u_plot_dir)
 mkpath(v_plot_dir)
 mkpath(w_plot_dir)
@@ -141,11 +142,13 @@ Nx, Ny, Nz = size(grid)
     #                   i = 1         1         2         2
     # 𝑖 = mod1(i - 1, Nx) = 2                   1
 
-	# Circular-shift i index for tx data
-	tx[i, j, k] = tx_data[mod1(i - 1, Nx), j, 𝑘]
+	@inbounds begin
+		# Circular-shift i index for tx data
+		tx[i, j, k] = tx_data[mod1(i - 1, Nx), j, 𝑘]
 
-	# Shift j index for ty data
-	ty[i, j + 1, k] = ty_data[i, j, 𝑘]
+		# Shift j index for ty data
+		ty[i, j + 1, k] = ty_data[i, j, 𝑘]
+	end
 end
 
 """
@@ -178,11 +181,13 @@ end
 @kernel function compute_tz_from_continuity!(tz, grid, tx, ty, Nz)
 	i, j = @index(Global, NTuple)
 
-	@inbounds tz[i, j, 1] = 0.0
+	@inbounds begin
+		tz[i, j, 1] = 0.0
 
-	@inbounds for k in 1:Nz
-		horizontal_div = δxᶜᵃᵃ(i, j, k, grid, tx) + δyᵃᶜᵃ(i, j, k, grid, ty)
-		tz[i, j, k + 1] = tz[i, j, k] - horizontal_div
+		for k in 1:Nz
+			horizontal_div = δxᶜᵃᵃ(i, j, k, grid, tx) + δyᵃᶜᵃ(i, j, k, grid, ty)
+			tz[i, j, k + 1] = tz[i, j, k] - horizontal_div
+		end
 	end
 end
 
@@ -265,7 +270,9 @@ function plot_velocity_slice(field, field_name, month_idx, k_level, plot_dir, pa
 	hm = heatmap!(ax, plottable; colormap = :balance, colorrange = (-max_velocity, max_velocity), nan_color = :black)
 	Colorbar(fig[1, 2], hm)
 
-	plot_file = joinpath(plot_dir, "$(parentmodel)_$(field_name)_from_mass_transports_month_$(month_idx).png")
+	k_dir = joinpath(plot_dir, "k$(k_level)")
+	mkpath(k_dir)
+	plot_file = joinpath(k_dir, "$(parentmodel)_$(field_name)_from_mass_transports_month_$(month_idx).png")
 	save(plot_file, fig)
 
 	return nothing

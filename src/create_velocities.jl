@@ -36,8 +36,10 @@ if contains(ENV["HOSTNAME"], "gpu")
     CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
     @show CUDA.versioninfo()
     arch = GPU()
+    arch_str = "GPU"
 else
     arch = CPU()
+    arch_str = "CPU"
 end
 @info "Using $arch architecture"
 
@@ -48,6 +50,13 @@ parentmodel = "ACCESS-OM2-1"
 outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
 mkpath(outputdir)
 mkpath(joinpath(outputdir, "velocities"))
+run_mode_tag = get(ENV, "RUN_MODE_TAG", "mom_interpolated_prescribed_eta")
+uv_plot_dir = joinpath(outputdir, "velocities", "uv", run_mode_tag)
+w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)
+eta_plot_dir = joinpath(outputdir, "velocities", "eta", run_mode_tag)
+mkpath(uv_plot_dir)
+mkpath(w_plot_dir)
+mkpath(eta_plot_dir)
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
@@ -83,8 +92,23 @@ Nx, Ny, Nz = size(grid)
     # Also, MOM vertical coordinate is flipped compared to Oceananigans,
     # so we need to flip that as well.
 
-    u[mod1(i + 1, Nx), j + 1, k] = u_data[i, j, Nz + 1 - k]
-    v[mod1(i + 1, Nx), j + 1, k] = v_data[i, j, Nz + 1 - k]
+    @inbounds begin
+        u[mod1(i + 1, Nx), j + 1, k] = u_data[i, j, Nz + 1 - k]
+        v[mod1(i + 1, Nx), j + 1, k] = v_data[i, j, Nz + 1 - k]
+    end
+end
+
+@kernel function compute_w_from_MOM_output!(
+        w, Nx, Ny, Nzw, # (Center, Center, Face) w field on Oceananigans
+        w_data, Nzw_data
+    )
+
+    i, j, k = @index(Global, NTuple)
+
+    @inbounds begin
+        𝑘 = clamp(Nzw_data + 1 - k, 1, Nzw_data)
+        w[mod1(i + 1, Nx), j + 1, k] = w_data[i, j, 𝑘]
+    end
 end
 
 """
@@ -123,19 +147,30 @@ function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     return u, v
 end
 
-@kernel function interpolate_velocities_from_Bgrid_to_Cgrid_weighted!(u, v, grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
-    i, j, k = @index(Global, NTuple)
+function w_from_MOM_output(grid, w_data)
+    north = FPivotZipperBoundaryCondition(-1)
 
-    u_num = ℑyᵃᶜᵃ(i, j, k, grid, uFF * Δyᶠᶠᶜ)
-    u_den = Δyᶠᶜᶜ[i, j, k]
-    v_num = ℑxᶜᵃᵃ(i, j, k, grid, vFF * Δxᶠᶠᶜ)
-    v_den = Δxᶜᶠᶜ[i, j, k]
+    loc = (Center(), Center(), Face())
+    boundary_conditions = FieldBoundaryConditions(grid, loc; north)
+    w = Field(loc, grid; boundary_conditions)
 
-    u[i, j, k] = ifelse(iszero(u_den), 0.0, u_num / u_den)
-    v[i, j, k] = ifelse(iszero(v_den), 0.0, v_num / v_den)
+    Nx, Ny, Nzw = size(w)
+    Nzw_data = size(w_data, 3)
+
+    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nzw)
+    arch = architecture(grid)
+
+    launch!(arch, grid, kp, compute_w_from_MOM_output!,
+        w, Nx, Ny - 1, Nzw,
+        on_architecture(arch, w_data), Nzw_data
+    )
+
+    Oceananigans.BoundaryConditions.fill_halo_regions!(w)
+
+    return w
 end
 
-function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
+function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
 
     north = FPivotZipperBoundaryCondition(-1)
 
@@ -144,58 +179,12 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF)
 
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
-
-    Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
-    Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
-    Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
-    Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
-    compute!(Δyᶠᶠᶜ)
-    compute!(Δxᶠᶠᶜ)
-    compute!(Δyᶠᶜᶜ)
-    compute!(Δxᶜᶠᶜ)
-    fill_halo_regions!(Δyᶠᶠᶜ)
-    fill_halo_regions!(Δxᶠᶠᶜ)
-    fill_halo_regions!(Δyᶠᶜᶜ)
-    fill_halo_regions!(Δxᶜᶠᶜ)
 
     interp_u = (@at (Face, Center, Center) uFF * Δyᶠᶠᶜ) / Δyᶠᶜᶜ
     interp_v = (@at (Center, Face, Center) vFF * Δxᶠᶠᶜ) / Δxᶜᶠᶜ
 
     u .= interp_u
     v .= interp_v
-
-    fill_halo_regions!(u)
-    fill_halo_regions!(v)
-
-    return u, v
-end
-
-function interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, uFF, vFF)
-    north = FPivotZipperBoundaryCondition(-1)
-
-    ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north)
-    vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north)
-
-    u = XFaceField(grid; boundary_conditions = ubcs)
-    v = YFaceField(grid; boundary_conditions = vbcs)
-
-    Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
-    Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
-    Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
-    Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
-    compute!(Δyᶠᶠᶜ)
-    compute!(Δxᶠᶠᶜ)
-    compute!(Δyᶠᶜᶜ)
-    compute!(Δxᶜᶠᶜ)
-    fill_halo_regions!(Δyᶠᶠᶜ)
-    fill_halo_regions!(Δxᶠᶠᶜ)
-    fill_halo_regions!(Δyᶠᶜᶜ)
-    fill_halo_regions!(Δxᶜᶠᶜ)
-
-    Nx, Ny, Nz = size(grid)
-    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
-
-    launch!(architecture(grid), grid, kp, interpolate_velocities_from_Bgrid_to_Cgrid_weighted!, u, v, grid, uFF, vFF, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
 
     fill_halo_regions!(u)
     fill_halo_regions!(v)
@@ -219,6 +208,7 @@ time_window = "Jan1960-Dec1979"
 
 u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
+wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
 eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
 
 # prescribed_Δt = 1Δt
@@ -228,22 +218,39 @@ stop_time = 12 * prescribed_Δt
 
 u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
 v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
+w_file = joinpath(outputdir, "$(parentmodel)_w_ts.jld2")
 η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
 
 # remove old files if they exist
 rm(u_file; force = true)
 rm(v_file; force = true)
+rm(w_file; force = true)
 rm(η_file; force = true)
 
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
 u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_file, name = "u", time_indexing = Cyclical(stop_time))
 v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_file, name = "v", time_indexing = Cyclical(stop_time))
+w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_file, name = "w", time_indexing = Cyclical(stop_time))
 η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
 
-print("month ")
-for month in 1:12
-    print("$month, ")
+println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
+Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
+Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
+Δyᶠᶜᶜ = Field(yspacings(grid, Face(), Center(), Center()))
+Δxᶜᶠᶜ = Field(xspacings(grid, Center(), Face(), Center()))
+compute!(Δyᶠᶠᶜ)
+compute!(Δxᶠᶠᶜ)
+compute!(Δyᶠᶜᶜ)
+compute!(Δxᶜᶠᶜ)
+fill_halo_regions!(Δyᶠᶠᶜ)
+fill_halo_regions!(Δxᶠᶠᶜ)
+fill_halo_regions!(Δyᶠᶜᶜ)
+fill_halo_regions!(Δxᶜᶠᶜ)
 
+for month in 1:12
+    println("month $month")
+
+    println("- η")
     # Do η first because it's smaller and thus faster
     η_data = replace(readcubedata(eta_ds.eta_t[month = At(month)]).data, NaN => 0.0)
     # For sea surface height use a ReducedField (Nothing in the z direction otherwise segfaults)
@@ -257,30 +264,47 @@ for month in 1:12
     fill_halo_regions!(η)
     set!(η_ts, η, month)
 
+    println("- u and v:")
     # Load u and v data
+    println("  - loading from MOM B grid")
     u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
     v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
     # Place u and v data on Oceananigans B-grid
+    println("  - index shift to Oceananigans B grid")
     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     # Then interpolate to C-grid
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid)
-    u_bis, v_bis = interpolate_velocities_from_Bgrid_to_Cgrid_bis(grid, u_Bgrid, v_Bgrid)
-
-    Δu_interp = maximum(abs.(adapt(Array, interior(u)) .- adapt(Array, interior(u_bis))))
-    Δv_interp = maximum(abs.(adapt(Array, interior(v)) .- adapt(Array, interior(v_bis))))
-    println("Interpolation comparison month=$month: max|u-u_bis|=$Δu_interp, max|v-v_bis|=$Δv_interp")
+    println("  - Interpolate to Oceananigans C grid")
+    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δyᶠᶠᶜ, Δxᶠᶠᶜ, Δyᶠᶜᶜ, Δxᶜᶠᶜ)
 
     uold = deepcopy(u)
     vold = deepcopy(v)
+    println("  - Masking immersed fields")
     mask_immersed_field!(u, 0.0)
     mask_immersed_field!(v, 0.0)
     @assert interior(u) == interior(uold)
     @assert interior(v) == interior(vold)
+    println("  - Filling halo regions")
     fill_halo_regions!(u)
     fill_halo_regions!(v)
+
+    println("  - Set FieldTimeSeries for u and v")
     set!(u_ts, u, month)
     set!(v_ts, v, month)
 
+    println("- w")
+    println("  - loading from MOM wt output")
+    wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
+    w_data = replace(readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data, NaN => 0.0)
+    println("  - index shift to Oceananigans C grid")
+    w = w_from_MOM_output(grid, w_data)
+    println("  - Masking immersed w")
+    mask_immersed_field!(w, 0.0)
+    println("  - Filling halo regions for w")
+    fill_halo_regions!(w)
+    println("  - Set FieldTimeSeries for w")
+    set!(w_ts, w, month)
+
+    println("  - Plot B grid u and v")
     # Visualization (for k=25 only, as in original)
     for k in 25:25
         local fig = Figure(size = (1200, 1200))
@@ -294,9 +318,12 @@ for month in 1:12
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[2, 2], hm)
-        save(joinpath(outputdir, "velocities/BGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
+        k_dir = joinpath(uv_plot_dir, "k$(k)")
+        mkpath(k_dir)
+        save(joinpath(k_dir, "BGrid_velocities_$(k)_month$(month)_$(arch_str).png"), fig)
     end
 
+    println("  - Plot C grid u and v")
     # Visualization
     for k in 25:25
         local fig = Figure(size = (1200, 1200))
@@ -310,26 +337,47 @@ for month in 1:12
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[2, 2], hm)
-        save(joinpath(outputdir, "velocities/CGrid_velocities_$(k)_month$(month)_$(typeof(arch)).png"), fig)
+        k_dir = joinpath(uv_plot_dir, "k$(k)")
+        mkpath(k_dir)
+        save(joinpath(k_dir, "CGrid_velocities_$(k)_month$(month)_$(arch_str).png"), fig)
 
     end
 
+    println("- Plot η")
     fig = Figure(size = (1200, 600))
     ax = Axis(fig[1, 1], title = "sea surface height[month=$month]")
     plottable_η = view(make_plottable_array(η), :, :, 1)
     maxη = maximum(abs.(plottable_η[.!isnan.(plottable_η)]))
     hm = heatmap!(ax, plottable_η; colormap = :RdBu_9, colorrange = maxη .* (-1, 1), nan_color = :black)
     Colorbar(fig[1, 2], hm)
-    save(joinpath(outputdir, "velocities/sea_surface_height_month$(month)_$(typeof(arch)).png"), fig)
+    save(joinpath(eta_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"), fig)
+
+    println("- Plot w")
+    for k in 25:25
+        local fig = Figure(size = (1200, 600))
+        local ax = Axis(fig[1, 1], title = "C-grid w[k=$k, month=$month]")
+        local velocity2D = view(make_plottable_array(w), :, :, k + 1)
+        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
+        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
+        Colorbar(fig[1, 2], hm)
+        k_dir = joinpath(w_plot_dir, "k$(k)")
+        mkpath(k_dir)
+        save(joinpath(k_dir, "CGrid_w_$(k)_month$(month)_$(arch_str).png"), fig)
+    end
 
 
 
 end
 println("Done!")
 
-@info("""
-Velocities and sea surface height saved to
-- $(u_file)
-- $(v_file)
-- $(η_file)
-""")
+@show u_ts
+@info "saved to $(u_file)"
+
+@show v_ts
+@info "saved to $(v_file)"
+
+@show w_ts
+@info "saved to $(w_file)"
+
+@show η_ts
+@info "saved to $(η_file)"

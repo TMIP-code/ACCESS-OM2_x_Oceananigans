@@ -20,6 +20,7 @@ using Oceananigans
 # Build matrices on the CPU because sparsity detection and coloring
 # cannot be performed on the GPU.
 arch = CPU()
+arch_str = "CPU"
 @info "Using $arch architecture"
 
 using Oceananigans.TurbulenceClosures
@@ -63,7 +64,7 @@ const nprocs = 12
 
 # Determine which model profile to use. Priority:
 # 1. ARGS[1] passed to julia
-# 2. ENV["PARENTMODEL"]
+# 2. ENV["PARENT_MODEL"]
 # 3. `defaults.parentmodel` in LocalPreferences.toml
 # 4. fallback to ACCESS-OM2-1
 cfg_file = "LocalPreferences.toml"
@@ -71,8 +72,8 @@ cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "de
 
 parentmodel = if !isempty(ARGS)
     ARGS[1]
-elseif haskey(ENV, "PARENTMODEL")
-    ENV["PARENTMODEL"]
+elseif haskey(ENV, "PARENT_MODEL")
+    ENV["PARENT_MODEL"]
 else
     get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
 end
@@ -126,7 +127,7 @@ Nx, Ny, Nz = size(grid)
 #     colormap = :viridis
 # )
 # Colorbar(fig[1, 1], hm, vertical = false, label = "Bottom height (m)")
-# save(joinpath(outputdir, "bottom_height_heatmap_$(typeof(arch)).png"), fig)
+# save(joinpath(outputdir, "bottom_height_heatmap_$(arch_str).png"), fig)
 
 ################################################################################
 ################################################################################
@@ -303,7 +304,7 @@ set!(model, age = Returns(0.0)) # TODO: Unneccessary as fields are initialized t
 #     axis = (; title = "Initial age at surface (years)"),
 # )
 # Colorbar(fig[1, 2], plt)
-# save(joinpath(outputdir, "initial_age_surface_$(typeof(arch)).png"), fig)
+# save(joinpath(outputdir, "initial_age_surface_$(arch_str).png"), fig)
 
 ################################################################################
 ################################################################################
@@ -344,7 +345,7 @@ output_fields = Dict(
     "w" => model.velocities.w.field,
 )
 
-output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(typeof(arch))")
+output_prefix = joinpath(outputdir, "offline_age_$(parentmodel)_$(arch_str)")
 
 # simulation.output_writers[:fields] = NetCDFWriter(
 simulation.output_writers[:fields] = JLD2Writer(
@@ -380,7 +381,7 @@ run!(simulation)
 #         axis = (; title = "Final age (years) at level k = $k"),
 #     )
 #     Colorbar(fig[1, 2], plt)
-#     save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(typeof(arch)).png"), fig)
+#     save(joinpath(outputdir, "final_age_k$(k)_$(parentmodel)_$(arch_str).png"), fig)
 # end
 
 
@@ -415,7 +416,7 @@ for itime in eachindex(u_lazy.times)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[3, 2], hm)
-        save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(typeof(arch)).png"), fig)
+        save(joinpath(outputdir, "velocities/CGrid_velocities_final_k$(k)_output$(itime)_$(arch_str).png"), fig)
     end
 end
 
@@ -472,7 +473,7 @@ frames = 1:length(output_times)
 
 @info "Making an animation..."
 
-Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(typeof(arch)).mp4"), frames, framerate = 25) do i
+Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(arch_str).mp4"), frames, framerate = 25) do i
     println("frame $i/$(length(frames))")
     n[] = i
 end

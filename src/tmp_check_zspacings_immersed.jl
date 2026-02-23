@@ -7,8 +7,8 @@ include("tripolargrid_reader.jl")
 
 parentmodel = if !isempty(ARGS)
     ARGS[1]
-elseif haskey(ENV, "PARENTMODEL")
-    ENV["PARENTMODEL"]
+elseif haskey(ENV, "PARENT_MODEL")
+    ENV["PARENT_MODEL"]
 else
     "ACCESS-OM2-1"
 end
