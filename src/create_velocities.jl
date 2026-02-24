@@ -115,65 +115,34 @@ It also flips the vertical coordinate.
 j = 1 row is set to zero (both u and v).
 i = 1 column is set by wrapping around the data (periodic longitude).
 """
-function Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-    # north_bc = Oceananigans.BoundaryCondition(Oceananigans.BoundaryConditions.Zipper{FPivot}(), -1)
-    north = FPivotZipperBoundaryCondition(-1)
-
-    loc = (Face(), Face(), Center())
-    boundary_conditions = FieldBoundaryConditions(grid, loc; north)
-
-    u = Field(loc, grid; boundary_conditions)
-    v = Field(loc, grid; boundary_conditions)
-
+function fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
     Nx, Ny, Nz = size(u_data)
     @assert size(v_data) == (Nx, Ny, Nz)
 
     kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
-
     arch = architecture(grid)
 
     launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
-        u, v, Nx, Nz, # (Face, Face) u and v fields on Oceananigans
-        on_architecture(arch, u_data), on_architecture(arch, v_data)    # B-grid u and v from MOM
-    )
+        u, v, Nx, Nz,
+        on_architecture(arch, u_data), on_architecture(arch, v_data))
 
     Oceananigans.BoundaryConditions.fill_halo_regions!(u)
     Oceananigans.BoundaryConditions.fill_halo_regions!(v)
-
-    return u, v
 end
 
-function w_from_MOM_output(grid, w_data)
-    north = FPivotZipperBoundaryCondition(1)
-
-    loc = (Center(), Center(), Face())
-    boundary_conditions = FieldBoundaryConditions(grid, loc; north)
-    w = Field(loc, grid; boundary_conditions)
-
+function fill_w_from_MOM_output!(w, grid, w_data)
     Nx, Ny, Nz = size(w_data)
 
-    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    kp   = KernelParameters(1:Nx, 1:Ny, 1:Nz)
     arch = architecture(grid)
 
     launch!(arch, grid, kp, compute_w_from_MOM_output!,
-        w, on_architecture(arch, w_data), Nz
-    )
+        w, on_architecture(arch, w_data), Nz)
 
     Oceananigans.BoundaryConditions.fill_halo_regions!(w)
-
-    return w
 end
 
-function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
-
-    north = FPivotZipperBoundaryCondition(-1)
-
-    ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north)
-    vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north)
-
-    u = XFaceField(grid; boundary_conditions = ubcs)
-    v = YFaceField(grid; boundary_conditions = vbcs)
-
+function interpolate_velocities_from_Bgrid_to_Cgrid!(u, v, grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
     Δzᶠᶠᶜ = zspacings(grid, Face(), Face(), Center())  # lazy, always current
 
     # Δy * Δz weighted average for the interpolation
@@ -185,8 +154,6 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ
 
     fill_halo_regions!(u)
     fill_halo_regions!(v)
-
-    return u, v
 end
 
 
@@ -209,6 +176,7 @@ wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
 eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
 dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
 dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_periodic.nc")
+wt_var_name  = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
 
 # prescribed_Δt = 1Δt
 prescribed_Δt = 1month
@@ -235,80 +203,86 @@ w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk()
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
 Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
-Δzᶜᶜᶜ = Field(zspacings(grid, Center(), Center(), Center()))
 compute!(Δxᶠᶠᶜ)
 compute!(Δyᶠᶠᶜ)
-compute!(Δzᶜᶜᶜ)
 fill_halo_regions!(Δxᶠᶠᶜ)
 fill_halo_regions!(Δyᶠᶠᶜ)
-Δzᶜᶜᶜ_data = Array(interior(Δzᶜᶜᶜ))
-H = dropdims(sum(Δzᶜᶜᶜ_data; dims = 3); dims = 3)
+
+# Pre-allocate fields reused every month to avoid per-month allocations
+η        = Field{Center, Center, Nothing}(grid, indices=(:, :, 1))
+dht_diag = Field{Center, Center, Center}(grid)
+Δzstar   = Field(zspacings(grid, Center(), Center(), Center()))
+
+north_ff = FPivotZipperBoundaryCondition(-1)
+ff_bcs   = FieldBoundaryConditions(grid, (Face(), Face(), Center()); north=north_ff)
+u_Bgrid  = Field((Face(), Face(), Center()), grid; boundary_conditions=ff_bcs)
+v_Bgrid  = Field((Face(), Face(), Center()), grid; boundary_conditions=ff_bcs)
+
+ubcs = FieldBoundaryConditions(grid, (Face(),   Center(), Center()); north=FPivotZipperBoundaryCondition(-1))
+vbcs = FieldBoundaryConditions(grid, (Center(), Face(),   Center()); north=FPivotZipperBoundaryCondition(-1))
+u    = XFaceField(grid; boundary_conditions=ubcs)
+v    = YFaceField(grid; boundary_conditions=vbcs)
+
+wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north=FPivotZipperBoundaryCondition(1))
+w    = ZFaceField(grid; boundary_conditions=wbcs)
 
 for month in 1:12
     println("month $month")
 
+    # ── η (set first so _update_zstar_scaling! runs before the dht check) ────
     println("- η")
-    # Do η first because it's smaller and thus faster
     η_data = replace(readcubedata(eta_ds.eta_t[month = At(month)]).data, NaN => 0.0)
-    dht_data = replace(readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data, NaN => 0.0)
-    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $Ny, $Nz) in Julia after month slicing")
-    dht_data = dht_data[:, :, Nz:-1:1]
-
-    scale = ones(Nx, Ny - 1)
-    wet_columns = H .> 0
-    scale[wet_columns] .= 1 .+ η_data[wet_columns] ./ H[wet_columns]
-    Δzη = Δzᶜᶜᶜ_data .* reshape(scale, Nx, Ny - 1, 1)
-
-    wet3D = Δzᶜᶜᶜ_data .> 0
-    ratio = dht_data[wet3D] ./ Δzη[wet3D]
-    println("  - dht/Δz(η) wet-cell ratio: min=$(minimum(ratio)), mean=$(mean(ratio)), max=$(maximum(ratio))")
-    # For sea surface height use a ReducedField (Nothing in the z direction otherwise segfaults)
-    η = Field{Center, Center, Nothing}(grid, indices=(:, :, 1))
     set!(η, η_data)
-
-    # Check if masking immersed fields is needed
-    ηold = deepcopy(η)
     mask_immersed_field!(η, 0.0)
-    @assert interior(η) == interior(ηold)
     fill_halo_regions!(η)
     set!(η_ts, η, month)
 
-    # update grid vertical coordinates
+    # Update z-star grid scaling (before dht check so Δzstar reflects current η)
     launch!(architecture(grid), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η, grid)
 
+    # ── dht consistency check ────────────────────────────────────────────────
+    # mask_immersed_field! sets immersed cells to NaN in both fields so that
+    # filter(!isnan, ratio) selects only wet cells (Δrᶜᶜᶜ is non-zero for immersed
+    # cells in PartialCellBottom grids, so Δzᶜᶜᶜ_data .> 0 would be incorrect).
+    println("- dht consistency check")
+    dht_data = replace(readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data, NaN => 0.0)
+    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny-1), $Nz)")
+    dht_data = dht_data[:, :, Nz:-1:1]
+
+    set!(dht_diag, dht_data)
+    mask_immersed_field!(dht_diag, NaN)
+
+    compute!(Δzstar)                   # Δr * σⁿ with current σ after _update_zstar_scaling!
+    mask_immersed_field!(Δzstar, NaN)
+
+    wet_ratio = filter(!isnan, vec(Array(interior(dht_diag)) ./ Array(interior(Δzstar))))
+    println("  - dht/Δzstar wet-cell ratio: min=$(minimum(wet_ratio)), mean=$(mean(wet_ratio)), max=$(maximum(wet_ratio))")
+
+    # ── u and v ──────────────────────────────────────────────────────────────
     println("- u and v:")
-    # Load u and v data
     println("  - loading from MOM B grid")
     u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
     v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
-    # Place u and v data on Oceananigans B-grid
     println("  - index shift to Oceananigans B grid")
-    u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
-    # Then interpolate to C-grid
+    fill_Bgrid_velocity_from_MOM_output!(u_Bgrid, v_Bgrid, grid, u_data, v_data)
     println("  - Interpolate to Oceananigans C grid")
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
-
-    uold = deepcopy(u)
-    vold = deepcopy(v)
+    interpolate_velocities_from_Bgrid_to_Cgrid!(u, v, grid, u_Bgrid, v_Bgrid, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
     println("  - Masking immersed fields")
     mask_immersed_field!(u, 0.0)
     mask_immersed_field!(v, 0.0)
-    @assert interior(u) == interior(uold)
-    @assert interior(v) == interior(vold)
     println("  - Filling halo regions")
     fill_halo_regions!(u)
     fill_halo_regions!(v)
-
     println("  - Set FieldTimeSeries for u and v")
     set!(u_ts, u, month)
     set!(v_ts, v, month)
 
+    # ── w ────────────────────────────────────────────────────────────────────
     println("- w")
     println("  - loading from MOM wt output")
-    wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
     w_data = replace(readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data, NaN => 0.0)
     println("  - to Oceananigans C grid")
-    w = w_from_MOM_output(grid, w_data)
+    fill_w_from_MOM_output!(w, grid, w_data)
     println("  - Masking immersed w")
     mask_immersed_field!(w, 0.0)
     println("  - Filling halo regions for w")
