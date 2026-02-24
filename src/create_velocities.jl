@@ -14,6 +14,8 @@ using Oceananigans.Architectures: CPU
 using Oceananigans.Grids: znode, xspacings, yspacings, zspacings
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
+using Oceananigans.Models: HydrostaticFreeSurfaceModel
+using Oceananigans.Models.HydrostaticFreeSurfaceModels: _update_zstar_scaling!, surface_kernel_parameters
 using Oceananigans.Operators: ℑxᶜᵃᵃ, ℑyᵃᶜᵃ
 using Oceananigans.OutputReaders: Cyclical, OnDisk, InMemory
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
@@ -162,7 +164,7 @@ function w_from_MOM_output(grid, w_data)
     return w
 end
 
-function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δzᶠᶠᶜ)
+function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
 
     north = FPivotZipperBoundaryCondition(-1)
 
@@ -171,6 +173,8 @@ function interpolate_velocities_from_Bgrid_to_Cgrid(grid, uFF, vFF, Δxᶠᶠᶜ
 
     u = XFaceField(grid; boundary_conditions = ubcs)
     v = YFaceField(grid; boundary_conditions = vbcs)
+
+    Δzᶠᶠᶜ = zspacings(grid, Face(), Face(), Center())  # lazy, always current
 
     # Δy * Δz weighted average for the interpolation
     interp_u = (@at (Face, Center, Center) uFF * Δyᶠᶠᶜ * Δzᶠᶠᶜ) / (@at (Face, Center, Center) Δyᶠᶠᶜ * Δzᶠᶠᶜ)
@@ -203,6 +207,8 @@ u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
 eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
+dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
+dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_periodic.nc")
 
 # prescribed_Δt = 1Δt
 prescribed_Δt = 1month
@@ -229,13 +235,14 @@ w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk()
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
 Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
-Δzᶠᶠᶜ = Field(zspacings(grid, Face(), Face(), Center()))
+Δzᶜᶜᶜ = Field(zspacings(grid, Center(), Center(), Center()))
 compute!(Δxᶠᶠᶜ)
 compute!(Δyᶠᶠᶜ)
-compute!(Δzᶠᶠᶜ)
+compute!(Δzᶜᶜᶜ)
 fill_halo_regions!(Δxᶠᶠᶜ)
 fill_halo_regions!(Δyᶠᶠᶜ)
-fill_halo_regions!(Δzᶠᶠᶜ)
+Δzᶜᶜᶜ_data = Array(interior(Δzᶜᶜᶜ))
+H = dropdims(sum(Δzᶜᶜᶜ_data; dims = 3); dims = 3)
 
 for month in 1:12
     println("month $month")
@@ -243,8 +250,20 @@ for month in 1:12
     println("- η")
     # Do η first because it's smaller and thus faster
     η_data = replace(readcubedata(eta_ds.eta_t[month = At(month)]).data, NaN => 0.0)
+    dht_data = replace(readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data, NaN => 0.0)
+    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $Ny, $Nz) in Julia after month slicing")
+    dht_data = dht_data[:, :, Nz:-1:1]
+
+    scale = ones(Nx, Ny - 1)
+    wet_columns = H .> 0
+    scale[wet_columns] .= 1 .+ η_data[wet_columns] ./ H[wet_columns]
+    Δzη = Δzᶜᶜᶜ_data .* reshape(scale, Nx, Ny - 1, 1)
+
+    wet3D = Δzᶜᶜᶜ_data .> 0
+    ratio = dht_data[wet3D] ./ Δzη[wet3D]
+    println("  - dht/Δz(η) wet-cell ratio: min=$(minimum(ratio)), mean=$(mean(ratio)), max=$(maximum(ratio))")
     # For sea surface height use a ReducedField (Nothing in the z direction otherwise segfaults)
-    η = Field{Center, Center, Nothing}(grid, indices=(:, :, Nz))
+    η = Field{Center, Center, Nothing}(grid, indices=(:, :, 1))
     set!(η, η_data)
 
     # Check if masking immersed fields is needed
@@ -253,6 +272,9 @@ for month in 1:12
     @assert interior(η) == interior(ηold)
     fill_halo_regions!(η)
     set!(η_ts, η, month)
+
+    # update grid vertical coordinates
+    launch!(architecture(grid), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η, grid)
 
     println("- u and v:")
     # Load u and v data
@@ -264,7 +286,7 @@ for month in 1:12
     u_Bgrid, v_Bgrid = Bgrid_velocity_from_MOM_output(grid, u_data, v_data)
     # Then interpolate to C-grid
     println("  - Interpolate to Oceananigans C grid")
-    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δxᶠᶠᶜ, Δyᶠᶠᶜ, Δzᶠᶠᶜ)
+    u, v = interpolate_velocities_from_Bgrid_to_Cgrid(grid, u_Bgrid, v_Bgrid, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
 
     uold = deepcopy(u)
     vold = deepcopy(v)
