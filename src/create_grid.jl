@@ -158,8 +158,10 @@ code_to_reconstruct_the_grid = """
     )
 """
 
+grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+
 save(
-    joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2"),
+    joinpath(grid_file),
     Dict(
         "Note" => "This file was created by Benoit Pasquier (2026) from work in progress and thus comes with zero guarantees!",
         "Nx" => underlying_grid.Nx,
@@ -199,4 +201,4 @@ save(
     )
 )
 
-@info "Grid saved to $(joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2"))"
+@info "Grid saved to $grid_file"

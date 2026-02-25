@@ -58,15 +58,6 @@ else
     get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
 end
 
-profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
-if profile === nothing
-    @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-else
-    outputdir = profile["outputdir"]
-end
-
-mkpath(outputdir)
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
 plots_dir = joinpath(preprocessed_inputs_dir, "plots")

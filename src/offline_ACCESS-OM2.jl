@@ -101,7 +101,7 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
-VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "bgridvelocities")
+VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
 W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
 (VELOCITY_SOURCE ∈ ("bgridvelocities", "cgridtransports")) || println("VELOCITY_SOURCE must be one of: bgridvelocities, cgridtransports")
 (W_FORMULATION ∈ ("wdiagnosed", "wprescribed")) || println("W_FORMULATION must be one of: wdiagnosed, wprescribed")

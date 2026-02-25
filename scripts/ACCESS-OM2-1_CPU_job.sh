@@ -16,7 +16,7 @@ set -euo pipefail
 
 # parent model (falls back to existing env or sensible default)
 PARENT_MODEL=ACCESS-OM2-1
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-bgridvelocities}
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}"
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION
