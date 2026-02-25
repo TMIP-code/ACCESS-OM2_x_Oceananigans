@@ -9,7 +9,8 @@
       "Bash(julia --project -e 'import Runic; Runic.main\\([\"\"--inplace\"\", \"\".\"\"]\\)')",
       "Bash(qsub -v ENABLE_PLOTTING=true,VELOCITY_SOURCE=cgridtransports scripts/ACCESS-OM2-1_GPU_job.sh)",
       "Bash(~/.local/bin/runic --inplace .)",
-      "Bash(grep -n \"grid.jld2\" src/*.jl)"
+      "Bash(grep -n \"grid.jld2\" src/*.jl)",
+      "Bash(grep -n \"julia.*&>\\\\|julia.*1>\\\\|julia.*2>\" /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/scripts/*.sh)"
     ]
   }
 }
