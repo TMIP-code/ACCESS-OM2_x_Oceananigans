@@ -65,12 +65,12 @@ using GPUArraysCore: @allowscalar
     @inbounds begin
         λFF[i, j] = x[2i - 1, clamp(2j - 1, 1, ny + 1)]
         φFF[i, j] = y[2i - 1, clamp(2j - 1, 1, ny + 1)]
-        λFC[i, j] = x[2i - 1, clamp(2j    , 1, ny + 1)]
-        φFC[i, j] = y[2i - 1, clamp(2j    , 1, ny + 1)]
-        λCF[i, j] = x[2i    , clamp(2j - 1, 1, ny + 1)]
-        φCF[i, j] = y[2i    , clamp(2j - 1, 1, ny + 1)]
-        λCC[i, j] = x[2i    , clamp(2j    , 1, ny + 1)]
-        φCC[i, j] = y[2i    , clamp(2j    , 1, ny + 1)]
+        λFC[i, j] = x[2i - 1, clamp(2j, 1, ny + 1)]
+        φFC[i, j] = y[2i - 1, clamp(2j, 1, ny + 1)]
+        λCF[i, j] = x[2i, clamp(2j - 1, 1, ny + 1)]
+        φCF[i, j] = y[2i, clamp(2j - 1, 1, ny + 1)]
+        λCC[i, j] = x[2i, clamp(2j, 1, ny + 1)]
+        φCC[i, j] = y[2i, clamp(2j, 1, ny + 1)]
 
         # For Δx, I need to sum consecutive dx 2 by 2,
         # and sometimes wrap subgrid 𝑖 indices around with modulo nx.
@@ -124,9 +124,9 @@ using GPUArraysCore: @allowscalar
         #                                𝑖 = 2i - 2 = 0 ----> wrap it with ----> 𝑖 = mod1(2i - 2, nx)
         #                                                                          = mod1(0, 4) = 4
         ΔxFF[i, j] = dx[mod1(2i - 2, nx), clamp(2j - 1, 1, ny + 1)] + dx[2i - 1, clamp(2j - 1, 1, ny + 1)]
-        ΔxFC[i, j] = dx[mod1(2i - 2, nx), clamp(2j    , 1, ny + 1)] + dx[2i - 1, clamp(2j    , 1, ny + 1)]
-        ΔxCF[i, j] = dx[2i - 1          , clamp(2j - 1, 1, ny + 1)] + dx[2i    , clamp(2j - 1, 1, ny + 1)]
-        ΔxCC[i, j] = dx[2i - 1          , clamp(2j    , 1, ny + 1)] + dx[2i    , clamp(2j    , 1, ny + 1)]
+        ΔxFC[i, j] = dx[mod1(2i - 2, nx), clamp(2j, 1, ny + 1)] + dx[2i - 1, clamp(2j, 1, ny + 1)]
+        ΔxCF[i, j] = dx[2i - 1, clamp(2j - 1, 1, ny + 1)] + dx[2i, clamp(2j - 1, 1, ny + 1)]
+        ΔxCC[i, j] = dx[2i - 1, clamp(2j, 1, ny + 1)] + dx[2i, clamp(2j, 1, ny + 1)]
 
         # For Δy, I need to sum consecutive dy 2 by 2.
         # For ΔyCC, we have:
@@ -193,19 +193,18 @@ using GPUArraysCore: @allowscalar
         #                𝑖 = 2i - 1 = 1       𝑖 = 2i - 1 = 3
         #
         ΔyFF[i, j] = dy[2i - 1, clamp(2j - 2, 1, ny)] + dy[2i - 1, clamp(2j - 1, 1, ny)]
-        ΔyFC[i, j] = dy[2i - 1, clamp(2j - 1, 1, ny)] + dy[2i - 1, clamp(2j    , 1, ny)]
-        ΔyCF[i, j] = dy[2i    , clamp(2j - 2, 1, ny)] + dy[2i    , clamp(2j - 1, 1, ny)]
-        ΔyCC[i, j] = dy[2i    , clamp(2j - 1, 1, ny)] + dy[2i    , clamp(2j    , 1, ny)]
+        ΔyFC[i, j] = dy[2i - 1, clamp(2j - 1, 1, ny)] + dy[2i - 1, clamp(2j, 1, ny)]
+        ΔyCF[i, j] = dy[2i, clamp(2j - 2, 1, ny)] + dy[2i, clamp(2j - 1, 1, ny)]
+        ΔyCC[i, j] = dy[2i, clamp(2j - 1, 1, ny)] + dy[2i, clamp(2j, 1, ny)]
 
         # For area use the same logic as above but sum 4 by 4
         AzFF[i, j] = area[mod1(2i - 2, nx), clamp(2j - 2, 1, ny)] + area[mod1(2i - 2, nx), clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j - 2, 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)]
-        AzFC[i, j] = area[mod1(2i - 2, nx), clamp(2j - 1, 1, ny)] + area[mod1(2i - 2, nx), clamp(2j    , 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j    , 1, ny)]
-        AzCF[i, j] = area[     2i - 1     , clamp(2j - 2, 1, ny)] + area[     2i - 1     , clamp(2j - 1, 1, ny)] + area[2i    , clamp(2j - 2, 1, ny)] + area[2i    , clamp(2j - 1, 1, ny)]
-        AzCC[i, j] = area[     2i - 1     , clamp(2j - 1, 1, ny)] + area[     2i - 1     , clamp(2j    , 1, ny)] + area[2i    , clamp(2j - 1, 1, ny)] + area[2i    , clamp(2j    , 1, ny)]
+        AzFC[i, j] = area[mod1(2i - 2, nx), clamp(2j - 1, 1, ny)] + area[mod1(2i - 2, nx), clamp(2j, 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j, 1, ny)]
+        AzCF[i, j] = area[2i - 1, clamp(2j - 2, 1, ny)] + area[2i - 1, clamp(2j - 1, 1, ny)] + area[2i, clamp(2j - 2, 1, ny)] + area[2i, clamp(2j - 1, 1, ny)]
+        AzCC[i, j] = area[2i - 1, clamp(2j - 1, 1, ny)] + area[2i - 1, clamp(2j, 1, ny)] + area[2i, clamp(2j - 1, 1, ny)] + area[2i, clamp(2j, 1, ny)]
     end
 
 end
-
 
 
 function tripolargrid_from_supergrid(
@@ -293,7 +292,9 @@ function tripolargrid_from_supergrid(
 
     # Compute coordinates and metrics from supergrid
     kp = KernelParameters(1:Nx, 1:Ny)
-    launch!(CPU(), grid, kp, compute_coordinates_and_metrics_from_supergrid!,
+    launch!(
+        CPU(), grid, kp,
+        compute_coordinates_and_metrics_from_supergrid!,
         λFF, λFC, λCF, λCC,     # TripolarGrid longitude coordinates
         φFF, φFC, φCF, φCC,     # TripolarGrid latitude coordinates
         ΔxFF, ΔxFC, ΔxCF, ΔxCC, # TripolarGrid x distances
@@ -419,10 +420,6 @@ function load_tripolar_grid(grid_file, arch = CPU(), FT = Float64)
 
     return grid
 end
-
-
-
-
 
 
 #taken from Makie ext (not sure how to load these)

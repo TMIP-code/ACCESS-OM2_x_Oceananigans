@@ -87,8 +87,10 @@ function progress_message(sim)
     max_c = maximum(on_architecture(CPU(), sim.model.tracers.c))
     walltime = prettytime(sim.run_wall_time)
 
-    return @info @sprintf("Iteration: %04d, time: %1.3f, Δt: %.2e, max(c) = %.1e, wall time: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_c, walltime)
+    return @info @sprintf(
+        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(c) = %.1e, wall time: %s\n",
+        iteration(sim), time(sim), sim.Δt, max_c, walltime
+    )
 end
 
 add_callback!(simulation, progress_message, IterationInterval(100))
@@ -105,4 +107,3 @@ add_callback!(simulation, progress_message, IterationInterval(100))
 # )
 
 run!(simulation)
-

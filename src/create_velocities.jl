@@ -136,15 +136,18 @@ end
 
 function fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
     Nx, Ny, Nz = size(grid)
-    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nz)
+    kp = KernelParameters(1:Nx, 1:(Ny - 1), 1:Nz)
 
-    launch!(architecture(grid), grid, kp, shift_transport_to_oceananigans_convention!,
-            tx, ty, Nx, Ny, Nz,
-            on_architecture(architecture(grid), tx_data),
-            on_architecture(architecture(grid), ty_data))
+    launch!(
+        architecture(grid), grid, kp,
+        shift_transport_to_oceananigans_convention!,
+        tx, ty, Nx, Ny, Nz,
+        on_architecture(architecture(grid), tx_data),
+        on_architecture(architecture(grid), ty_data)
+    )
 
     fill_halo_regions!(tx)
-    fill_halo_regions!(ty)
+    return fill_halo_regions!(ty)
 end
 
 @kernel function compute_tz_from_continuity!(tz, grid, tx, ty, Nz)
@@ -165,7 +168,7 @@ function fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
     kp = KernelParameters(1:Nx, 1:Ny)
 
     launch!(architecture(grid), grid, kp, compute_tz_from_continuity!, tz, grid, tx, ty, Nz)
-    fill_halo_regions!(tz)
+    return fill_halo_regions!(tz)
 end
 
 """
@@ -184,24 +187,30 @@ function fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
     kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
     arch = architecture(grid)
 
-    launch!(arch, grid, kp, compute_Bgrid_velocity_from_MOM_output!,
+    launch!(
+        arch, grid, kp,
+        compute_Bgrid_velocity_from_MOM_output!,
         u, v, Nx, Nz,
-        on_architecture(arch, u_data), on_architecture(arch, v_data))
+        on_architecture(arch, u_data), on_architecture(arch, v_data)
+    )
 
     Oceananigans.BoundaryConditions.fill_halo_regions!(u)
-    Oceananigans.BoundaryConditions.fill_halo_regions!(v)
+    return Oceananigans.BoundaryConditions.fill_halo_regions!(v)
 end
 
 function fill_w_from_MOM_output!(w, grid, w_data)
     Nx, Ny, Nz = size(w_data)
 
-    kp   = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
     arch = architecture(grid)
 
-    launch!(arch, grid, kp, compute_w_from_MOM_output!,
-        w, on_architecture(arch, w_data), Nz)
+    launch!(
+        arch, grid, kp,
+        compute_w_from_MOM_output!,
+        w, on_architecture(arch, w_data), Nz
+    )
 
-    Oceananigans.BoundaryConditions.fill_halo_regions!(w)
+    return Oceananigans.BoundaryConditions.fill_halo_regions!(w)
 end
 
 function interpolate_velocities_from_Bgrid_to_Cgrid!(u, v, grid, uFF, vFF, Δxᶠᶠᶜ, Δyᶠᶠᶜ)
@@ -215,10 +224,8 @@ function interpolate_velocities_from_Bgrid_to_Cgrid!(u, v, grid, uFF, vFF, Δx�
     v .= interp_v
 
     fill_halo_regions!(u)
-    fill_halo_regions!(v)
+    return fill_halo_regions!(v)
 end
-
-
 
 
 ################################################################################
@@ -240,7 +247,7 @@ dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
 tx_ds = open_dataset(joinpath(inputdir, "tx_trans_periodic.nc"))
 ty_ds = open_dataset(joinpath(inputdir, "ty_trans_periodic.nc"))
 dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_periodic.nc")
-wt_var_name  = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
+wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
 
 # prescribed_Δt = 1Δt
 prescribed_Δt = 1month
@@ -271,7 +278,7 @@ w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk()
 u_mt_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_file, name = "u", time_indexing = Cyclical(stop_time))
 v_mt_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_file, name = "v", time_indexing = Cyclical(stop_time))
 w_mt_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_file, name = "w", time_indexing = Cyclical(stop_time))
-η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
+η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices = (:, :, Nz:Nz))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
@@ -282,34 +289,34 @@ fill_halo_regions!(Δxᶠᶠᶜ)
 fill_halo_regions!(Δyᶠᶠᶜ)
 
 # Pre-allocate fields reused every month to avoid per-month allocations
-η        = Field{Center, Center, Nothing}(grid, indices=(:, :, 1))
+η = Field{Center, Center, Nothing}(grid, indices = (:, :, 1))
 dht_diag = Field{Center, Center, Center}(grid)
-Δzstar   = Field(zspacings(grid, Center(), Center(), Center()))
+Δzstar = Field(zspacings(grid, Center(), Center(), Center()))
 
 north_ff = FPivotZipperBoundaryCondition(-1)
-ff_bcs   = FieldBoundaryConditions(grid, (Face(), Face(), Center()); north=north_ff)
-u_Bgrid  = Field((Face(), Face(), Center()), grid; boundary_conditions=ff_bcs)
-v_Bgrid  = Field((Face(), Face(), Center()), grid; boundary_conditions=ff_bcs)
+ff_bcs = FieldBoundaryConditions(grid, (Face(), Face(), Center()); north = north_ff)
+u_Bgrid = Field((Face(), Face(), Center()), grid; boundary_conditions = ff_bcs)
+v_Bgrid = Field((Face(), Face(), Center()), grid; boundary_conditions = ff_bcs)
 
-ubcs = FieldBoundaryConditions(grid, (Face(),   Center(), Center()); north=FPivotZipperBoundaryCondition(-1))
-vbcs = FieldBoundaryConditions(grid, (Center(), Face(),   Center()); north=FPivotZipperBoundaryCondition(-1))
-u    = XFaceField(grid; boundary_conditions=ubcs)
-v    = YFaceField(grid; boundary_conditions=vbcs)
+ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = FPivotZipperBoundaryCondition(-1))
+vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = FPivotZipperBoundaryCondition(-1))
+u = XFaceField(grid; boundary_conditions = ubcs)
+v = YFaceField(grid; boundary_conditions = vbcs)
 
-wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north=FPivotZipperBoundaryCondition(1))
-w    = ZFaceField(grid; boundary_conditions=wbcs)
+wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
+w = ZFaceField(grid; boundary_conditions = wbcs)
 
 north_t = FPivotZipperBoundaryCondition(-1)
-tx_bcs  = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north=north_t)
-ty_bcs  = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north=north_t)
-tx      = XFaceField(grid; boundary_conditions=tx_bcs)
-ty      = YFaceField(grid; boundary_conditions=ty_bcs)
+tx_bcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = north_t)
+ty_bcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = north_t)
+tx = XFaceField(grid; boundary_conditions = tx_bcs)
+ty = YFaceField(grid; boundary_conditions = ty_bcs)
 
-u_mt = XFaceField(grid; boundary_conditions=ubcs)
-v_mt = YFaceField(grid; boundary_conditions=vbcs)
-w_mt = ZFaceField(grid; boundary_conditions=wbcs)
-tz_bcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north=FPivotZipperBoundaryCondition(1))
-tz = Field{Center, Center, Face}(grid; boundary_conditions=tz_bcs)
+u_mt = XFaceField(grid; boundary_conditions = ubcs)
+v_mt = YFaceField(grid; boundary_conditions = vbcs)
+w_mt = ZFaceField(grid; boundary_conditions = wbcs)
+tz_bcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
+tz = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
 
 Axᶠᶜᶜ = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
 Ayᶜᶠᶜ = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
@@ -335,7 +342,7 @@ for month in 1:12
     # cells in PartialCellBottom grids, so Δzᶜᶜᶜ_data .> 0 would be incorrect).
     println("- dht consistency check")
     dht_data = replace(readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data, NaN => 0.0)
-    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny-1), $Nz)")
+    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny - 1), $Nz)")
     dht_data = dht_data[:, :, Nz:-1:1]
 
     set!(dht_diag, dht_data)
@@ -469,7 +476,6 @@ for month in 1:12
         mkpath(k_dir)
         save(joinpath(k_dir, "CGrid_w_$(k)_month$(month)_$(arch_str).png"), fig)
     end
-
 
 
 end

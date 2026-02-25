@@ -1,4 +1,3 @@
-
 # using Oceananigans
 # # Comment/uncomment the following lines to enable/disable GPU
 # if contains(ENV["HOSTNAME"], "gpu")
@@ -71,7 +70,7 @@ compute!(Δz)
 
 Δz3D = interior(Δz)
 
-Δz1D = diff(grid.z.cᵃᵃᶠ[1:Nz + 1])
+Δz1D = diff(grid.z.cᵃᵃᶠ[1:(Nz + 1)])
 
 @show extrema(Δz3D ./ reshape(Δz1D, 1, 1, :))
 

@@ -421,7 +421,6 @@ for itime in eachindex(u_lazy.times)
 end
 
 
-
 set_theme!(Theme(fontsize = 30))
 
 # fig = Figure(size = (1200, 1200))
@@ -479,15 +478,9 @@ Makie.record(fig, joinpath(outputdir, "offline_age_OM2_test_$(arch_str).mp4"), f
 end
 
 
-
-
-
-
 ################################################################################
 ################################################################################
 ################################################################################
-
-
 
 
 @info "Build matrix"
@@ -820,7 +813,8 @@ f! = NonlinearFunction(G!)
 nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
 
 @info "Solving nonlinear problem with GMRES and lump-and-spray preconditioner (Bardin et al., 2014)"
-@time sol! = solve(nonlinearprob!,
+@time sol! = solve(
+    nonlinearprob!,
     NewtonRaphson(
         linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
         jvp_autodiff = AutoFiniteDiff(relstep = 0.01)

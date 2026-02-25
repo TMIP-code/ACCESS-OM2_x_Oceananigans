@@ -31,7 +31,7 @@ bottom = [
 ]
 
 grid = ImmersedBoundaryGrid(
-    underlying_grid, PartialCellBottom(bottom);
+    underlying_grid, PartialCellBottom(bottom)
 )
 
 # Make a constant tracer = 0.5 (so that it looks blue on RdBu colormap)

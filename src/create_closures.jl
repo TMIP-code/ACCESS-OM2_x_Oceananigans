@@ -44,12 +44,14 @@ include("tripolargrid_reader.jl")
 # Load grid from JLD2
 ################################################################################
 
-error("""
-Something is wrong below. I did not check it and I think I might as well create the closures
-on the fly until a PrescribedActiveTracer implementation is available
-to compute the GM-Redi closure from the outputs.
-Or at least a PrescribedTracer that I can use to compute my simplified horizontal/vertical closures.
-""")
+error(
+    """
+    Something is wrong below. I did not check it and I think I might as well create the closures
+    on the fly until a PrescribedActiveTracer implementation is available
+    to compute the GM-Redi closure from the outputs.
+    Or at least a PrescribedTracer that I can use to compute my simplified horizontal/vertical closures.
+    """
+)
 
 @info "Loading and reconstructing grid from JLD2 data"
 grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")

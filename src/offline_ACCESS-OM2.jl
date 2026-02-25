@@ -499,7 +499,6 @@ if ENABLE_PLOTTING
     output_times = u_lazy.times
 
 
-
     for itime in eachindex(u_lazy.times)
         itime_str = "$itime/$(length(u_lazy.times))"
         @info "Visualizing output $itime_str"
@@ -538,206 +537,185 @@ if ENABLE_PLOTTING
 end
 
 
-
-
-
-
 ################################################################################
 ################################################################################
 ################################################################################
-
-
 
 
 if ENABLE_MATRIX_BUILD
-@info "Build matrix"
-flush(stdout)
+    @info "Build matrix"
+    flush(stdout)
 
-jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
+    jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
 
-@warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
-autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: autodifftypes} = a / b
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: autodifftypes} = a / b
-@inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b) where {FT <: autodifftypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b::FT) where {FT <: autodifftypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: autodifftypes} = a / b
-@inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: autodifftypes} = a / b
+    @warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
+    autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
+    @inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b::FT) where {FT <: autodifftypes} = a / b
+    @inline Oceananigans.Utils.newton_div(::Type{FT}, a, b::FT) where {FT <: autodifftypes} = a / b
+    @inline Oceananigans.Utils.newton_div(::Type{FT}, a::FT, b) where {FT <: autodifftypes} = a / b
+    @inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b::FT) where {FT <: autodifftypes} = a / b
+    @inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: autodifftypes} = a / b
+    @inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: autodifftypes} = a / b
 
 
-# TODO: Check if I really need to rewrite these. Not sure why but I think I had to.
-# (These are copy-pasta from Oceananigans.)
-@kernel function compute_hydrostatic_free_surface_GADc!(GADc, grid, args)
-    i, j, k = @index(Global, NTuple)
-    @inbounds GADc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
-end
+    # TODO: Check if I really need to rewrite these. Not sure why but I think I had to.
+    # (These are copy-pasta from Oceananigans.)
+    @kernel function compute_hydrostatic_free_surface_GADc!(GADc, grid, args)
+        i, j, k = @index(Global, NTuple)
+        @inbounds GADc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
+    end
 
-Nx′, Ny′, Nz′ = size(ADc0)
-N′ = Nx′ * Ny′ * Nz′
-fNaN = CenterField(grid)
-mask_immersed_field!(fNaN, NaN)
-wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
-idx = findall(wet3D)
-Nidx = length(idx)
+    Nx′, Ny′, Nz′ = size(ADc0)
+    N′ = Nx′ * Ny′ * Nz′
+    fNaN = CenterField(grid)
+    mask_immersed_field!(fNaN, NaN)
+    wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
+    idx = findall(wet3D)
+    Nidx = length(idx)
 
-ADc_advection = jacobian_model.advection[:ADc]
-total_velocities = jacobian_model.transport_velocities
-kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
-active_cells_map = get_active_cells_map(grid, Val(:interior))
+    ADc_advection = jacobian_model.advection[:ADc]
+    total_velocities = jacobian_model.transport_velocities
+    kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
+    active_cells_map = get_active_cells_map(grid, Val(:interior))
 
-function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
+    function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
 
+        # Preallocate 3D array with type T and fill wet points
+        # TODO find a way to preallocate 3D arrays outside of function?
+        ADc3D = zeros(T, Nx′, Ny′, Nz′)
+        ADc3D[idx] .= ADcvec
+
+        # Preallocate Field with type T and fill it with 3D array
+        # TODO find a way to preallocate fields outside of function?
+        ADc = CenterField(grid, T)
+        set!(ADc, ADc3D)
+
+        # Preallocate "output" Field with type T
+        GADc = CenterField(grid, T)
+
+        # bits and pieces from model
+        c_advection = jacobian_model.advection[:ADc]
+        c_forcing = jacobian_model.forcing[:ADc]
+        c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
+
+        args = tuple(
+            Val(1),
+            Val(:ADc),
+            c_advection,
+            jacobian_model.closure,
+            c_immersed_bc,
+            jacobian_model.buoyancy,
+            jacobian_model.biogeochemistry,
+            jacobian_model.transport_velocities,
+            jacobian_model.free_surface,
+            (; ADc = ADc),
+            jacobian_model.closure_fields,
+            jacobian_model.auxiliary_fields,
+            clock,
+            c_forcing
+        )
+
+        launch!(
+            arch, grid, kernel_parameters,
+            compute_hydrostatic_free_surface_GADc!,
+            GADc,
+            grid,
+            args;
+            active_cells_map
+        )
+
+        # Fill output vector with interior wet values
+        GADcvec .= view(interior(on_architecture(CPU(), GADc)), idx)
+
+        return GADcvec
+    end
+
+
+    @info "benchmark tendency function"
+    flush(stdout)
+    ADcvec = ones(Nidx)
+    GADcvec = ones(Nidx)
+    @time mytendency!(GADcvec, ADcvec, 0.0)
+    @time mytendency!(GADcvec, ADcvec, 0.0)
+
+    @info "Autodiff setup"
+    flush(stdout)
+
+    sparse_forward_backend = AutoSparse(
+        AutoForwardDiff();
+        sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
+        coloring_algorithm = GreedyColoringAlgorithm(),
+    )
+
+    # strict mode false to allow different (preallocated) function
+    @time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
+        mytendency!,
+        GADcvec,
+        sparse_forward_backend,
+        ADcvec,
+        Constant(0.0);
+        strict = Val(false),
+    )
+
+    DualType = eltype(overloaded_input_type(jac_prep_sparse))
     # Preallocate 3D array with type T and fill wet points
-    # TODO find a way to preallocate 3D arrays outside of function?
-    ADc3D = zeros(T, Nx′, Ny′, Nz′)
-    ADc3D[idx] .= ADcvec
-
+    ADc3D_dual = zeros(DualType, Nx′, Ny′, Nz′)
     # Preallocate Field with type T and fill it with 3D array
-    # TODO find a way to preallocate fields outside of function?
-    ADc = CenterField(grid, T)
-    set!(ADc, ADc3D)
-
+    ADc_dual = CenterField(grid, DualType)
     # Preallocate "output" Field with type T
-    GADc = CenterField(grid, T)
+    Gc_dual = CenterField(grid, DualType)
 
-    # bits and pieces from model
-    c_advection = jacobian_model.advection[:ADc]
-    c_forcing = jacobian_model.forcing[:ADc]
-    c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
+    function mytendency_preallocated!(GADcvec::Vector{DualType}, ADcvec::Vector{DualType}, clock)
 
-    args = tuple(
-        Val(1),
-        Val(:ADc),
-        c_advection,
-        jacobian_model.closure,
-        c_immersed_bc,
-        jacobian_model.buoyancy,
-        jacobian_model.biogeochemistry,
-        jacobian_model.transport_velocities,
-        jacobian_model.free_surface,
-        (; ADc = ADc),
-        jacobian_model.closure_fields,
-        jacobian_model.auxiliary_fields,
-        clock,
-        c_forcing
-    )
+        ADc3D_dual[idx] .= ADcvec
+        set!(ADc_dual, ADc3D_dual)
 
-    launch!(
-        arch, grid, kernel_parameters,
-        compute_hydrostatic_free_surface_GADc!,
-        GADc,
-        grid,
-        args;
-        active_cells_map
-    )
+        # bits and pieces from model
+        c_advection = jacobian_model.advection[:ADc]
+        c_forcing = jacobian_model.forcing[:ADc]
+        c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
 
-    # Fill output vector with interior wet values
-    GADcvec .= view(interior(on_architecture(CPU(), GADc)), idx)
+        args = tuple(
+            Val(1),
+            Val(:ADc),
+            c_advection,
+            jacobian_model.closure,
+            c_immersed_bc,
+            jacobian_model.buoyancy,
+            jacobian_model.biogeochemistry,
+            jacobian_model.transport_velocities,
+            jacobian_model.free_surface,
+            (; ADc = ADc_dual),
+            jacobian_model.closure_fields,
+            jacobian_model.auxiliary_fields,
+            clock,
+            c_forcing
+        )
 
-    return GADcvec
-end
+        launch!(
+            CPU(), grid, kernel_parameters,
+            compute_hydrostatic_free_surface_GADc!,
+            Gc_dual,
+            grid,
+            args;
+            active_cells_map
+        )
 
+        # Fill output vector with interior wet values
+        GADcvec .= view(interior(Gc_dual), idx)
 
-@info "benchmark tendency function"
-flush(stdout)
-ADcvec = ones(Nidx)
-GADcvec = ones(Nidx)
-@time mytendency!(GADcvec, ADcvec, 0.0)
-@time mytendency!(GADcvec, ADcvec, 0.0)
+        return GADcvec
+    end
 
-@info "Autodiff setup"
-flush(stdout)
+    @time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
 
-sparse_forward_backend = AutoSparse(
-    AutoForwardDiff();
-    sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
-    coloring_algorithm = GreedyColoringAlgorithm(),
-)
+    @info "Compute the Jacobian"
+    flush(stdout)
 
-# strict mode false to allow different (preallocated) function
-@time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
-    mytendency!,
-    GADcvec,
-    sparse_forward_backend,
-    ADcvec,
-    Constant(0.0);
-    strict = Val(false),
-)
-
-DualType = eltype(overloaded_input_type(jac_prep_sparse))
-# Preallocate 3D array with type T and fill wet points
-ADc3D_dual = zeros(DualType, Nx′, Ny′, Nz′)
-# Preallocate Field with type T and fill it with 3D array
-ADc_dual = CenterField(grid, DualType)
-# Preallocate "output" Field with type T
-Gc_dual = CenterField(grid, DualType)
-
-function mytendency_preallocated!(GADcvec::Vector{DualType}, ADcvec::Vector{DualType}, clock)
-
-    ADc3D_dual[idx] .= ADcvec
-    set!(ADc_dual, ADc3D_dual)
-
-    # bits and pieces from model
-    c_advection = jacobian_model.advection[:ADc]
-    c_forcing = jacobian_model.forcing[:ADc]
-    c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
-
-    args = tuple(
-        Val(1),
-        Val(:ADc),
-        c_advection,
-        jacobian_model.closure,
-        c_immersed_bc,
-        jacobian_model.buoyancy,
-        jacobian_model.biogeochemistry,
-        jacobian_model.transport_velocities,
-        jacobian_model.free_surface,
-        (; ADc = ADc_dual),
-        jacobian_model.closure_fields,
-        jacobian_model.auxiliary_fields,
-        clock,
-        c_forcing
-    )
-
-    launch!(
-        CPU(), grid, kernel_parameters,
-        compute_hydrostatic_free_surface_GADc!,
-        Gc_dual,
-        grid,
-        args;
-        active_cells_map
-    )
-
-    # Fill output vector with interior wet values
-    GADcvec .= view(interior(Gc_dual), idx)
-
-    return GADcvec
-end
-
-@time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
-
-@info "Compute the Jacobian"
-flush(stdout)
-
-i = 1
-@info "month = $i / 12"
-flush(stdout)
-@time "Compute Jacobian" jacobian!(
-    mytendency_preallocated!,
-    GADcvec,
-    jac_buffer,
-    jac_prep_sparse,
-    sparse_forward_backend,
-    ADcvec,
-    Constant(fts_times[i])
-)
-
-M = jac_buffer / 12 # <- contains the first-month part of the Jacobian
-
-for i in 2:12
+    i = 1
     @info "month = $i / 12"
     flush(stdout)
-    jacobian!(
+    @time "Compute Jacobian" jacobian!(
         mytendency_preallocated!,
         GADcvec,
         jac_buffer,
@@ -746,165 +724,181 @@ for i in 2:12
         ADcvec,
         Constant(fts_times[i])
     )
-    M .+= jac_buffer / 12
-end
 
-# Show me the Jacobian!
-display(M)
-fig = Figure()
-ax = Axis(fig[1, 1])
-plt = spy!(
-    0.5 .. size(M, 1) + 0.5,
-    0.5 .. size(M, 2) + 0.5,
-    M;
-    colormap = :coolwarm,
-    colorrange = maximum(abs.(M)) .* (-1, 1),
-    markersize = size(M, 2) / 1000, # adjust marker size based on matrix size
-)
-ylims!(ax, size(M, 2) + 0.5, 0.5)
-Colorbar(fig[1, 2], plt)
-jacobian_dir = joinpath(outputdir, "matrices", run_mode_tag)
-mkpath(jacobian_dir)
-save(joinpath(jacobian_dir, "$(parentmodel)_jacobian2_$(run_suffix).png"), fig)
-# This above throws now? Not sure why, skipping for now (in a rush)
+    M = jac_buffer / 12 # <- contains the first-month part of the Jacobian
 
-################################################################################
-################################################################################
-################################################################################
+    for i in 2:12
+        @info "month = $i / 12"
+        flush(stdout)
+        jacobian!(
+            mytendency_preallocated!,
+            GADcvec,
+            jac_buffer,
+            jac_prep_sparse,
+            sparse_forward_backend,
+            ADcvec,
+            Constant(fts_times[i])
+        )
+        M .+= jac_buffer / 12
+    end
 
-@info "Periodic-state solver"
-flush(stdout)
+    # Show me the Jacobian!
+    display(M)
+    fig = Figure()
+    ax = Axis(fig[1, 1])
+    plt = spy!(
+        0.5 .. size(M, 1) + 0.5,
+        0.5 .. size(M, 2) + 0.5,
+        M;
+        colormap = :coolwarm,
+        colorrange = maximum(abs.(M)) .* (-1, 1),
+        markersize = size(M, 2) / 1000, # adjust marker size based on matrix size
+    )
+    ylims!(ax, size(M, 2) + 0.5, 0.5)
+    Colorbar(fig[1, 2], plt)
+    jacobian_dir = joinpath(outputdir, "matrices", run_mode_tag)
+    mkpath(jacobian_dir)
+    save(joinpath(jacobian_dir, "$(parentmodel)_jacobian2_$(run_suffix).png"), fig)
+    # This above throws now? Not sure why, skipping for now (in a rush)
 
-@info "Extra for vector of volumes"
-flush(stdout)
+    ################################################################################
+    ################################################################################
+    ################################################################################
 
-@kernel function compute_volume!(vol, grid)
-    i, j, k = @index(Global, NTuple)
-    @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
-end
+    @info "Periodic-state solver"
+    flush(stdout)
 
-function compute_volume(grid)
-    vol = CenterField(grid)
-    (Nx, Ny, Nz) = size(vol)
-    kernel_parameters = KernelParameters(1:Nx, 1:Ny, 1:Nz)
-    launch!(CPU(), grid, kernel_parameters, compute_volume!, vol, grid)
-    return vol
-end
+    @info "Extra for vector of volumes"
+    flush(stdout)
 
-v1D = interior(compute_volume(grid))[idx]
+    @kernel function compute_volume!(vol, grid)
+        i, j, k = @index(Global, NTuple)
+        @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
+    end
 
-age3D = zeros(Nx′, Ny′, Nz′)
+    function compute_volume(grid)
+        vol = CenterField(grid)
+        (Nx, Ny, Nz) = size(vol)
+        kernel_parameters = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+        launch!(CPU(), grid, kernel_parameters, compute_volume!, vol, grid)
+        return vol
+    end
 
-function G!(dage, age, p) # SciML syntax
-    @show "calling G!"
-    @show extrema(age)
-    model = simulation.model
-    reset!(simulation)
-    simulation.stop_time = stop_time
-    age3D[idx] .= age
-    age3D_arch = on_architecture(arch, age3D)
-    set!(model, age = age3D_arch)
-    # model.tracers.age.data .= age3D_arch
-    run!(simulation)
-    # dage .= model.tracers.age.data.parent
-    # dage .= adapt(Array, interior(model.tracers.age))[wet3D]
-    dage .= view(interior(model.tracers.age), idx)
-    dage .-= age
-    @show extrema(dage)
-    return dage
-end
+    v1D = interior(compute_volume(grid))[idx]
 
-# @time sol = solve(nonlinearprob, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs)), verbose = true, reltol=1e-10, abstol=Inf);
-# @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-12)); show_trace = Val(true), reltol = Inf, abstol = 1.0e-10norm(u0, Inf));
-# @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(rtol = 1.0e-12), jvp_autodiff = AutoFiniteDiff()); show_trace = Val(true), reltol = Inf, abstol = 1.0);
-# @time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
+    age3D = zeros(Nx′, Ny′, Nz′)
 
-@info "LUMP and SPRAY matrices"
-flush(stdout)
-LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-display(LUMP)
-display(SPRAY)
+    function G!(dage, age, p) # SciML syntax
+        @show "calling G!"
+        @show extrema(age)
+        model = simulation.model
+        reset!(simulation)
+        simulation.stop_time = stop_time
+        age3D[idx] .= age
+        age3D_arch = on_architecture(arch, age3D)
+        set!(model, age = age3D_arch)
+        # model.tracers.age.data .= age3D_arch
+        run!(simulation)
+        # dage .= model.tracers.age.data.parent
+        # dage .= adapt(Array, interior(model.tracers.age))[wet3D]
+        dage .= view(interior(model.tracers.age), idx)
+        dage .-= age
+        @show extrema(dage)
+        return dage
+    end
 
-@info "coarsened Jacobian"
-flush(stdout)
-Mc = LUMP * M * SPRAY
-display(Mc)
+    # @time sol = solve(nonlinearprob, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs)), verbose = true, reltol=1e-10, abstol=Inf);
+    # @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-12)); show_trace = Val(true), reltol = Inf, abstol = 1.0e-10norm(u0, Inf));
+    # @time sol! = solve(nonlinearprob!, NewtonRaphson(linsolve = KrylovJL_GMRES(rtol = 1.0e-12), jvp_autodiff = AutoFiniteDiff()); show_trace = Val(true), reltol = Inf, abstol = 1.0);
+    # @time sol! = solve(nonlinearprob!, SpeedMappingJL(); show_trace = Val(true), reltol = Inf, abstol = 0.001 * 12 * prescribed_Δt / year, verbose = true);
 
-@info "Setting up Pardiso solver"
-flush(stdout)
-matrix_type = Pardiso.REAL_SYM
-@show solver = MKLPardisoIterate(; nprocs, matrix_type)
+    @info "LUMP and SPRAY matrices"
+    flush(stdout)
+    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+    display(LUMP)
+    display(SPRAY)
 
-@info "Set up preconditioner problem"
-flush(stdout)
-# Left Preconditioner needs a new type
-struct MyPreconditioner
-    prob
-end
-# P = S Qc⁻¹ L - I
-# Q = stop_time * M
-# Qc = L Q S = stop_time * Mc
-Qc = stop_time * Mc
-Plprob = LinearProblem(Qc, ones(size(Qc, 1)))  # following Bardin et al. (2014)
-Plprob = init(Plprob, solver, rtol = 1.0e-12)
-Pl = MyPreconditioner(Plprob)
-Base.eltype(::MyPreconditioner) = Float64
-function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
-    Pl.prob.b = LUMP * x
-    solve!(Pl.prob) # solves Qc u = b = L x
-    x .= SPRAY * Pl.prob.u .- x # x <- (S Qc⁻¹ L - I) x = P x
-    return x
-end
-function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
-    Pl.prob.b = LUMP * x
-    solve!(Pl.prob) # solves Qc u = b = L x
-    y .= SPRAY * Pl.prob.u .- x # y <- (S Qc⁻¹ L - I) x = P x
-    return y
-end
+    @info "coarsened Jacobian"
+    flush(stdout)
+    Mc = LUMP * M * SPRAY
+    display(Mc)
 
-# SciML syntax for left and right preconditioners
-Pr = I
-precs = Returns((Pl, Pr))
+    @info "Setting up Pardiso solver"
+    flush(stdout)
+    matrix_type = Pardiso.REAL_SYM
+    @show solver = MKLPardisoIterate(; nprocs, matrix_type)
 
-# For initial guess, use the coarsened solution
-# Steady state solution is
-# ∂age/∂t = 0 = F(age) = M age + source_rate
-# since M is the Jacobian of the tendency function age -> F(age) = ∂age/∂t
-# so age = M \ -1
-# But here age is in units of years
-# and ∂age/∂t is in units of year/s
-# so M is in units of 1/s and u = M \ -1s/s is in units of s * s / s = s
-init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1))) # initial guess for preconditioner solve (can be tuned)
-init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
-@time "solve initial age" age_init_vec = SPRAY * solve!(init_prob_coarsened).u / year
+    @info "Set up preconditioner problem"
+    flush(stdout)
+    # Left Preconditioner needs a new type
+    struct MyPreconditioner
+        prob
+    end
+    # P = S Qc⁻¹ L - I
+    # Q = stop_time * M
+    # Qc = L Q S = stop_time * Mc
+    Qc = stop_time * Mc
+    Plprob = LinearProblem(Qc, ones(size(Qc, 1)))  # following Bardin et al. (2014)
+    Plprob = init(Plprob, solver, rtol = 1.0e-12)
+    Pl = MyPreconditioner(Plprob)
+    Base.eltype(::MyPreconditioner) = Float64
+    function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
+        Pl.prob.b = LUMP * x
+        solve!(Pl.prob) # solves Qc u = b = L x
+        x .= SPRAY * Pl.prob.u .- x # x <- (S Qc⁻¹ L - I) x = P x
+        return x
+    end
+    function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
+        Pl.prob.b = LUMP * x
+        solve!(Pl.prob) # solves Qc u = b = L x
+        y .= SPRAY * Pl.prob.u .- x # y <- (S Qc⁻¹ L - I) x = P x
+        return y
+    end
 
-fig, ax, plt = hist(age_init_vec)
-hist_dir = joinpath(outputdir, "age", run_mode_tag, "histograms")
-mkpath(hist_dir)
-save(joinpath(hist_dir, "initial_steady_age_coarsened_histogram_$(parentmodel)_$(run_suffix).png"), fig)
+    # SciML syntax for left and right preconditioners
+    Pr = I
+    precs = Returns((Pl, Pr))
 
-init_prob_full = LinearProblem(M, -ones(size(M, 1))) # initial guess for preconditioner solve (can be tuned)
-init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
-@time "solve initial age full" age_init_vec = solve!(init_prob_full).u / year
+    # For initial guess, use the coarsened solution
+    # Steady state solution is
+    # ∂age/∂t = 0 = F(age) = M age + source_rate
+    # since M is the Jacobian of the tendency function age -> F(age) = ∂age/∂t
+    # so age = M \ -1
+    # But here age is in units of years
+    # and ∂age/∂t is in units of year/s
+    # so M is in units of 1/s and u = M \ -1s/s is in units of s * s / s = s
+    init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1))) # initial guess for preconditioner solve (can be tuned)
+    init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
+    @time "solve initial age" age_init_vec = SPRAY * solve!(init_prob_coarsened).u / year
 
-fig, ax, plt = hist(age_init_vec)
-save(joinpath(hist_dir, "initial_steady_age_full_histogram_$(parentmodel)_$(run_suffix).png"), fig)
+    fig, ax, plt = hist(age_init_vec)
+    hist_dir = joinpath(outputdir, "age", run_mode_tag, "histograms")
+    mkpath(hist_dir)
+    save(joinpath(hist_dir, "initial_steady_age_coarsened_histogram_$(parentmodel)_$(run_suffix).png"), fig)
 
-f! = NonlinearFunction(G!)
-nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
+    init_prob_full = LinearProblem(M, -ones(size(M, 1))) # initial guess for preconditioner solve (can be tuned)
+    init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12) # initial guess for preconditioner solve (can be tuned)
+    @time "solve initial age full" age_init_vec = solve!(init_prob_full).u / year
 
-@info "Solving nonlinear problem with GMRES and lump-and-spray preconditioner (Bardin et al., 2014)"
-flush(stdout)
-@time sol! = solve(nonlinearprob!,
-    NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
-        jvp_autodiff = AutoFiniteDiff(relstep = 0.01)
-    );
-    show_trace = Val(true),
-    reltol = Inf,
-    abstol = 0.001 * stop_time,
-    verbose = true
-);
+    fig, ax, plt = hist(age_init_vec)
+    save(joinpath(hist_dir, "initial_steady_age_full_histogram_$(parentmodel)_$(run_suffix).png"), fig)
+
+    f! = NonlinearFunction(G!)
+    nonlinearprob! = NonlinearProblem(f!, age_init_vec, [])
+
+    @info "Solving nonlinear problem with GMRES and lump-and-spray preconditioner (Bardin et al., 2014)"
+    flush(stdout)
+    @time sol! = solve(
+        nonlinearprob!,
+        NewtonRaphson(
+            linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
+            jvp_autodiff = AutoFiniteDiff(relstep = 0.01)
+        );
+        show_trace = Val(true),
+        reltol = Inf,
+        abstol = 0.001 * stop_time,
+        verbose = true
+    )
 else
     @info "Skipping matrix build / nonlinear solve (ENABLE_MATRIX_BUILD = false)"
     flush(stdout)
