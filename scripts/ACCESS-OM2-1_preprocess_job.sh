@@ -22,7 +22,7 @@ echo "Sourced: PARENT_MODEL=$PARENT_MODEL, REPO_ROOT=$repo_root"
 cd "$repo_root"
 
 echo "Running preprocessing (interpolated + mass-transport velocities) for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir="$repo_root/scratch_output/runs/preprocess_${PARENT_MODEL}"
+run_log_dir="$repo_root/scratch_output/runs/preprocess/$PARENT_MODEL"
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project "$repo_root/src/create_velocities.jl" &> "$run_log_dir/preprocess.$job_id.out"

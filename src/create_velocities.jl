@@ -67,16 +67,27 @@ else
 end
 
 mkpath(outputdir)
-mkpath(joinpath(outputdir, "velocities"))
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
-run_mode_tag = get(ENV, "RUN_MODE_TAG", "bgridvelocities_wdiagnosed_etaprescribed")
-uv_plot_dir = joinpath(outputdir, "velocities", "uv", run_mode_tag)
-w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)
-eta_plot_dir = joinpath(outputdir, "velocities", "eta", run_mode_tag)
-mkpath(uv_plot_dir)
+plots_dir = joinpath(preprocessed_inputs_dir, "plots")
+bgrid_u_plot_dir = joinpath(plots_dir, "u")
+bgrid_v_plot_dir = joinpath(plots_dir, "v")
+u_interpolated_plot_dir = joinpath(plots_dir, "u_interpolated")
+v_interpolated_plot_dir = joinpath(plots_dir, "v_interpolated")
+w_plot_dir = joinpath(plots_dir, "w")
+eta_plot_dir = joinpath(plots_dir, "eta")
+u_mt_plot_dir = joinpath(plots_dir, "u_from_mass_transport")
+v_mt_plot_dir = joinpath(plots_dir, "v_from_mass_transport")
+w_mt_plot_dir = joinpath(plots_dir, "w_from_mass_transport")
+mkpath(bgrid_u_plot_dir)
+mkpath(bgrid_v_plot_dir)
+mkpath(u_interpolated_plot_dir)
+mkpath(v_interpolated_plot_dir)
 mkpath(w_plot_dir)
 mkpath(eta_plot_dir)
+mkpath(u_mt_plot_dir)
+mkpath(v_mt_plot_dir)
+mkpath(w_mt_plot_dir)
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
@@ -225,6 +236,29 @@ function interpolate_velocities_from_Bgrid_to_Cgrid!(u, v, grid, uFF, vFF, Δx�
 
     fill_halo_regions!(u)
     return fill_halo_regions!(v)
+end
+
+function compute_plot_scale(field2D)
+    wet_values = field2D[.!isnan.(field2D)]
+    isempty(wet_values) && return 1.0
+
+    scale = quantile(abs.(wet_values), 0.9)
+    return scale > 0 ? scale : 1.0
+end
+
+function save_single_field_plot(field2D, title, filepath)
+    fig = Figure(size = (1200, 600))
+    ax = Axis(fig[1, 1], title = title)
+    scale = compute_plot_scale(field2D)
+    hm = heatmap!(ax, field2D; colormap = :RdBu_9, colorrange = scale .* (-1, 1), nan_color = :black)
+    Colorbar(fig[1, 2], hm)
+    save(filepath, fig)
+    return nothing
+end
+
+function save_field_k_plot(field, k, title, filepath)
+    field2D = view(make_plottable_array(field), :, :, k)
+    return save_single_field_plot(field2D, title, filepath)
 end
 
 
@@ -419,63 +453,41 @@ for month in 1:12
     println("  - Plot B grid u and v")
     # Visualization (for k=25 only, as in original)
     for k in 25:25
-        local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "B-grid u[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(u_Bgrid), :, :, k)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "B-grid v[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(v_Bgrid), :, :, k)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[2, 2], hm)
-        k_dir = joinpath(uv_plot_dir, "k$(k)")
-        mkpath(k_dir)
-        save(joinpath(k_dir, "BGrid_velocities_$(k)_month$(month)_$(arch_str).png"), fig)
+        local u_k_dir = joinpath(bgrid_u_plot_dir, "k$(k)")
+        local v_k_dir = joinpath(bgrid_v_plot_dir, "k$(k)")
+        mkpath(u_k_dir)
+        mkpath(v_k_dir)
+        save_field_k_plot(u_Bgrid, k, "B-grid u[k=$k, month=$month]", joinpath(u_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(v_Bgrid, k, "B-grid v[k=$k, month=$month]", joinpath(v_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
     end
 
     println("  - Plot C grid u and v")
     # Visualization
     for k in 25:25
-        local fig = Figure(size = (1200, 1200))
-        local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(u), :, :, k)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        ax = Axis(fig[2, 1], title = "C-grid v[k=$k, month=$month]")
-        velocity2D = view(make_plottable_array(v), :, :, k)
-        maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[2, 2], hm)
-        k_dir = joinpath(uv_plot_dir, "k$(k)")
-        mkpath(k_dir)
-        save(joinpath(k_dir, "CGrid_velocities_$(k)_month$(month)_$(arch_str).png"), fig)
+        local ui_k_dir = joinpath(u_interpolated_plot_dir, "k$(k)")
+        local vi_k_dir = joinpath(v_interpolated_plot_dir, "k$(k)")
+        local umt_k_dir = joinpath(u_mt_plot_dir, "k$(k)")
+        local vmt_k_dir = joinpath(v_mt_plot_dir, "k$(k)")
+        local w_k_dir = joinpath(w_plot_dir, "k$(k)")
+        local wmt_k_dir = joinpath(w_mt_plot_dir, "k$(k)")
+        mkpath(ui_k_dir)
+        mkpath(vi_k_dir)
+        mkpath(umt_k_dir)
+        mkpath(vmt_k_dir)
+        mkpath(w_k_dir)
+        mkpath(wmt_k_dir)
 
+        save_field_k_plot(u, k, "C-grid u[k=$k, month=$month]", joinpath(ui_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(v, k, "C-grid v[k=$k, month=$month]", joinpath(vi_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(u_mt, k, "C-grid u from mass transports[k=$k, month=$month]", joinpath(umt_k_dir, "u_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(v_mt, k, "C-grid v from mass transports[k=$k, month=$month]", joinpath(vmt_k_dir, "v_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(w, k + 1, "C-grid w[k=$k, month=$month]", joinpath(w_k_dir, "w_$(k)_month$(month)_$(arch_str).png"))
+        save_field_k_plot(w_mt, k + 1, "C-grid w from mass transports[k=$k, month=$month]", joinpath(wmt_k_dir, "w_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
     end
 
     println("- Plot η")
-    fig = Figure(size = (1200, 600))
-    ax = Axis(fig[1, 1], title = "sea surface height[month=$month]")
     plottable_η = view(make_plottable_array(η), :, :, 1)
-    maxη = maximum(abs.(plottable_η[.!isnan.(plottable_η)]))
-    hm = heatmap!(ax, plottable_η; colormap = :RdBu_9, colorrange = maxη .* (-1, 1), nan_color = :black)
-    Colorbar(fig[1, 2], hm)
-    save(joinpath(eta_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"), fig)
-
-    println("- Plot w")
-    for k in 25:25
-        local fig = Figure(size = (1200, 600))
-        local ax = Axis(fig[1, 1], title = "C-grid w[k=$k, month=$month]")
-        local velocity2D = view(make_plottable_array(w), :, :, k + 1)
-        local maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
-        local hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
-        Colorbar(fig[1, 2], hm)
-        k_dir = joinpath(w_plot_dir, "k$(k)")
-        mkpath(k_dir)
-        save(joinpath(k_dir, "CGrid_w_$(k)_month$(month)_$(arch_str).png"), fig)
-    end
+    save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(eta_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
 
 
 end

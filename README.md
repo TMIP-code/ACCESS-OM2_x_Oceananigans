@@ -34,3 +34,37 @@ and for GPU (1 GPU, 12 CPUs)
 ```bash
 qsub scripts/pkg_instantiate_project_GPU.sh
 ```
+
+## Preprocessed outputs layout
+
+Preprocessing writes data and images under:
+
+`preprocessed_inputs/<PARENT_MODEL>/`
+
+Data files:
+
+- `u_interpolated.jld2`
+- `v_interpolated.jld2`
+- `w.jld2`
+- `eta.jld2`
+- `u_from_mass_transport.jld2`
+- `v_from_mass_transport.jld2`
+- `w_from_mass_transport.jld2`
+
+Plots are colocated under:
+
+`preprocessed_inputs/<PARENT_MODEL>/plots/`
+
+with subdirectories for each plotted field family:
+
+- `u/` (original B-grid `u`)
+- `v/` (original B-grid `v`)
+- `u_interpolated/`
+- `v_interpolated/`
+- `w/`
+- `eta/`
+- `u_from_mass_transport/`
+- `v_from_mass_transport/`
+- `w_from_mass_transport/`
+
+Each plot subdirectory is split by vertical level (`k<level>` when applicable). Each image contains one field only.

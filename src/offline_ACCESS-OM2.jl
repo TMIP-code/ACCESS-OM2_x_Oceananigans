@@ -103,21 +103,18 @@ end
 
 VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "bgridvelocities")
 W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
-FREE_SURFACE = get(ENV, "FREE_SURFACE", "etaprescribed")
 (VELOCITY_SOURCE ∈ ("bgridvelocities", "cgridtransports")) || println("VELOCITY_SOURCE must be one of: bgridvelocities, cgridtransports")
 (W_FORMULATION ∈ ("wdiagnosed", "wprescribed")) || println("W_FORMULATION must be one of: wdiagnosed, wprescribed")
-(FREE_SURFACE ∈ ("etaprescribed", "etazero", "etanothing")) || println("FREE_SURFACE must be one of: etaprescribed, etazero, etanothing")
 
 parse_env_bool(name, default) = lowercase(strip(get(ENV, name, string(default)))) ∈ ("1", "true", "yes", "on")
 ENABLE_PLOTTING = parse_env_bool("ENABLE_PLOTTING", false)
 ENABLE_MATRIX_BUILD = parse_env_bool("ENABLE_MATRIX_BUILD", false)
-run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(FREE_SURFACE)"
+run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
 run_suffix = run_mode_tag
 
 @info "Run configuration"
 @info "- VELOCITY_SOURCE = $VELOCITY_SOURCE"
 @info "- W_FORMULATION  = $W_FORMULATION"
-@info "- FREE_SURFACE   = $FREE_SURFACE"
 @info "- ENABLE_PLOTTING = $ENABLE_PLOTTING"
 @info "- ENABLE_MATRIX_BUILD = $ENABLE_MATRIX_BUILD"
 
@@ -180,27 +177,22 @@ if VELOCITY_SOURCE == "cgridtransports"
     flush(stdout)
     u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport.jld2")
     v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport.jld2")
+    w_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2")
     @info """Loading velocities from MOM mass transport outputs files:
     - $(u_file)
     - $(v_file)
+    - $(w_file)
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
     flush(stdout)
     u_file = joinpath(preprocessed_inputs_dir, "u_interpolated.jld2")
     v_file = joinpath(preprocessed_inputs_dir, "v_interpolated.jld2")
+    w_file = joinpath(preprocessed_inputs_dir, "w.jld2")
     @info """Loading velocities from MOM velocity outputs files:
     - $(u_file)
     - $(v_file)
+    - $(w_file)
     """
-end
-
-w_file = VELOCITY_SOURCE == "cgridtransports" ?
-    joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2") :
-    joinpath(preprocessed_inputs_dir, "w.jld2")
-
-if W_FORMULATION == "wprescribed"
-    @info "Using prescribed w field from: $(w_file)"
-    isfile(w_file) || println("W_FORMULATION=wprescribed requires file: $(w_file)")
 end
 
 # Load FieldTimeSeries from disk using InMemory backend
@@ -213,15 +205,10 @@ time_indexing = Cyclical(1year)
 
 u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_indexing)
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
-if W_FORMULATION == "wprescribed"
-    w_ts = FieldTimeSeries(w_file, "w"; architecture = arch, grid, backend, time_indexing)
-end
-if FREE_SURFACE == "etaprescribed"
-    @info "Loading sea surface height from MOM output"
-    flush(stdout)
-    η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
-    η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
-end
+@info "Loading sea surface height from MOM output"
+flush(stdout)
+η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
+η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 
 # TODO: self note about using velocities.
 # The problem is that the horizontal flux divergence for a given cell is
@@ -242,6 +229,10 @@ fts_times = u_ts.times
 flush(stdout)
 
 if W_FORMULATION == "wprescribed"
+    @info "Using prescribed w field from: $(w_file)"
+    isfile(w_file) || println("W_FORMULATION=wprescribed requires file: $(w_file)")
+    w_ts = FieldTimeSeries(w_file, "w"; architecture = arch, grid, backend, time_indexing)
+
     @info "Prescribing u, v, and w"
     flush(stdout)
     velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = w_ts)
@@ -251,19 +242,9 @@ elseif W_FORMULATION == "wdiagnosed"
     velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, formulation = DiagnosticVerticalVelocity())
 end
 
-if FREE_SURFACE == "etaprescribed"
-    @info "Using prescribed sea surface height from MOM output"
-    flush(stdout)
-    free_surface = PrescribedFreeSurface(displacement = η_ts)
-elseif FREE_SURFACE == "etazero"
-    @info "Using zero prescribed sea surface height"
-    flush(stdout)
-    free_surface = PrescribedFreeSurface(displacement = (x, y, z, t) -> 0.0)
-elseif FREE_SURFACE == "etanothing"
-    @info "No prescribed free surface (model free surface handles displacement)"
-    flush(stdout)
-    free_surface = nothing
-end
+@info "Using prescribed sea surface height from MOM output"
+flush(stdout)
+free_surface = PrescribedFreeSurface(displacement = η_ts)
 
 ################################################################################
 ################################################################################
