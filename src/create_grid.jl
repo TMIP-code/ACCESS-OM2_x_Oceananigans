@@ -26,8 +26,8 @@ arch = CPU()
 parentmodel = "ACCESS-OM2-1"
 # parentmodel = "ACCESS-OM2-025"
 # parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
-mkpath(outputdir)
+preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
+mkpath(preprocessed_inputs_dir)
 
 include("tripolargrid_reader.jl")
 
@@ -159,7 +159,7 @@ code_to_reconstruct_the_grid = """
 """
 
 save(
-    joinpath(outputdir, "$(parentmodel)_grid.jld2"),
+    joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2"),
     Dict(
         "Note" => "This file was created by Benoit Pasquier (2026) from work in progress and thus comes with zero guarantees!",
         "Nx" => underlying_grid.Nx,
@@ -199,4 +199,4 @@ save(
     )
 )
 
-@info "Grid saved to $(joinpath(outputdir, "$(parentmodel)_grid.jld2"))"
+@info "Grid saved to $(joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2"))"

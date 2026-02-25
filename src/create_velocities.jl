@@ -61,7 +61,7 @@ end
 profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
 if profile === nothing
     @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-    outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
 else
     outputdir = profile["outputdir"]
 end
@@ -98,7 +98,7 @@ include("tripolargrid_reader.jl")
 ################################################################################
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
 grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)

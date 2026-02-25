@@ -2,3 +2,7 @@
 output/
 scratch_output*
 preprocessed_inputs*
+archive*
+logs*
+outputs*
+settings

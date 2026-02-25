@@ -2,7 +2,7 @@
 To run this on Gadi interactively on the GPU queue, use
 
 ```
-qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o scratch_output/PBS/ -j oe
+qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o logs/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 include("src/offline_ACCESS-OM2.jl")
 ```
@@ -81,7 +81,7 @@ end
 profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
 if profile === nothing
     @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-    outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
     Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 else
     outputdir = profile["outputdir"]
@@ -89,6 +89,7 @@ else
 end
 
 mkpath(outputdir)
+preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 save_grid = false
 
 # TODO: Maybe I should only use the supergrid for the locations
@@ -109,7 +110,7 @@ include("tripolargrid_reader.jl")
 ################################################################################
 
 @info "Reconstructing grid (loading data from JLD2)"
-grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)

@@ -9,8 +9,8 @@
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
-#PBS -o scratch_output/PBS/
-#PBS -e scratch_output/PBS/
+#PBS -o logs/PBS/
+#PBS -e logs/PBS/
 #PBS -l wd
 
 set -euo pipefail
@@ -36,7 +36,7 @@ module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
 echo "Running offline ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir="$repo_root/scratch_output/runs/$MODEL_CONFIG"
+run_log_dir="$repo_root/logs/runs/$MODEL_CONFIG"
 echo "logging output in $run_log_dir"
 mkdir -p "$run_log_dir"
 julia --project "$repo_root/src/offline_ACCESS-OM2.jl" 1> "$run_log_dir/$PBS_JOBID.out" 2> "$run_log_dir/$PBS_JOBID.err"

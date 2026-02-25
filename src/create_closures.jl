@@ -36,7 +36,8 @@ end
 parentmodel = "ACCESS-OM2-1"
 # parentmodel = "ACCESS-OM2-025"
 # parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
+preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 
 include("tripolargrid_reader.jl")
 
@@ -54,7 +55,7 @@ error(
 )
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(outputdir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
 grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)

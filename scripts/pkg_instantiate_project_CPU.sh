@@ -8,8 +8,8 @@
 #PBS -l ncpus=48
 #PBS -l storage=scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
-#PBS -o scratch_output/PBS/
-#PBS -e scratch_output/PBS/
+#PBS -o logs/PBS/
+#PBS -e logs/PBS/
 #PBS -l wd
 
 # locate repo root by walking up to the directory named ACCESS-OM2_x_Oceananigans

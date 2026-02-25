@@ -8,8 +8,8 @@
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
-#PBS -o scratch_output/PBS/
-#PBS -e scratch_output/PBS/
+#PBS -o logs/PBS/
+#PBS -e logs/PBS/
 #PBS -l wd
 
 set -euo pipefail
@@ -31,7 +31,7 @@ cd "$repo_root"
 # echo "Done creating grid on CPU with PARENT_MODEL=$PARENT_MODEL"
 
 echo "Creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir="$repo_root/scratch_output/runs/$MODEL_CONFIG"
+run_log_dir="$repo_root/logs/runs/$MODEL_CONFIG"
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project "$repo_root/src/create_velocities.jl" &> "$run_log_dir/create_velocities.$job_id.out"

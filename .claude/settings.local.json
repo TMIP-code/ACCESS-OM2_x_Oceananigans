@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ln -s /scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/archive archive)",
+      "Bash(ln -s /scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output outputs)",
+      "Bash(ln -s /scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/logs logs)",
+      "Bash(runic --inplace .)",
+      "Bash(julia --project -e 'using Runic; run\\(`runic --inplace .`\\)')",
+      "Bash(julia --project -e 'import Runic; Runic.main\\([\"\"--inplace\"\", \"\".\"\"]\\)')",
+      "Bash(qsub -v ENABLE_PLOTTING=true,VELOCITY_SOURCE=cgridtransports scripts/ACCESS-OM2-1_GPU_job.sh)",
+      "Bash(~/.local/bin/runic --inplace .)",
+      "Bash(grep -n \"grid.jld2\" src/*.jl)"
+    ]
+  }
+}
