@@ -131,7 +131,7 @@ include("tripolargrid_reader.jl")
 
 @info "Reconstructing grid (loading data from JLD2)"
 flush(stdout)
-grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)

@@ -55,7 +55,7 @@ error(
 )
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
