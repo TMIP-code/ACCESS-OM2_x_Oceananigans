@@ -174,18 +174,20 @@ flush(stdout)
 @info "Loading velocities from disk"
 flush(stdout)
 
+preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
+
 if VELOCITY_SOURCE == "cgridtransports"
     flush(stdout)
-    u_file = joinpath(outputdir, "$(parentmodel)_u_ts_from_mass_transports.jld2")
-    v_file = joinpath(outputdir, "$(parentmodel)_v_ts_from_mass_transports.jld2")
+    u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport.jld2")
+    v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport.jld2")
     @info """Loading velocities from MOM mass transport outputs files:
     - $(u_file)
     - $(v_file)
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
     flush(stdout)
-    u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
-    v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
+    u_file = joinpath(preprocessed_inputs_dir, "u_interpolated.jld2")
+    v_file = joinpath(preprocessed_inputs_dir, "v_interpolated.jld2")
     @info """Loading velocities from MOM velocity outputs files:
     - $(u_file)
     - $(v_file)
@@ -193,8 +195,8 @@ elseif VELOCITY_SOURCE == "bgridvelocities"
 end
 
 w_file = VELOCITY_SOURCE == "cgridtransports" ?
-    joinpath(outputdir, "$(parentmodel)_w_ts_from_mass_transports.jld2") :
-    joinpath(outputdir, "$(parentmodel)_w_ts.jld2")
+    joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2") :
+    joinpath(preprocessed_inputs_dir, "w.jld2")
 
 if W_FORMULATION == "wprescribed"
     @info "Using prescribed w field from: $(w_file)"
@@ -217,7 +219,7 @@ end
 if FREE_SURFACE == "etaprescribed"
     @info "Loading sea surface height from MOM output"
     flush(stdout)
-    η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
+    η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
     η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 end
 

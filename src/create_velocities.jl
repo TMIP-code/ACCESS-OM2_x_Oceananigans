@@ -10,27 +10,28 @@ Usage:
 @info "Loading packages and functions"
 
 using Oceananigans
+using Oceananigans.AbstractOperations: grid_metric_operation, Ax, Ay, Az
 using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: znode, xspacings, yspacings, zspacings
+using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, FieldBoundaryConditions, fill_halo_regions!
+using Oceananigans.Grids: xspacings, yspacings, zspacings
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
-using Oceananigans.Models.HydrostaticFreeSurfaceModels
-using Oceananigans.Models: HydrostaticFreeSurfaceModel
 using Oceananigans.Models.HydrostaticFreeSurfaceModels: _update_zstar_scaling!, surface_kernel_parameters
-using Oceananigans.Operators: ℑxᶜᵃᵃ, ℑyᵃᶜᵃ
-using Oceananigans.OutputReaders: Cyclical, OnDisk, InMemory
-using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
+using Oceananigans.Operators: δxᶜᵃᵃ, δyᵃᶜᵃ
+using Oceananigans.OutputReaders: Cyclical, OnDisk
+using Oceananigans.Units: days, seconds
 year = years = 365.25days
 month = months = year / 12
 
-using Adapt: adapt
 using YAXArrays
 using DimensionalData
 using NCDatasets
 using NetCDF
 using JLD2
+using TOML
 using CairoMakie
-using Printf
-using Statistics
+using Statistics: mean, quantile
+
+const ρ₀ = 1035.0 # kg/m^3
 
 # Set up architecture
 if contains(ENV["HOSTNAME"], "gpu")
@@ -46,12 +47,29 @@ end
 @info "Using $arch architecture"
 
 # Configuration
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
-outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+cfg_file = "LocalPreferences.toml"
+cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
+
+parentmodel = if !isempty(ARGS)
+    ARGS[1]
+elseif haskey(ENV, "PARENT_MODEL")
+    ENV["PARENT_MODEL"]
+else
+    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
+end
+
+profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
+if profile === nothing
+    @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
+    outputdir = "/scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/output/$parentmodel"
+else
+    outputdir = profile["outputdir"]
+end
+
 mkpath(outputdir)
 mkpath(joinpath(outputdir, "velocities"))
+preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
+mkpath(preprocessed_inputs_dir)
 run_mode_tag = get(ENV, "RUN_MODE_TAG", "bgridvelocities_wdiagnosed_etaprescribed")
 uv_plot_dir = joinpath(outputdir, "velocities", "uv", run_mode_tag)
 w_plot_dir = joinpath(outputdir, "velocities", "w", run_mode_tag)
@@ -104,6 +122,50 @@ end
     @inbounds begin
         w[i, j, Nz + 1 - k] = w_data[i, j, k]
     end
+end
+
+@kernel function shift_transport_to_oceananigans_convention!(tx, ty, Nx, Ny, Nz, tx_data, ty_data)
+    i, j, k = @index(Global, NTuple)
+    𝑘 = Nz + 1 - k
+
+    @inbounds begin
+        tx[i, j, k] = tx_data[mod1(i - 1, Nx), j, 𝑘]
+        ty[i, j + 1, k] = ty_data[i, j, 𝑘]
+    end
+end
+
+function fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny - 1, 1:Nz)
+
+    launch!(architecture(grid), grid, kp, shift_transport_to_oceananigans_convention!,
+            tx, ty, Nx, Ny, Nz,
+            on_architecture(architecture(grid), tx_data),
+            on_architecture(architecture(grid), ty_data))
+
+    fill_halo_regions!(tx)
+    fill_halo_regions!(ty)
+end
+
+@kernel function compute_tz_from_continuity!(tz, grid, tx, ty, Nz)
+    i, j = @index(Global, NTuple)
+
+    @inbounds begin
+        tz[i, j, 1] = 0.0
+
+        for k in 1:Nz
+            horizontal_div = δxᶜᵃᵃ(i, j, k, grid, tx) + δyᵃᶜᵃ(i, j, k, grid, ty)
+            tz[i, j, k + 1] = tz[i, j, k] - horizontal_div
+        end
+    end
+end
+
+function fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny)
+
+    launch!(architecture(grid), grid, kp, compute_tz_from_continuity!, tz, grid, tx, ty, Nz)
+    fill_halo_regions!(tz)
 end
 
 """
@@ -175,6 +237,8 @@ v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
 eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
 dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
+tx_ds = open_dataset(joinpath(inputdir, "tx_trans_periodic.nc"))
+ty_ds = open_dataset(joinpath(inputdir, "ty_trans_periodic.nc"))
 dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_periodic.nc")
 wt_var_name  = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
 
@@ -183,21 +247,30 @@ prescribed_Δt = 1month
 fts_times = ((1:12) .- 0.5) * prescribed_Δt
 stop_time = 12 * prescribed_Δt
 
-u_file = joinpath(outputdir, "$(parentmodel)_u_ts.jld2")
-v_file = joinpath(outputdir, "$(parentmodel)_v_ts.jld2")
-w_file = joinpath(outputdir, "$(parentmodel)_w_ts.jld2")
-η_file = joinpath(outputdir, "$(parentmodel)_eta_ts.jld2")
+u_file = joinpath(preprocessed_inputs_dir, "u_interpolated.jld2")
+v_file = joinpath(preprocessed_inputs_dir, "v_interpolated.jld2")
+w_file = joinpath(preprocessed_inputs_dir, "w.jld2")
+η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
+u_mt_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport.jld2")
+v_mt_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport.jld2")
+w_mt_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2")
 
 # remove old files if they exist
 rm(u_file; force = true)
 rm(v_file; force = true)
 rm(w_file; force = true)
 rm(η_file; force = true)
+rm(u_mt_file; force = true)
+rm(v_mt_file; force = true)
+rm(w_mt_file; force = true)
 
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
 u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_file, name = "u", time_indexing = Cyclical(stop_time))
 v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_file, name = "v", time_indexing = Cyclical(stop_time))
 w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_file, name = "w", time_indexing = Cyclical(stop_time))
+u_mt_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_file, name = "u", time_indexing = Cyclical(stop_time))
+v_mt_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_file, name = "v", time_indexing = Cyclical(stop_time))
+w_mt_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_file, name = "w", time_indexing = Cyclical(stop_time))
 η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices=(:, :, Nz:Nz))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
@@ -225,6 +298,22 @@ v    = YFaceField(grid; boundary_conditions=vbcs)
 
 wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north=FPivotZipperBoundaryCondition(1))
 w    = ZFaceField(grid; boundary_conditions=wbcs)
+
+north_t = FPivotZipperBoundaryCondition(-1)
+tx_bcs  = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north=north_t)
+ty_bcs  = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north=north_t)
+tx      = XFaceField(grid; boundary_conditions=tx_bcs)
+ty      = YFaceField(grid; boundary_conditions=ty_bcs)
+
+u_mt = XFaceField(grid; boundary_conditions=ubcs)
+v_mt = YFaceField(grid; boundary_conditions=vbcs)
+w_mt = ZFaceField(grid; boundary_conditions=wbcs)
+tz_bcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north=FPivotZipperBoundaryCondition(1))
+tz = Field{Center, Center, Face}(grid; boundary_conditions=tz_bcs)
+
+Axᶠᶜᶜ = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
+Ayᶜᶠᶜ = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
+Azᶜᶜᶠ = Field(grid_metric_operation((Center, Center, Face), Az, grid))
 
 for month in 1:12
     println("month $month")
@@ -276,6 +365,36 @@ for month in 1:12
     println("  - Set FieldTimeSeries for u and v")
     set!(u_ts, u, month)
     set!(v_ts, v, month)
+
+    # ── u, v, w from mass transports ────────────────────────────────────────
+    println("- u, v, w from mass transports")
+    tx_data = replace(readcubedata(tx_ds.tx_trans[month = At(month)]).data, NaN => 0.0)
+    ty_data = replace(readcubedata(ty_ds.ty_trans[month = At(month)]).data, NaN => 0.0)
+    fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
+    mask_immersed_field!(tx, 0.0)
+    mask_immersed_field!(ty, 0.0)
+    fill_halo_regions!(tx)
+    fill_halo_regions!(ty)
+
+    compute!(Axᶠᶜᶜ)
+    compute!(Ayᶜᶠᶜ)
+    compute!(Azᶜᶜᶠ)
+
+    u_mt .= tx / (ρ₀ * Axᶠᶜᶜ)
+    v_mt .= ty / (ρ₀ * Ayᶜᶠᶜ)
+    fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
+    w_mt .= tz / (ρ₀ * Azᶜᶜᶠ)
+
+    mask_immersed_field!(u_mt, 0.0)
+    mask_immersed_field!(v_mt, 0.0)
+    mask_immersed_field!(w_mt, 0.0)
+    fill_halo_regions!(u_mt)
+    fill_halo_regions!(v_mt)
+    fill_halo_regions!(w_mt)
+
+    set!(u_mt_ts, u_mt, month)
+    set!(v_mt_ts, v_mt, month)
+    set!(w_mt_ts, w_mt, month)
 
     # ── w ────────────────────────────────────────────────────────────────────
     println("- w")
@@ -364,6 +483,15 @@ println("Done!")
 
 @show w_ts
 @info "saved to $(w_file)"
+
+@show u_mt_ts
+@info "saved to $(u_mt_file)"
+
+@show v_mt_ts
+@info "saved to $(v_mt_file)"
+
+@show w_mt_ts
+@info "saved to $(w_mt_file)"
 
 @show η_ts
 @info "saved to $(η_file)"
