@@ -89,7 +89,7 @@ include("tripolargrid_reader.jl")
 ################################################################################
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(preprocessed_inputs_dir, "$(parentmodel)_grid.jld2")
+grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
@@ -279,31 +279,46 @@ prescribed_Δt = 1month
 fts_times = ((1:12) .- 0.5) * prescribed_Δt
 stop_time = 12 * prescribed_Δt
 
-u_file = joinpath(preprocessed_inputs_dir, "u_interpolated.jld2")
-v_file = joinpath(preprocessed_inputs_dir, "v_interpolated.jld2")
-w_file = joinpath(preprocessed_inputs_dir, "w.jld2")
-η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
-u_mt_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport.jld2")
-v_mt_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport.jld2")
-w_mt_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2")
+u_periodic_file = joinpath(preprocessed_inputs_dir, "u_interpolated_periodic.jld2")
+v_periodic_file = joinpath(preprocessed_inputs_dir, "v_interpolated_periodic.jld2")
+w_periodic_file = joinpath(preprocessed_inputs_dir, "w_periodic.jld2")
+η_periodic_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
+u_mt_periodic_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_periodic.jld2")
+v_mt_periodic_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_periodic.jld2")
+w_mt_periodic_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_periodic.jld2")
+
+u_constant_file = joinpath(preprocessed_inputs_dir, "u_interpolated_constant.jld2")
+v_constant_file = joinpath(preprocessed_inputs_dir, "v_interpolated_constant.jld2")
+w_constant_file = joinpath(preprocessed_inputs_dir, "w_constant.jld2")
+η_constant_file = joinpath(preprocessed_inputs_dir, "eta_constant.jld2")
+u_mt_constant_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_constant.jld2")
+v_mt_constant_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_constant.jld2")
+w_mt_constant_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2")
 
 # remove old files if they exist
-rm(u_file; force = true)
-rm(v_file; force = true)
-rm(w_file; force = true)
-rm(η_file; force = true)
-rm(u_mt_file; force = true)
-rm(v_mt_file; force = true)
-rm(w_mt_file; force = true)
+rm(u_periodic_file; force = true)
+rm(v_periodic_file; force = true)
+rm(w_periodic_file; force = true)
+rm(η_periodic_file; force = true)
+rm(u_mt_periodic_file; force = true)
+rm(v_mt_periodic_file; force = true)
+rm(w_mt_periodic_file; force = true)
+rm(u_constant_file; force = true)
+rm(v_constant_file; force = true)
+rm(w_constant_file; force = true)
+rm(η_constant_file; force = true)
+rm(u_mt_constant_file; force = true)
+rm(v_mt_constant_file; force = true)
+rm(w_mt_constant_file; force = true)
 
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
-u_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_file, name = "u", time_indexing = Cyclical(stop_time))
-v_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_file, name = "v", time_indexing = Cyclical(stop_time))
-w_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_file, name = "w", time_indexing = Cyclical(stop_time))
-u_mt_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_file, name = "u", time_indexing = Cyclical(stop_time))
-v_mt_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_file, name = "v", time_indexing = Cyclical(stop_time))
-w_mt_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_file, name = "w", time_indexing = Cyclical(stop_time))
-η_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_file, name = "η", time_indexing = Cyclical(stop_time), indices = (:, :, Nz:Nz))
+u_periodic_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_periodic_file, name = "u", time_indexing = Cyclical(stop_time))
+v_periodic_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_periodic_file, name = "v", time_indexing = Cyclical(stop_time))
+w_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_periodic_file, name = "w", time_indexing = Cyclical(stop_time))
+u_mt_periodic_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_periodic_file, name = "u", time_indexing = Cyclical(stop_time))
+v_mt_periodic_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_periodic_file, name = "v", time_indexing = Cyclical(stop_time))
+w_mt_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_periodic_file, name = "w", time_indexing = Cyclical(stop_time))
+η_periodic_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_periodic_file, name = "η", time_indexing = Cyclical(stop_time), indices = (:, :, Nz:Nz))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
@@ -347,6 +362,15 @@ Axᶠᶜᶜ = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
 Ayᶜᶠᶜ = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
 Azᶜᶜᶠ = Field(grid_metric_operation((Center, Center, Face), Az, grid))
 
+# Time-average accumulators (reuse same BCs as the corresponding periodic fields)
+u_acc = XFaceField(grid; boundary_conditions = ubcs)
+v_acc = YFaceField(grid; boundary_conditions = vbcs)
+w_acc = ZFaceField(grid; boundary_conditions = wbcs)
+u_mt_acc = XFaceField(grid; boundary_conditions = ubcs)
+v_mt_acc = YFaceField(grid; boundary_conditions = vbcs)
+w_mt_acc = ZFaceField(grid; boundary_conditions = wbcs)
+η_acc = Field{Center, Center, Nothing}(grid; indices = (:, :, 1))
+
 for month in 1:12
     println("month $month")
 
@@ -356,7 +380,7 @@ for month in 1:12
     set!(η, η_data)
     mask_immersed_field!(η, 0.0)
     fill_halo_regions!(η)
-    set!(η_ts, η, month)
+    set!(η_periodic_ts, η, month)
 
     # Update z-star grid scaling (before dht check so Δzstar reflects current η)
     launch!(architecture(grid), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η, grid)
@@ -395,8 +419,8 @@ for month in 1:12
     fill_halo_regions!(u)
     fill_halo_regions!(v)
     println("  - Set FieldTimeSeries for u and v")
-    set!(u_ts, u, month)
-    set!(v_ts, v, month)
+    set!(u_periodic_ts, u, month)
+    set!(v_periodic_ts, v, month)
 
     # ── u, v, w from mass transports ────────────────────────────────────────
     println("- u, v, w from mass transports")
@@ -424,9 +448,9 @@ for month in 1:12
     fill_halo_regions!(v_mt)
     fill_halo_regions!(w_mt)
 
-    set!(u_mt_ts, u_mt, month)
-    set!(v_mt_ts, v_mt, month)
-    set!(w_mt_ts, w_mt, month)
+    set!(u_mt_periodic_ts, u_mt, month)
+    set!(v_mt_periodic_ts, v_mt, month)
+    set!(w_mt_periodic_ts, w_mt, month)
 
     # ── w ────────────────────────────────────────────────────────────────────
     println("- w")
@@ -439,7 +463,7 @@ for month in 1:12
     println("  - Filling halo regions for w")
     fill_halo_regions!(w)
     println("  - Set FieldTimeSeries for w")
-    set!(w_ts, w, month)
+    set!(w_periodic_ts, w, month)
 
     println("  - Plot B grid u and v")
     # Visualization (for k=25 only, as in original)
@@ -480,27 +504,60 @@ for month in 1:12
     plottable_η = view(make_plottable_array(η), :, :, 1)
     save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(eta_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
 
+    println("- Accumulate into time-average")
+    u_acc .+= u / 12
+    v_acc .+= v / 12
+    w_acc .+= w / 12
+    u_mt_acc .+= u_mt / 12
+    v_mt_acc .+= v_mt / 12
+    w_mt_acc .+= w_mt / 12
+    η_acc .+= η / 12
 
 end
 println("Done!")
 
-@show u_ts
-@info "saved to $(u_file)"
+@show u_periodic_ts
+@info "saved to $(u_periodic_file)"
 
-@show v_ts
-@info "saved to $(v_file)"
+@show v_periodic_ts
+@info "saved to $(v_periodic_file)"
 
-@show w_ts
-@info "saved to $(w_file)"
+@show w_periodic_ts
+@info "saved to $(w_periodic_file)"
 
-@show u_mt_ts
-@info "saved to $(u_mt_file)"
+@show u_mt_periodic_ts
+@info "saved to $(u_mt_periodic_file)"
 
-@show v_mt_ts
-@info "saved to $(v_mt_file)"
+@show v_mt_periodic_ts
+@info "saved to $(v_mt_periodic_file)"
 
-@show w_mt_ts
-@info "saved to $(w_mt_file)"
+@show w_mt_periodic_ts
+@info "saved to $(w_mt_periodic_file)"
 
-@show η_ts
-@info "saved to $(η_file)"
+@show η_periodic_ts
+@info "saved to $(η_periodic_file)"
+
+@info "Filling halo regions for time-averaged (constant) fields"
+fill_halo_regions!(u_acc)
+fill_halo_regions!(v_acc)
+fill_halo_regions!(w_acc)
+fill_halo_regions!(u_mt_acc)
+fill_halo_regions!(v_mt_acc)
+fill_halo_regions!(w_mt_acc)
+fill_halo_regions!(η_acc)
+
+@info "Saving time-averaged (constant) fields"
+jldsave(u_constant_file; u = Array(interior(u_acc)))
+jldsave(v_constant_file; v = Array(interior(v_acc)))
+jldsave(w_constant_file; w = Array(interior(w_acc)))
+jldsave(u_mt_constant_file; u = Array(interior(u_mt_acc)))
+jldsave(v_mt_constant_file; v = Array(interior(v_mt_acc)))
+jldsave(w_mt_constant_file; w = Array(interior(w_mt_acc)))
+jldsave(η_constant_file; η = Array(interior(η_acc, :, :, 1)))
+@info "saved constant u to $(u_constant_file)"
+@info "saved constant v to $(v_constant_file)"
+@info "saved constant w to $(w_constant_file)"
+@info "saved constant u_mt to $(u_mt_constant_file)"
+@info "saved constant v_mt to $(v_mt_constant_file)"
+@info "saved constant w_mt to $(w_mt_constant_file)"
+@info "saved constant η to $(η_constant_file)"

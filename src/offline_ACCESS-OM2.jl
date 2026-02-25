@@ -175,9 +175,9 @@ flush(stdout)
 
 if VELOCITY_SOURCE == "cgridtransports"
     flush(stdout)
-    u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport.jld2")
-    v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport.jld2")
-    w_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport.jld2")
+    u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_periodic.jld2")
+    v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_periodic.jld2")
+    w_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_periodic.jld2")
     @info """Loading velocities from MOM mass transport outputs files:
     - $(u_file)
     - $(v_file)
@@ -185,9 +185,9 @@ if VELOCITY_SOURCE == "cgridtransports"
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
     flush(stdout)
-    u_file = joinpath(preprocessed_inputs_dir, "u_interpolated.jld2")
-    v_file = joinpath(preprocessed_inputs_dir, "v_interpolated.jld2")
-    w_file = joinpath(preprocessed_inputs_dir, "w.jld2")
+    u_file = joinpath(preprocessed_inputs_dir, "u_interpolated_periodic.jld2")
+    v_file = joinpath(preprocessed_inputs_dir, "v_interpolated_periodic.jld2")
+    w_file = joinpath(preprocessed_inputs_dir, "w_periodic.jld2")
     @info """Loading velocities from MOM velocity outputs files:
     - $(u_file)
     - $(v_file)
@@ -207,7 +207,7 @@ u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_ind
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
 @info "Loading sea surface height from MOM output"
 flush(stdout)
-η_file = joinpath(preprocessed_inputs_dir, "eta.jld2")
+η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
 η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 
 # TODO: self note about using velocities.
