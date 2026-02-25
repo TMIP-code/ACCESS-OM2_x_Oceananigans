@@ -2,7 +2,7 @@
 Build the transport matrix (Jacobian of the tracer tendency) from time-averaged
 (constant) velocity and free-surface fields produced by `create_velocities.jl`.
 
-Unlike `offline_ACCESS-OM2.jl`, no simulation is run: the model is initialised
+Unlike `run_ACCESS-OM2.jl`, no simulation is run: the model is initialised
 with constant prescribed fields and the Jacobian is computed in a single pass.
 The matrix build always uses the CPU (sparsity detection and coloring require it).
 
@@ -203,7 +203,7 @@ experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
 time_window = "Jan1960-Dec1979"
 @show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
 
-# Vertical diffusivity parameters (match offline_ACCESS-OM2.jl)
+# Vertical diffusivity parameters (match run_ACCESS-OM2.jl)
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 

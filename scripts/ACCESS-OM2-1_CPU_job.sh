@@ -31,10 +31,10 @@ cd "$repo_root"
 # echo "Done creating grid on CPU with PARENT_MODEL=$PARENT_MODEL"
 
 echo "Creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir="$repo_root/logs/runs/$MODEL_CONFIG"
+run_log_dir="$repo_root/logs/julia/create_velocities"
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
-julia --project "$repo_root/src/create_velocities.jl" 1> "$run_log_dir/create_velocities.$job_id.out" 2> "$run_log_dir/create_velocities.$job_id.err"
+julia --project "$repo_root/src/create_velocities.jl" 1> "$run_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.out" 2> "$run_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.err"
 echo "Done creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"
 
 # echo "Creating transport-derived velocities for PARENT_MODEL=$PARENT_MODEL"

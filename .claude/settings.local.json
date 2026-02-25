@@ -11,7 +11,13 @@
       "Bash(~/.local/bin/runic --inplace .)",
       "Bash(grep -n \"grid.jld2\" src/*.jl)",
       "Bash(grep -n \"julia.*&>\\\\|julia.*1>\\\\|julia.*2>\" /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/scripts/*.sh)",
-      "Bash(runic --inplace src/create_velocities.jl src/offline_ACCESS-OM2.jl src/create_matrix.jl)"
+      "Bash(runic --inplace src/create_velocities.jl src/offline_ACCESS-OM2.jl src/create_matrix.jl)",
+      "Bash(find /g/data/y99/bp3051/.julia/packages/Oceananigans -name \"*.jl\" -type f -exec grep -l \"update_grid_vertical_velocity\" {} ;)",
+      "Bash(find /g/data/y99/bp3051/.julia/packages/Oceananigans -name \"*.jl\" -type f -exec grep -l \"TimeSeriesInterpolation\" {} ;)",
+      "Bash(find /g/data/y99/bp3051/.julia/packages/Oceananigans/BkYeM/src/Models/HydrostaticFreeSurfaceModels -name \"*.jl\" -exec grep -l \"^function update_state!\" {} ;)",
+      "Bash(find /g/data/y99/bp3051/.julia/packages/Oceananigans/BkYeM/src -name \"*.jl\" -exec grep -l \"update_model_field_time_series\" {} ;)",
+      "Bash(grep -n \"update_grid_vertical_velocity\\\\|DiagnosticVerticalVelocity\" /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/src/*.jl)",
+      "Bash(git mv src/offline_ACCESS-OM2.jl src/run_ACCESS-OM2.jl)"
     ]
   }
 }

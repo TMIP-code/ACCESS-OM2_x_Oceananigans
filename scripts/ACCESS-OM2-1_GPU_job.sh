@@ -35,10 +35,11 @@ echo "Loading CUDA module"
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
-echo "Running offline ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir="$repo_root/logs/runs/$MODEL_CONFIG"
-echo "logging output in $run_log_dir"
+echo "Running run_ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
+run_log_dir="$repo_root/logs/julia/run_ACCESS-OM2"
 mkdir -p "$run_log_dir"
-julia --project "$repo_root/src/offline_ACCESS-OM2.jl" 1> "$run_log_dir/$PBS_JOBID.out" 2> "$run_log_dir/$PBS_JOBID.err"
-echo "Done running offline ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
+job_id="${PBS_JOBID:-interactive}"
+echo "logging output in $run_log_dir"
+julia --project "$repo_root/src/run_ACCESS-OM2.jl" 1> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${job_id}.out" 2> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${job_id}.err"
+echo "Done running run_ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
 

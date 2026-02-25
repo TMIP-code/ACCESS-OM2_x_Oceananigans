@@ -9,7 +9,7 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── create_velocities.jl    # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
 │   ├── create_closures.jl      # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl        # Build transport matrix → outputs/{model}/matrices/
-│   ├── offline_ACCESS-OM2.jl   # Run offline age simulation → outputs/{model}/age/
+│   ├── run_ACCESS-OM2.jl       # Run offline age simulation → outputs/{model}/age/
 │   └── tripolargrid_reader.jl  # load_tripolar_grid(), make_plottable_array()
 ├── scripts/
 │   ├── ACCESS-OM2-1_preprocess_job.sh   # PBS: grid + velocities (12 CPU, 47 GB, express)
@@ -31,6 +31,16 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── age/{VELOCITY_SOURCE}_{W_FORMULATION}/   # offline simulation outputs
 │   └── matrices/{VELOCITY_SOURCE}_constant/     # Jacobian M.jld2, steady_age_*.jld2, plots/
 ├── logs/                               # symlink → /scratch/y99/TMIP/…/logs/
+│   ├── PBS/                            # PBS scheduler stdout/stderr (set via #PBS -o/-e)
+│   └── julia/                          # Julia script stdout/stderr, organised by script name
+│       ├── create_grid/
+│       │   └── create_grid_{parentmodel}_{job_id}.{out,err}
+│       ├── create_velocities/
+│       │   └── create_velocities_{parentmodel}_{job_id}.{out,err}
+│       ├── run_ACCESS-OM2/
+│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{job_id}.{out,err}
+│       └── create_matrix/
+│           └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
 ├── Project.toml
 ├── LocalPreferences.toml               # CUDA version pin (local = true, version = "12.9")
 └── AGENTS.md
@@ -50,6 +60,27 @@ For ACCESS-OM2 periodic inputs, this helps avoid index-order mistakes (for examp
 ## Code formatting
 Use the Runic formatter for Julia code:
 Run it after you have finished editing files with `runic --inplace .`
+
+## Submitting and monitoring PBS jobs
+
+Submit a job:
+```bash
+qsub scripts/ACCESS-OM2-1_matrix_job.sh
+qsub scripts/ACCESS-OM2-1_preprocess_job.sh
+qsub scripts/ACCESS-OM2-1_GPU_job.sh
+```
+
+Monitor:
+```bash
+qstat -u bp3051          # list all your running/queued jobs
+qstat -f <job_id>        # detailed status for one job
+```
+
+Pass environment variables at submission time:
+```bash
+qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
+    scripts/ACCESS-OM2-1_matrix_job.sh
+```
 
 ## Naming conventions
 
@@ -71,12 +102,16 @@ Run it after you have finished editing files with `runic --inplace .`
 - Matrix outputs: `outputs/{parentmodel}/matrices/{VELOCITY_SOURCE}_constant/`
 - Matrix plots: `outputs/{parentmodel}/matrices/{VELOCITY_SOURCE}_constant/plots/`
 
+### Log directories (`logs/julia/`)
+- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}` for `run_ACCESS-OM2`
+- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_constant` for `create_matrix`
+
 ## Script overview
 | Script | Purpose | Key env vars |
 |--------|---------|-------------|
 | `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
 | `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
-| `src/offline_ACCESS-OM2.jl` | Run offline tracer age simulation | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ENABLE_PLOTTING, ENABLE_MATRIX_BUILD |
+| `src/run_ACCESS-OM2.jl` | Run offline tracer age simulation | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ENABLE_PLOTTING, ENABLE_MATRIX_BUILD |
 | `src/create_matrix.jl` | Build transport matrix from constant fields; optionally solve for steady-state age | PARENT_MODEL, VELOCITY_SOURCE, ENABLE_AGE_SOLVE |
 
 ## PBS scripts
@@ -88,7 +123,7 @@ Run it after you have finished editing files with `runic --inplace .`
 ## Key design decisions
 - Matrix build always on CPU (sparsity detection/coloring incompatible with GPU)
 - `create_matrix.jl` uses time-averaged constant Fields (not FieldTimeSeries) → single Jacobian call
-- `offline_ACCESS-OM2.jl` uses periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
+- `run_ACCESS-OM2.jl` uses periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
 - Constant fields for matrix build use same BCs (`FPivotZipperBoundaryCondition`) as the per-month fields in `create_velocities.jl`
 - zstar initialisation before Jacobian: `_update_zstar_scaling!(η_constant, grid)`
 - ENABLE_AGE_SOLVE (default false) gates the LUMP/SPRAY + linear solves + 3D field save

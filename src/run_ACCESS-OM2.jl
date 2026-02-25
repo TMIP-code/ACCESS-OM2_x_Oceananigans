@@ -8,7 +8,7 @@ cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 julia --project
-include("src/offline_ACCESS-OM2.jl")
+include("src/run_ACCESS-OM2.jl")
 ```
 """
 
