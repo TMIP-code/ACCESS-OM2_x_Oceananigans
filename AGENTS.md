@@ -4,7 +4,6 @@
 Use this quick check before changing data-loading, grid, or velocity scripts.
 
 ```bash
-module load nco
 module load netcdf
 ncdump -h xxx.nc
 ```
@@ -14,5 +13,4 @@ For ACCESS-OM2 periodic inputs, this helps avoid index-order mistakes (for examp
 
 ## Code formatting
 Use the Runic formatter for Julia code:
-https://github.com/fredrikekre/Runic.jl
-Run it after you have finished editing files.
+Run it after you have finished editing files with `runic --inplace .`
