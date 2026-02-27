@@ -350,7 +350,7 @@ flush(stdout)
 ADcvec = ones(Nidx)
 GADcvec = similar(ADcvec)
 mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
-@time mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
+@time "Tendency evaluation" mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
 
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
@@ -364,7 +364,10 @@ flush(stdout)
     mytendency!, GADcvec, sparse_forward_backend, ADcvec,
     Cache(ADc_buf), Cache(GADc_buf),
 )
-jac_buffer = similar(sparsity_pattern(jac_prep), eltype(ADcvec))
+S = sparsity_pattern(jac_prep)
+@info "Sparsity pattern: $(size(S, 1))×$(size(S, 2)), nnz=$(nnz(S)), $(maximum(column_colors(jac_prep))) colors"
+flush(stdout)
+jac_buffer = similar(S, eltype(ADcvec))
 
 ################################################################################
 # Compute Jacobian
@@ -381,6 +384,9 @@ flush(stdout)
 )
 
 M = copy(jac_buffer)  # units: 1/s
+@info "Jacobian M ($(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M)), density=$(@sprintf("%.2e", nnz(M) / length(M))))"
+flush(stdout)
+@info "Sparsity pattern of M:"
 display(M)
 
 @info "Saving Jacobian to $(matrices_dir)"
@@ -407,12 +413,15 @@ save(joinpath(matrix_plots_dir, "M_spy.png"), fig)
 ################################################################################
 
 if ENABLE_AGE_SOLVE
-    # Display non-structurally symmetric part of M
+    # Check structural symmetry of M
     i, j, v = findnz(M)
     M1 = sparse(i, j, true)
-    display(M1 - M1' .> 0)
-    # Check if the matrix is structurally symmetric
+    asymmetric_entries = M1 - M1' .> 0
+    @info "Non-structurally-symmetric part of M ($(nnz(asymmetric_entries)) asymmetric entries):"
+    display(asymmetric_entries)
     ISSTRUCTURALLYSYMMETRIC = Pardiso.isstructurallysymmetric(M)
+    @info "M is structurally symmetric: $ISSTRUCTURALLYSYMMETRIC"
+    flush(stdout)
 
     @info "LUMP and SPRAY matrices"
     flush(stdout)
@@ -433,12 +442,15 @@ if ENABLE_AGE_SOLVE
     v1D = interior(compute_volume(grid))[idx]
 
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+    @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP))):"
     display(LUMP)
+    @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY))):"
     display(SPRAY)
 
     @info "Coarsened Jacobian"
     flush(stdout)
     Mc = LUMP * M * SPRAY
+    @info "Coarsened Jacobian Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))):"
     display(Mc)
 
     jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
@@ -496,7 +508,6 @@ if ENABLE_AGE_SOLVE
 
     vol_mean_coarse = sum(age_coarse_vec .* v1D) / sum(v1D)
     @info "Volume-weighted mean coarsened steady age: $(vol_mean_coarse) years"
-    @show vol_mean_coarse
 
     fig, ax, plt = hist(age_coarse_vec)
     save(joinpath(matrix_plots_dir, "steady_age_coarsened_histogram.png"), fig)
@@ -516,7 +527,6 @@ if ENABLE_AGE_SOLVE
 
     vol_mean_full = sum(age_full_vec .* v1D) / sum(v1D)
     @info "Volume-weighted mean full steady age: $(vol_mean_full) years"
-    @show vol_mean_full
 
     fig, ax, plt = hist(age_full_vec)
     save(joinpath(matrix_plots_dir, "steady_age_full_histogram.png"), fig)
