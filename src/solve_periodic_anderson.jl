@@ -145,7 +145,7 @@ if ACCELERATION_METHOD == "speedmapping"
 elseif ACCELERATION_METHOD == "anderson"
     @info "Using NLsolveJL with Anderson acceleration"
     flush(stdout)
-    solver = NLsolveJL(; method = :anderson)
+    solver = NLsolveJL(; method = :anderson, m = 40)
 end
 
 @time sol = solve(
@@ -154,6 +154,7 @@ end
     show_trace = Val(true),
     reltol = Inf,
     abstol = 0.001 * stop_time,
+    maxiters = 1000,
     verbose = true,
 )
 

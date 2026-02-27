@@ -273,6 +273,9 @@ if JVP_METHOD == "matrix"
     @info "Using matrix-based JVP: J ≈ stop_time * M (sparse matvec)"
     flush(stdout)
 
+    # M = ∂x/∂t
+    # ϕ(x(t)) = x(t + 1year) = x(t) + ∫ ∂x/∂t dt ≈ x(t) + Δt M x(t)
+    # G(x) = ϕ(x) - x ≈ Δt M x(t)
     # The true Jacobian of G(x) = Φ(x) - x is J_G = exp(M*T) - I ≈ M*T
     # (first-order approximation). Using this avoids expensive G! evaluations
     # during GMRES iterations (sparse matvec vs full year simulation).
@@ -284,7 +287,7 @@ if JVP_METHOD == "matrix"
 
     f! = NonlinearFunction(G!; jvp = approximate_jvp!)
     newton_solver = NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
+        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
     )
 
 elseif JVP_METHOD == "finitediff"
@@ -294,7 +297,7 @@ elseif JVP_METHOD == "finitediff"
 
     f! = NonlinearFunction(G!)
     newton_solver = NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, rtol = 1.0e-10),
+        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
         jvp_autodiff = AutoFiniteDiff(),
     )
 end
