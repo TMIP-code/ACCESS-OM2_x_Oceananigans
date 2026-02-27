@@ -43,10 +43,20 @@ const nprocs = 12
 JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 (JVP_METHOD ∈ ("matrix", "finitediff")) || error("JVP_METHOD must be one of: matrix, finitediff (got: $JVP_METHOD)")
 
+# Pardiso matrix type for the preconditioner:
+#   nonsym      → REAL_NONSYM (mtype=11): safe fallback, treats matrix as fully nonsymmetric
+#   sym_cleaned → REAL_SYM    (mtype=1):  structurally symmetric. Despite its name, REAL_SYM in
+#                 MKL Pardiso means the matrix is structurally symmetric (not numerically), so
+#                 Pardiso expects the full matrix but exploits the symmetric sparsity for
+#                 reordering. To be safe we dropzeros! and strip non-symmetric entries first.
+PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
+(PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
+
 matrices_dir = joinpath(outputdir, "matrices", "$(VELOCITY_SOURCE)_constant")
 
 @info "Newton-GMRES periodic solver configuration"
 @info "- JVP_METHOD  = $JVP_METHOD"
+@info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout)
 
@@ -141,15 +151,41 @@ flush(stdout)
 # Preconditioner setup (Pardiso, CPU-only)
 ################################################################################
 
-@info "Setting up preconditioner"
+@info "Setting up preconditioner (PRECONDITIONER_MATRIX_TYPE=$PRECONDITIONER_MATRIX_TYPE)"
 flush(stdout)
 
-if Pardiso.isstructurallysymmetric(Mc)
-    matrix_type = Pardiso.REAL_SYM
+if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned"
+    # Clean the sparsity structure of Mc so it is guaranteed structurally symmetric:
+    # 1. Drop explicit zeros (entries stored in CSC but numerically zero)
+    # 2. Remove any remaining non-zero entries that lack a symmetric counterpart
+    # This is safe because Mc is a rough coarsened approximation used only as a preconditioner.
+    dropzeros!(Mc)
+    # Symmetrise the sparsity: keep entry (i,j) only if (j,i) also exists
+    Mc_t = copy(Mc')
+    # Build a mask of entries that have a counterpart in the transpose
+    Mc_sym = Mc .* (Mc_t .!= 0)
+    nnz_before = nnz(Mc)
+    Mc = Mc_sym
+    dropzeros!(Mc)
+    nnz_after = nnz(Mc)
+    @info "Sparsity cleaning: nnz $nnz_before → $nnz_after (removed $(nnz_before - nnz_after) non-symmetric entries)"
+
+    # Despite its name, REAL_SYM (mtype=1) in MKL Pardiso means "structurally symmetric"
+    # (not numerically symmetric). Pardiso expects the full matrix but exploits the symmetric
+    # sparsity pattern for reordering. This is correct for our cleaned Mc.
+    if Pardiso.isstructurallysymmetric(Mc)
+        matrix_type = Pardiso.REAL_SYM
+        @info "Mc is structurally symmetric after cleaning; using Pardiso REAL_SYM (mtype=1)"
+        @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
+    else
+        @warn "Mc still not structurally symmetric after cleaning; falling back to REAL_NONSYM"
+        matrix_type = Pardiso.REAL_NONSYM
+        @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
+    end
+else  # "nonsym" (default, safe fallback)
+    matrix_type = Pardiso.REAL_NONSYM
+    @info "Using Pardiso REAL_NONSYM (mtype=11)"
     @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
-else
-    @warn "Mc is not structurally symmetric; using UMFPACKFactorization()"
-    @show pardiso_solver = UMFPACKFactorization()
 end
 
 # P = S Qc⁻¹ L - I  (Bardin et al., 2014)

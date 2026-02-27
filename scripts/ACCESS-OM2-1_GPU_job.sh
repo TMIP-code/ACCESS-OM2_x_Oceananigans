@@ -40,6 +40,15 @@ echo "SCRIPT=$SCRIPT"
 # Export solver-specific env vars if set
 [ -n "${JVP_METHOD:-}" ] && export JVP_METHOD && echo "JVP_METHOD=$JVP_METHOD"
 [ -n "${ACCELERATION_METHOD:-}" ] && export ACCELERATION_METHOD && echo "ACCELERATION_METHOD=$ACCELERATION_METHOD"
+[ -n "${PRECONDITIONER_MATRIX_TYPE:-}" ] && export PRECONDITIONER_MATRIX_TYPE && echo "PRECONDITIONER_MATRIX_TYPE=$PRECONDITIONER_MATRIX_TYPE"
+
+# Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes
+CHECK_BOUNDS=${CHECK_BOUNDS:-no}
+JULIA_BOUNDS_FLAG=""
+if [ "$CHECK_BOUNDS" = "yes" ]; then
+    JULIA_BOUNDS_FLAG="--check-bounds=yes"
+    echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
+fi
 
 # locate repo root by walking up to the directory named ACCESS-OM2_x_Oceananigans
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
@@ -50,10 +59,13 @@ echo "Loading CUDA module"
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
+# Unlimited stack size to avoid segfaults in MKL Pardiso METIS recursive reordering
+ulimit -s unlimited
+
 echo "Running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
 run_log_dir="$repo_root/logs/julia/run_ACCESS-OM2"
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 echo "logging output in $run_log_dir"
-julia --project "$repo_root/$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${SOLVE_METHOD}_${job_id}.log"
+julia $JULIA_BOUNDS_FLAG --project "$repo_root/$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${SOLVE_METHOD}_${job_id}.log"
 echo "Done running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"

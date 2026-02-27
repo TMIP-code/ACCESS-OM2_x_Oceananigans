@@ -26,6 +26,8 @@ Environment variables (in addition to setup_model.jl):
 include("setup_model.jl")
 
 using NonlinearSolve
+using SpeedMapping  # required for NonlinearSolve's SpeedMappingJL() extension
+using NLsolve       # required for NonlinearSolve's NLsolveJL() extension
 using LinearAlgebra
 using Oceananigans.Simulations: reset!
 
