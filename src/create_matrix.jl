@@ -67,8 +67,9 @@ using CairoMakie
 using NonlinearSolve
 using KernelAbstractions: @kernel, @index
 using DifferentiationInterface
-using DifferentiationInterface: Cache
+using DifferentiationInterface: Cache, jacobian_sparsity_with_contexts
 using SparseConnectivityTracer
+using ADTypes: KnownJacobianSparsityDetector
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
 using OceanTransportMatrixBuilder
@@ -352,9 +353,23 @@ GADcvec = similar(ADcvec)
 mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
 @time "Tendency evaluation" mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
 
+# Step 1: Detect sparsity pattern (expensive tracing pass)
+@info "Detecting sparsity pattern..."
+flush(stdout)
+@time "Detect sparsity" S = jacobian_sparsity_with_contexts(
+    mytendency!, GADcvec, TracerSparsityDetector(; gradient_pattern_type = Set{UInt}), ADcvec,
+    Cache(ADc_buf), Cache(GADc_buf),
+)
+
+# Step 2: Symmetrize sparsity pattern (S[i,j] ↔ S[j,i])
+S_sym = S .| S'
+@info "Sparsity: nnz(S) = $(nnz(S)), nnz(S_sym) = $(nnz(S_sym))"
+flush(stdout)
+
+# Step 3: Prepare Jacobian with known (symmetric) sparsity pattern
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
-    sparsity_detector = TracerSparsityDetector(; gradient_pattern_type = Set{UInt}),
+    sparsity_detector = KnownJacobianSparsityDetector(S_sym),
     coloring_algorithm = GreedyColoringAlgorithm(),
 )
 
@@ -364,10 +379,10 @@ flush(stdout)
     mytendency!, GADcvec, sparse_forward_backend, ADcvec,
     Cache(ADc_buf), Cache(GADc_buf),
 )
-S = sparsity_pattern(jac_prep)
-@info "Sparsity pattern: $(size(S, 1))×$(size(S, 2)), nnz=$(nnz(S)), $(maximum(column_colors(jac_prep))) colors"
+S_final = sparsity_pattern(jac_prep)
+@info "Sparsity pattern: $(size(S_final, 1))×$(size(S_final, 2)), nnz=$(nnz(S_final)), $(maximum(column_colors(jac_prep))) colors"
 flush(stdout)
-jac_buffer = similar(S, eltype(ADcvec))
+jac_buffer = similar(S_final, eltype(ADcvec))
 
 ################################################################################
 # Compute Jacobian

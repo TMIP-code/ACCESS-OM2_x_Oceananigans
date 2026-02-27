@@ -29,8 +29,6 @@ mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
 echo "Building transport matrix for PARENT_MODEL=$PARENT_MODEL, VELOCITY_SOURCE=$VELOCITY_SOURCE, ENABLE_AGE_SOLVE=$ENABLE_AGE_SOLVE"
-julia --project "$repo_root/src/create_matrix.jl" \
-    1> "$run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.out" \
-    2> "$run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.err"
+julia --project "$repo_root/src/create_matrix.jl" &> "$run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.log"
 echo "Done building transport matrix"
-echo "logged output in $run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.{out,err}"
+echo "logged output in $run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.log"

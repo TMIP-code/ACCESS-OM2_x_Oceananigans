@@ -37,16 +37,16 @@ job_id="${PBS_JOBID:-interactive}"
 echo "Creating grid for PARENT_MODEL=$PARENT_MODEL"
 grid_log_dir="$repo_root/logs/julia/create_grid"
 mkdir -p "$grid_log_dir"
-julia --project "$repo_root/src/create_grid.jl" 1> "$grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.out" 2> "$grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.err"
+julia --project "$repo_root/src/create_grid.jl" &> "$grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
 echo "Done creating grid for PARENT_MODEL=$PARENT_MODEL"
-echo "logged output in $grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.{out,err}"
+echo "logged output in $grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
 
 echo "Running preprocessing (interpolated + mass-transport velocities) for PARENT_MODEL=$PARENT_MODEL"
 vel_log_dir="$repo_root/logs/julia/create_velocities"
 mkdir -p "$vel_log_dir"
-julia --project "$repo_root/src/create_velocities.jl" 1> "$vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.out" 2> "$vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.err"
+julia --project "$repo_root/src/create_velocities.jl" &> "$vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
 echo "Done preprocessing for PARENT_MODEL=$PARENT_MODEL"
-echo "logged output in $vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.{out,err}"
+echo "logged output in $vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
 
 # Submit downstream jobs if requested (only reached when preprocessing succeeded)
 if [[ "$SUBMIT_OFFLINE_CPU" == "true" ]]; then

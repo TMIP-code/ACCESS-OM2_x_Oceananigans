@@ -40,6 +40,6 @@ run_log_dir="$repo_root/logs/julia/run_ACCESS-OM2"
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 echo "logging output in $run_log_dir"
-julia --project "$repo_root/src/run_ACCESS-OM2.jl" 1> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${job_id}.out" 2> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${job_id}.err"
+julia --project "$repo_root/src/run_ACCESS-OM2.jl" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${job_id}.log"
 echo "Done running run_ACCESS-OM2 for PARENT_MODEL=$PARENT_MODEL"
 
