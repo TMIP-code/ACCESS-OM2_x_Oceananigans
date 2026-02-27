@@ -5,16 +5,20 @@
 ```
 ACCESS-OM2_x_Oceananigans/
 ├── src/
-│   ├── create_grid.jl          # Build tripolar grid → preprocessed_inputs/{model}/{model}_grid.jld2
-│   ├── create_velocities.jl    # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
-│   ├── create_closures.jl      # (WIP — not yet used in pipeline)
-│   ├── create_matrix.jl        # Build transport matrix → outputs/{model}/matrices/
-│   ├── run_ACCESS-OM2.jl       # Run offline age simulation → outputs/{model}/age/
-│   └── tripolargrid_reader.jl  # load_tripolar_grid(), make_plottable_array()
+│   ├── setup_model.jl            # Shared model setup (include'd by run/solve scripts)
+│   ├── run_1year.jl              # Standalone 1-year age simulation → outputs/{model}/age/
+│   ├── solve_periodic_newton.jl  # Newton-GMRES periodic steady-state solver
+│   ├── solve_periodic_anderson.jl # Anderson/SpeedMapping periodic solver
+│   ├── create_grid.jl            # Build tripolar grid → preprocessed_inputs/{model}/{model}_grid.jld2
+│   ├── create_velocities.jl      # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
+│   ├── create_closures.jl        # (WIP — not yet used in pipeline)
+│   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
+│   ├── plot_outputs.jl           # Plot u/v/w/η outputs from simulation (standalone, CPU-only)
+│   └── tripolargrid_reader.jl    # load_tripolar_grid(), make_plottable_array()
 ├── scripts/
 │   ├── ACCESS-OM2-1_preprocess_job.sh   # PBS: grid + velocities (12 CPU, 47 GB, express)
 │   ├── ACCESS-OM2-1_CPU_job.sh          # PBS: offline simulation CPU (12 CPU, 47 GB, express)
-│   ├── ACCESS-OM2-1_GPU_job.sh          # PBS: offline simulation GPU (1 GPU, 47 GB, gpuvolta)
+│   ├── ACCESS-OM2-1_GPU_job.sh          # PBS: GPU job (1 GPU, 47 GB, gpuvolta) — SOLVE_METHOD selects script
 │   ├── ACCESS-OM2-1_matrix_job.sh       # PBS: matrix build CPU (48 CPU, 190 GB, normal)
 │   ├── submit_all_gpu_job_modes.sh      # Submit all VELOCITY_SOURCE × W_FORMULATION combinations
 │   ├── pkg_instantiate_project_CPU.sh
@@ -38,7 +42,7 @@ ACCESS-OM2_x_Oceananigans/
 │       ├── create_velocities/
 │       │   └── create_velocities_{parentmodel}_{job_id}.{out,err}
 │       ├── run_ACCESS-OM2/
-│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{job_id}.{out,err}
+│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{SOLVE_METHOD}_{job_id}.log
 │       └── create_matrix/
 │           └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
 ├── Project.toml
@@ -68,6 +72,9 @@ Submit a job:
 qsub scripts/ACCESS-OM2-1_matrix_job.sh
 qsub scripts/ACCESS-OM2-1_preprocess_job.sh
 qsub scripts/ACCESS-OM2-1_GPU_job.sh
+# with solver selection:
+qsub -v SOLVE_METHOD=newton scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v SOLVE_METHOD=anderson,ACCELERATION_METHOD=anderson scripts/ACCESS-OM2-1_GPU_job.sh
 ```
 
 Monitor:
@@ -103,27 +110,37 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 - Matrix plots: `outputs/{parentmodel}/matrices/{VELOCITY_SOURCE}_constant/plots/`
 
 ### Log directories (`logs/julia/`)
-- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}` for `run_ACCESS-OM2`
+- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}` for simulation/solver scripts
 - `MODEL_CONFIG` = `{VELOCITY_SOURCE}_constant` for `create_matrix`
 
 ## Script overview
 | Script | Purpose | Key env vars |
 |--------|---------|-------------|
+| `src/setup_model.jl` | Shared model setup (include'd by run/solve scripts) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION |
+| `src/run_1year.jl` | Standalone 1-year age simulation | (inherits from setup_model.jl) |
+| `src/solve_periodic_newton.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD (matrix/finitediff) |
+| `src/solve_periodic_anderson.jl` | Anderson/SpeedMapping periodic solver | ACCELERATION_METHOD (speedmapping/anderson) |
 | `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
 | `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
-| `src/run_ACCESS-OM2.jl` | Run offline tracer age simulation | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ENABLE_PLOTTING, ENABLE_MATRIX_BUILD |
+| `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION |
 | `src/create_matrix.jl` | Build transport matrix from constant fields; optionally solve for steady-state age | PARENT_MODEL, VELOCITY_SOURCE, ENABLE_AGE_SOLVE |
 
 ## PBS scripts
 - `scripts/ACCESS-OM2-1_preprocess_job.sh` — grid + velocities preprocessing (12 CPU, 47 GB)
 - `scripts/ACCESS-OM2-1_CPU_job.sh` — offline simulation on CPU (12 CPU, 47 GB)
-- `scripts/ACCESS-OM2-1_GPU_job.sh` — offline simulation on GPU (1 GPU, 12 CPU, 47 GB)
+- `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `SOLVE_METHOD` selects script (1year/newton/anderson)
 - `scripts/ACCESS-OM2-1_matrix_job.sh` — matrix build on CPU (48 CPU, 190 GB, normal queue)
 
 ## Key design decisions
+- Model setup is shared via `setup_model.jl` (include'd by downstream scripts)
+- `setup_model.jl` creates the model but NOT the simulation — each downstream script creates its own
 - Matrix build always on CPU (sparsity detection/coloring incompatible with GPU)
 - `create_matrix.jl` uses time-averaged constant Fields (not FieldTimeSeries) → single Jacobian call
-- `run_ACCESS-OM2.jl` uses periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
+- Simulation scripts use periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
 - Constant fields for matrix build use same BCs (`FPivotZipperBoundaryCondition`) as the per-month fields in `create_velocities.jl`
 - zstar initialisation before Jacobian: `_update_zstar_scaling!(η_constant, grid)`
-- ENABLE_AGE_SOLVE (default false) gates the LUMP/SPRAY + linear solves + 3D field save
+- ENABLE_AGE_SOLVE (default false) gates the LUMP/SPRAY + linear solves + 3D field save in create_matrix.jl
+- Newton solver loads M from `create_matrix.jl` output, builds LUMP/SPRAY preconditioner
+- Newton solver uses approximate JVP via `stop_time * M` (sparse matvec) or finite-diff via `AutoFiniteDiff()`
+- Anderson/SpeedMapping solver needs no matrix or preconditioner — pure fixed-point acceleration
+- GPU arrays preallocated once; `copyto!` used for CPU↔GPU transfer in G!
