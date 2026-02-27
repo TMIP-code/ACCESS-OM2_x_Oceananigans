@@ -20,7 +20,10 @@
       "Bash(git mv src/offline_ACCESS-OM2.jl src/run_ACCESS-OM2.jl)",
       "Bash(echo $JULIA_DEPOT_PATH)",
       "Bash(runic --inplace src/debug_jacobian_symmetry.jl)",
-      "Bash(runic --inplace src/create_matrix.jl)"
+      "Bash(runic --inplace src/create_matrix.jl)",
+      "Bash(julia --version)",
+      "Bash(ls -la /g/data/y99/bp3051/.julia/packages/OceanTransportMatrixBuilder/*/src/)",
+      "Bash(grep -r \"lump_and_spray\" /g/data/y99/bp3051/.julia/packages/OceanTransportMatrixBuilder/*/src/)"
     ]
   }
 }
