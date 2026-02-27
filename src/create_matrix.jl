@@ -55,6 +55,7 @@ month = months = year / 12
 using Adapt: adapt
 using Statistics
 using LinearAlgebra
+using SparseArrays
 using YAXArrays
 using DimensionalData
 using NCDatasets
@@ -66,7 +67,7 @@ using CairoMakie
 using NonlinearSolve
 using KernelAbstractions: @kernel, @index
 using DifferentiationInterface
-using DifferentiationInterface: overloaded_input_type
+using DifferentiationInterface: Cache
 using SparseConnectivityTracer
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
@@ -299,14 +300,13 @@ flush(stdout)
 kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
 active_cells_map = get_active_cells_map(grid, Val(:interior))
 
-function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
-    ADc3D = zeros(T, Nx′, Ny′, Nz′)
-    ADc3D[idx] .= ADcvec
-
-    ADc = CenterField(grid, T)
-    set!(ADc, ADc3D)
-
-    GADc = CenterField(grid, T)
+function mytendency!(GADcvec, ADcvec, ADc_field, GADc_field)
+    # Fill the field's interior directly from the vector
+    interior(ADc_field) .= 0
+    for (n, ijk) in enumerate(idx)
+        interior(ADc_field)[ijk] = ADcvec[n]
+    end
+    fill_halo_regions!(ADc_field)
 
     c_advection = jacobian_model.advection[:ADc]
     c_forcing = jacobian_model.forcing[:ADc]
@@ -322,30 +322,35 @@ function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
         jacobian_model.biogeochemistry,
         jacobian_model.transport_velocities,
         jacobian_model.free_surface,
-        (; ADc = ADc),
+        (; ADc = ADc_field),
         jacobian_model.closure_fields,
         jacobian_model.auxiliary_fields,
-        clock,
+        jacobian_model.clock,
         c_forcing,
     )
 
     launch!(
-        arch, grid, kernel_parameters,
+        CPU(), grid, kernel_parameters,
         compute_hydrostatic_free_surface_GADc!,
-        GADc, grid, args;
+        GADc_field, grid, args;
         active_cells_map,
     )
 
-    GADcvec .= view(interior(on_architecture(CPU(), GADc)), idx)
+    # Fill output vector with interior wet values
+    GADcvec .= view(interior(GADc_field), idx)
     return GADcvec
 end
+
+# Preallocate field buffers for Cache
+ADc_buf = CenterField(grid)
+GADc_buf = CenterField(grid)
 
 @info "Benchmarking tendency function"
 flush(stdout)
 ADcvec = ones(Nidx)
-GADcvec = ones(Nidx)
-@time mytendency!(GADcvec, ADcvec, 0.0)
-@time mytendency!(GADcvec, ADcvec, 0.0)
+GADcvec = similar(ADcvec)
+mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
+@time mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
 
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
@@ -353,57 +358,13 @@ sparse_forward_backend = AutoSparse(
     coloring_algorithm = GreedyColoringAlgorithm(),
 )
 
-@time "Prepare Jacobian sparsity pattern" jac_prep_sparse = prepare_jacobian(
-    mytendency!,
-    GADcvec,
-    sparse_forward_backend,
-    ADcvec,
-    Constant(0.0);
-    strict = Val(false),
+@info "Preparing Jacobian..."
+flush(stdout)
+@time "Prepare Jacobian" jac_prep = prepare_jacobian(
+    mytendency!, GADcvec, sparse_forward_backend, ADcvec,
+    Cache(ADc_buf), Cache(GADc_buf),
 )
-
-DualType = eltype(overloaded_input_type(jac_prep_sparse))
-ADc3D_dual = zeros(DualType, Nx′, Ny′, Nz′)
-ADc_dual = CenterField(grid, DualType)
-Gc_dual = CenterField(grid, DualType)
-
-function mytendency_preallocated!(GADcvec::Vector{DualType}, ADcvec::Vector{DualType}, clock)
-    ADc3D_dual[idx] .= ADcvec
-    set!(ADc_dual, ADc3D_dual)
-
-    c_advection = jacobian_model.advection[:ADc]
-    c_forcing = jacobian_model.forcing[:ADc]
-    c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
-
-    args = tuple(
-        Val(1),
-        Val(:ADc),
-        c_advection,
-        jacobian_model.closure,
-        c_immersed_bc,
-        jacobian_model.buoyancy,
-        jacobian_model.biogeochemistry,
-        jacobian_model.transport_velocities,
-        jacobian_model.free_surface,
-        (; ADc = ADc_dual),
-        jacobian_model.closure_fields,
-        jacobian_model.auxiliary_fields,
-        clock,
-        c_forcing,
-    )
-
-    launch!(
-        CPU(), grid, kernel_parameters,
-        compute_hydrostatic_free_surface_GADc!,
-        Gc_dual, grid, args;
-        active_cells_map,
-    )
-
-    GADcvec .= view(interior(Gc_dual), idx)
-    return GADcvec
-end
-
-@time "Prepare buffer for Jacobian" jac_buffer = similar(sparsity_pattern(jac_prep_sparse), eltype(ADcvec))
+jac_buffer = similar(sparsity_pattern(jac_prep), eltype(ADcvec))
 
 ################################################################################
 # Compute Jacobian
@@ -414,17 +375,13 @@ end
 @info "Computing Jacobian (single pass — time-averaged constant fields)"
 flush(stdout)
 @time "Compute Jacobian" jacobian!(
-    mytendency_preallocated!,
-    GADcvec,
-    jac_buffer,
-    jac_prep_sparse,
-    sparse_forward_backend,
-    ADcvec,
-    Constant(0.0),
+    mytendency!, GADcvec, jac_buffer, jac_prep,
+    sparse_forward_backend, ADcvec,
+    Cache(ADc_buf), Cache(GADc_buf),
 )
 
 M = copy(jac_buffer)  # units: 1/s
-show(M)
+display(M)
 
 @info "Saving Jacobian to $(matrices_dir)"
 flush(stdout)
@@ -443,14 +400,20 @@ plt = spy!(
 ylims!(ax, size(M, 2) + 0.5, 0.5)
 Colorbar(fig[1, 2], plt)
 save(joinpath(matrix_plots_dir, "M_spy.png"), fig)
-fig = nothing
-GC.gc()
+
 
 ################################################################################
 # Optional: age solve
 ################################################################################
 
 if ENABLE_AGE_SOLVE
+    # Display non-structurally symmetric part of M
+    i, j, v = findnz(M)
+    M1 = sparse(i, j, true)
+    display(M1 - M1' .> 0)
+    # Check if the matrix is structurally symmetric
+    ISSTRUCTURALLYSYMMETRIC = Pardiso.isstructurallysymmetric(M)
+
     @info "LUMP and SPRAY matrices"
     flush(stdout)
 
@@ -470,49 +433,56 @@ if ENABLE_AGE_SOLVE
     v1D = interior(compute_volume(grid))[idx]
 
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-    show(LUMP)
-    show(SPRAY)
+    display(LUMP)
+    display(SPRAY)
 
     @info "Coarsened Jacobian"
     flush(stdout)
     Mc = LUMP * M * SPRAY
-    show(Mc)
+    display(Mc)
 
     jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
     jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
     jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
 
-    @info "Setting up Pardiso solver"
-    flush(stdout)
-    matrix_type = Pardiso.REAL_SYM
-    @show solver = MKLPardisoIterate(; nprocs, matrix_type)
 
-    @info "Setting up preconditioner"
-    flush(stdout)
-    struct MyPreconditioner
-        prob
-    end
-    Qc = stop_time * Mc
-    Plprob = LinearProblem(Qc, ones(size(Qc, 1)))
-    Plprob = init(Plprob, solver, rtol = 1.0e-12)
-    Pl = MyPreconditioner(Plprob)
-    Base.eltype(::MyPreconditioner) = Float64
-    function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
-        Pl.prob.b = LUMP * x
-        solve!(Pl.prob)
-        x .= SPRAY * Pl.prob.u .- x
-        return x
-    end
-    function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
-        Pl.prob.b = LUMP * x
-        solve!(Pl.prob)
-        y .= SPRAY * Pl.prob.u .- x
-        return y
-    end
-    Pr = I
-    precs = Returns((Pl, Pr))
+    # TODO: Keep preconditioner code below for later when doing iterative solves.
+    # @info "Setting up preconditioner"
+    # stop_time = 12 * month  # reference time for preconditioner scaling
+    # flush(stdout)
+    # struct MyPreconditioner
+    #     prob
+    # end
+    # Qc = stop_time * Mc
+    # Plprob = LinearProblem(Qc, ones(size(Qc, 1)))
+    # Plprob = init(Plprob, solver, rtol = 1.0e-12)
+    # Pl = MyPreconditioner(Plprob)
+    # Base.eltype(::MyPreconditioner) = Float64
+    # function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
+    #     Pl.prob.b = LUMP * x
+    #     solve!(Pl.prob)
+    #     x .= SPRAY * Pl.prob.u .- x
+    #     return x
+    # end
+    # function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
+    #     Pl.prob.b = LUMP * x
+    #     solve!(Pl.prob)
+    #     y .= SPRAY * Pl.prob.u .- x
+    #     return y
+    # end
+    # Pr = I
+    # precs = Returns((Pl, Pr))
 
-    stop_time = 12 * month  # reference time for preconditioner scaling
+    if ISSTRUCTURALLYSYMMETRIC
+        @info "Setting up Pardiso solver"
+        flush(stdout)
+        matrix_type = Pardiso.REAL_SYM
+        @show solver = MKLPardisoIterate(; nprocs, matrix_type)
+    else
+        @info "Matrix is not structurally symmetric; using UMFPACKFactorization()"
+        flush(stdout)
+        @show solver = UMFPACKFactorization()
+    end
 
     # ── Coarsened linear solve ──
     @info "Solving coarsened linear system (Mc \\ -1)"
@@ -525,13 +495,11 @@ if ENABLE_AGE_SOLVE
     age_coarse_3D[idx] .= age_coarse_vec
 
     vol_mean_coarse = sum(age_coarse_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean coarsened steady age: $(vol_mean_coarse / year) years"
+    @info "Volume-weighted mean coarsened steady age: $(vol_mean_coarse) years"
     @show vol_mean_coarse
 
-    fig_h, ax_h, plt_h = hist(age_coarse_vec)
-    save(joinpath(matrix_plots_dir, "steady_age_coarsened_histogram.png"), fig_h)
-    fig_h = nothing
-    GC.gc()
+    fig, ax, plt = hist(age_coarse_vec)
+    save(joinpath(matrix_plots_dir, "steady_age_coarsened_histogram.png"), fig)
 
     jldsave(joinpath(matrices_dir, "steady_age_coarsened.jld2"); age = age_coarse_3D, wet3D, idx)
     @info "saved coarsened steady age to $(joinpath(matrices_dir, "steady_age_coarsened.jld2"))"
@@ -547,13 +515,11 @@ if ENABLE_AGE_SOLVE
     age_full_3D[idx] .= age_full_vec
 
     vol_mean_full = sum(age_full_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean full steady age: $(vol_mean_full / year) years"
+    @info "Volume-weighted mean full steady age: $(vol_mean_full) years"
     @show vol_mean_full
 
-    fig_h, ax_h, plt_h = hist(age_full_vec)
-    save(joinpath(matrix_plots_dir, "steady_age_full_histogram.png"), fig_h)
-    fig_h = nothing
-    GC.gc()
+    fig, ax, plt = hist(age_full_vec)
+    save(joinpath(matrix_plots_dir, "steady_age_full_histogram.png"), fig)
 
     jldsave(joinpath(matrices_dir, "steady_age_full.jld2"); age = age_full_3D, wet3D, idx)
     @info "saved full steady age to $(joinpath(matrices_dir, "steady_age_full.jld2"))"
