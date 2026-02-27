@@ -50,6 +50,9 @@ ACCESS-OM2_x_Oceananigans/
 └── AGENTS.md
 ```
 
+## Julia depot
+Julia packages are installed in `JULIA_DEPOT_PATH=/g/data/y99/bp3051/.julia/`.
+
 ## NetCDF inspection before coding
 Use this quick check before changing data-loading, grid, or velocity scripts.
 
