@@ -660,7 +660,7 @@ function plot_age_diagnostics(
         if colorrange !== nothing
             cf_kwargs = (; cf_kwargs..., colorrange)
         end
-        cf = contourf!(ax, lat_repr, depth_vals, za'; cf_kwargs...)
+        cf = contourf!(ax, lat_repr, depth_vals, za; cf_kwargs...)
         translate!(cf, 0, 0, -100)
         ylims!(ax, maximum(depth_vals), 0)
         Colorbar(fig[1, 2], cf; label = "Age (years)")

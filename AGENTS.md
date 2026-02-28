@@ -151,7 +151,11 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 
 ## Periodic solver
 
-The intent of this package is to solve for the equilibrium periodic state of a tracer embedded in a yearly periodic circulation. The circulation is prescribed from monthly climatologies from outputs of the ACCESS-OM2 model. The goal is to find this periodic state for ventilation tracers like the water age. The key is that instead of time-stepping the tracer for thousands of years, we only time-step one year at a time and wrap this one year simulation into a nonlinear solver that accelerates the convergence of our state towards the equilibrium. That is, if ϕ is the mapping that advances tracer x by Δt = 1 year
+The intent of this projetc is to solve for the equilibrium state of a tracer embedded in a yearly periodic circulation. The circulation is prescribed from monthly climatologies of velocities and other tracers and grid coordinates and metrics from archived outputs of the ACCESS-OM2 model. The goal is to find this equilibrium state for ventilation tracers like the water age. The key is that instead of time-stepping the tracer for ~3000 years, we only time-step one year at a time and wrap this one year simulation into a more efficient solver that accelerates the convergence of our state towards the equilibrium. Hopefully this should only take ~40 to ~400 simulation years.
+
+## The maths
+
+That is, if ϕ is the mapping that advances tracer x by Δt = 1 year
 
 ϕ(x(t)) = x(t + Δt)
 
@@ -167,4 +171,8 @@ for which nonlinear solvers can be used, such as Newton's method.
 
 This code base explores different algorithms to solve this problem.
 
-The core idea is that we can run the 1-year simulations with Oceananigans on GPUs for
+The main problem is that the 1-year simulations take time. But the core idea of this project to solve this problem is that we can run the 1-year simulations "offline" with Oceananigans on GPUs, which should be very fast.
+
+## References
+
+For technical references, see REFERENCES.md
