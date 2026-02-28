@@ -52,8 +52,9 @@ end
 
 VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
 W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
+ADVECTION_SCHEME = get(ENV, "ADVECTION_SCHEME", "centered2")
 run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
-run_suffix = run_mode_tag
+run_suffix = "$(run_mode_tag)_$(ADVECTION_SCHEME)"
 arch_str = "CPU"
 
 # Determine JLD2 output filepath
@@ -61,7 +62,7 @@ if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
     age_output_dir = joinpath(outputdir, "age", run_mode_tag)
-    output_filepath = joinpath(age_output_dir, "offline_age_$(parentmodel)_$(arch_str)_$(run_suffix).jld2")
+    output_filepath = joinpath(age_output_dir, "age_1year_$(ADVECTION_SCHEME).jld2")
 end
 
 @info "Plotting outputs from: $output_filepath"

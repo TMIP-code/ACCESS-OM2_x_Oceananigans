@@ -21,6 +21,9 @@ Environment variables (in addition to setup_model.jl):
   ACCELERATION_METHOD – speedmapping | anderson  (default: speedmapping)
                         speedmapping: Alternating Cyclic Extrapolation (SpeedMapping.jl)
                         anderson:     Anderson acceleration (NLsolve.jl)
+  AA_M               – Anderson history size (default: 10; literature recommends 5–10)
+  AA_BETA            – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
+  WARM_START_FILE    – JLD2 file with an "age" field to use as initial guess (default: empty = zeros)
 """
 
 include("setup_model.jl")
@@ -31,6 +34,14 @@ using NLsolve       # required for NonlinearSolve's NLsolveJL() extension
 using LinearAlgebra
 using Oceananigans.Simulations: reset!
 
+# Verify package extensions loaded (Julia extension trigger can fail on HPC)
+if !isdefined(NonlinearSolve, :SpeedMappingJL)
+    error("SpeedMapping.jl extension not loaded by NonlinearSolve. Try: using Pkg; Pkg.precompile() and restart Julia.")
+end
+if !isdefined(NonlinearSolve, :NLsolveJL)
+    error("NLsolve.jl extension not loaded by NonlinearSolve. Try: using Pkg; Pkg.precompile() and restart Julia.")
+end
+
 ################################################################################
 # Configuration
 ################################################################################
@@ -38,8 +49,13 @@ using Oceananigans.Simulations: reset!
 ACCELERATION_METHOD = get(ENV, "ACCELERATION_METHOD", "speedmapping")
 (ACCELERATION_METHOD ∈ ("speedmapping", "anderson")) || error("ACCELERATION_METHOD must be one of: speedmapping, anderson (got: $ACCELERATION_METHOD)")
 
+AA_M = parse(Int, get(ENV, "AA_M", "10"))
+AA_BETA = parse(Float64, get(ENV, "AA_BETA", "1.0"))
+
 @info "Fixed-point periodic solver configuration"
 @info "- ACCELERATION_METHOD = $ACCELERATION_METHOD"
+@info "- AA_M = $AA_M (Anderson history size)"
+@info "- AA_BETA = $AA_BETA (Anderson damping)"
 flush(stdout)
 
 ################################################################################
@@ -68,6 +84,30 @@ Nx′, Ny′, Nz′ = size(wet3D)
 flush(stdout)
 
 ################################################################################
+# Warm-start from previous solution (optional)
+################################################################################
+
+age_init_vec = zeros(Nidx)
+
+WARM_START_FILE = get(ENV, "WARM_START_FILE", "")
+if !isempty(WARM_START_FILE)
+    if isfile(WARM_START_FILE)
+        @info "Loading warm-start initial guess from $WARM_START_FILE"
+        flush(stdout)
+        warm_data = jldopen(WARM_START_FILE)
+        age_warm = warm_data["age"]
+        close(warm_data)
+        age_init_vec .= view(age_warm, idx)
+        @info "Warm-start loaded" norm = norm(age_init_vec) max = maximum(abs, age_init_vec)
+    else
+        @warn "WARM_START_FILE not found: $WARM_START_FILE — starting from zeros"
+    end
+else
+    @info "Starting from zero initial guess (set WARM_START_FILE to warm-start)"
+end
+flush(stdout)
+
+################################################################################
 # Preallocate buffers for G!
 ################################################################################
 
@@ -84,7 +124,7 @@ function G!(dage, age, p)
     g_call_count[] += 1
     call_num = g_call_count[]
     t_start = time()
-    @info "G! call #$call_num starting" norm_age = norm(age) max_age = maximum(abs, age)
+    @info "G! call #$call_num starting" norm_age = norm(age) max_age = maximum(abs, age) / year
     flush(stdout)
 
     # Reset simulation for a fresh 1-year run
@@ -105,7 +145,7 @@ function G!(dage, age, p)
     dage .= view(age3D_cpu, idx) .- age
 
     elapsed = time() - t_start
-    @info "G! call #$call_num done ($(round(elapsed; digits = 1))s)" norm_drift = norm(dage) max_drift = maximum(abs, dage)
+    @info "G! call #$call_num done ($(round(elapsed; digits = 1))s)" norm_drift = norm(dage) max_drift = maximum(abs, dage) / year mean_drift = mean(abs, dage) / year
     flush(stdout)
     return dage
 end
@@ -115,10 +155,9 @@ end
 ################################################################################
 
 @info "Solving nonlinear problem with fixed-point acceleration ($ACCELERATION_METHOD)"
-@info "- abstol = $(0.001 * stop_time)"
+@info "- abstol = $(0.001 * stop_time) seconds ($(0.001 * stop_time / day) days)"
 flush(stdout)
 
-age_init_vec = zeros(Nidx)
 f! = NonlinearFunction(G!)
 nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 
@@ -127,9 +166,9 @@ if ACCELERATION_METHOD == "speedmapping"
     flush(stdout)
     solver = SpeedMappingJL()
 elseif ACCELERATION_METHOD == "anderson"
-    @info "Using NLsolveJL with Anderson acceleration"
+    @info "Using NLsolveJL with Anderson acceleration (m=$AA_M, beta=$AA_BETA)"
     flush(stdout)
-    solver = NLsolveJL(; method = :anderson, m = 40)
+    solver = NLsolveJL(; method = :anderson, m = AA_M, beta = AA_BETA)
 end
 
 @time sol = solve(
@@ -157,7 +196,7 @@ age_steady_3D[idx] .= sol.u
 
 steady_dir = joinpath(outputdir, "age", run_mode_tag)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "steady_age_$(ACCELERATION_METHOD).jld2")
+steady_file = joinpath(steady_dir, "age_$(ACCELERATION_METHOD)_$(ADVECTION_SCHEME).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

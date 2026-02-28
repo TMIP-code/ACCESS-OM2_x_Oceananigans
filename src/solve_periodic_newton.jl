@@ -313,7 +313,7 @@ vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
 
 steady_dir = joinpath(outputdir, "age", run_mode_tag)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "steady_age_newton.jld2")
+steady_file = joinpath(steady_dir, "age_newton_$(ADVECTION_SCHEME).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

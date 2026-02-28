@@ -19,13 +19,15 @@ set -euo pipefail
 PARENT_MODEL=ACCESS-OM2-1
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}
+ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
 SOLVE_METHOD=${SOLVE_METHOD:-1year}  # 1year | newton | anderson
-MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}"
-export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION
+MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}"
+export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME
 echo "environment variables set:"
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "VELOCITY_SOURCE=$VELOCITY_SOURCE"
 echo "W_FORMULATION=$W_FORMULATION"
+echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"
 echo "SOLVE_METHOD=$SOLVE_METHOD"
 
 # Select Julia script based on SOLVE_METHOD
@@ -69,3 +71,10 @@ job_id="${PBS_JOBID:-interactive}"
 echo "logging output in $run_log_dir"
 julia $JULIA_BOUNDS_FLAG --project "$repo_root/$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${SOLVE_METHOD}_${job_id}.log"
 echo "Done running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
+
+# Submit CPU plot job after 1-year simulation
+if [ "$SOLVE_METHOD" = "1year" ]; then
+    echo "Submitting plot_1year_age CPU job"
+    qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME" \
+        "$repo_root/scripts/ACCESS-OM2-1_plot_1year_age_job.sh"
+fi

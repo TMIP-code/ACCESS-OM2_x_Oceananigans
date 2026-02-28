@@ -11,9 +11,10 @@ It does NOT create a Simulation or set initial conditions — each downstream
 script does that according to its own needs.
 
 Environment variables:
-  PARENT_MODEL    – model resolution tag  (default: ACCESS-OM2-1)
-  VELOCITY_SOURCE – cgridtransports | bgridvelocities  (default: cgridtransports)
-  W_FORMULATION   – wdiagnosed | wprescribed  (default: wdiagnosed)
+  PARENT_MODEL     – model resolution tag  (default: ACCESS-OM2-1)
+  VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
+  W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
+  ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
 """
 
 @info "Loading packages and functions"
@@ -87,17 +88,20 @@ end
 
 VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
 W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
+ADVECTION_SCHEME = get(ENV, "ADVECTION_SCHEME", "centered2")
 (VELOCITY_SOURCE ∈ ("bgridvelocities", "cgridtransports")) || println("VELOCITY_SOURCE must be one of: bgridvelocities, cgridtransports")
 (W_FORMULATION ∈ ("wdiagnosed", "wprescribed")) || println("W_FORMULATION must be one of: wdiagnosed, wprescribed")
+(ADVECTION_SCHEME ∈ ("centered2", "weno3", "weno5")) || println("ADVECTION_SCHEME must be one of: centered2, weno3, weno5")
 
 run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
-run_suffix = run_mode_tag
+run_suffix = "$(run_mode_tag)_$(ADVECTION_SCHEME)"
 
 @info "Run configuration"
-@info "- PARENT_MODEL    = $parentmodel"
-@info "- VELOCITY_SOURCE = $VELOCITY_SOURCE"
-@info "- W_FORMULATION   = $W_FORMULATION"
-@info "- Architecture    = $arch_str"
+@info "- PARENT_MODEL      = $parentmodel"
+@info "- VELOCITY_SOURCE   = $VELOCITY_SOURCE"
+@info "- W_FORMULATION     = $W_FORMULATION"
+@info "- ADVECTION_SCHEME  = $ADVECTION_SCHEME"
+@info "- Architecture      = $arch_str"
 
 @show outputdir
 mkpath(outputdir)
@@ -246,9 +250,18 @@ forcing = (
     age = age_dynamics,
 )
 
+tracer_advection = if ADVECTION_SCHEME == "centered2"
+    Centered(order = 2)
+elseif ADVECTION_SCHEME == "weno3"
+    WENO(order = 3)
+elseif ADVECTION_SCHEME == "weno5"
+    WENO(order = 5)
+end
+@info "Tracer advection scheme: $tracer_advection"
+
 model = HydrostaticFreeSurfaceModel(
     grid;
-    tracer_advection = Centered(order = 2),
+    tracer_advection,
     velocities = velocities,
     free_surface = free_surface,
     tracers = (; age = CenterField(grid)),
