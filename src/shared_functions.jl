@@ -536,16 +536,17 @@ end
 ################################################################################
 
 """
-    compute_ocean_basin_masks(grid) -> (; ATL, PAC, IND)
+    compute_ocean_basin_masks(grid, wet3D) -> (; ATL, PAC, IND)
 
 Compute Atlantic, Pacific, and Indian ocean basin masks using OceanBasins.jl.
-Returns a named tuple of 2D Bool arrays sized (Nx', Ny').
+Returns a named tuple of 2D Bool arrays sized (Nx', Ny') where (Nx', Ny')
+are the interior dimensions from `wet3D` (excludes tripolar fold point).
 
 Requires `OCEANS, isatlantic, ispacific, isindian` from OceanBasins in scope.
 """
-function compute_ocean_basin_masks(grid)
+function compute_ocean_basin_masks(grid, wet3D)
     ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
-    Nx′, Ny′ = size(ug)[1:2]
+    Nx′, Ny′ = size(wet3D)[1:2]
     lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
     lon = Array(ug.λᶜᶜᵃ[1:Nx′, 1:Ny′])
 
@@ -594,7 +595,7 @@ end
 
 """
     plot_age_diagnostics(age_3D, grid, wet3D, vol_3D, output_dir, label;
-                         colorrange=nothing, colormap=:viridis)
+                         colorrange=(0, 1500), levels=0:100:1500, colormap=:viridis)
 
 Generate 10 diagnostic figures and save as PNG:
   1-4: Zonal average (global, Atlantic, Pacific, Indian) — contourf (lat vs depth)
@@ -610,8 +611,9 @@ Arguments:
 """
 function plot_age_diagnostics(
         age_3D, grid, wet3D, vol_3D, output_dir, label;
-        colorrange = nothing,
-        colormap = :viridis,
+        colorrange = (0, 1500),
+        levels = 0:100:1500,
+        colormap = cgrad(:viridis, length(levels) - 1, categorical = true)
     )
     mkpath(output_dir)
 
@@ -630,7 +632,7 @@ function plot_age_diagnostics(
     lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
 
     # Compute basin masks
-    basins = compute_ocean_basin_masks(grid)
+    basins = compute_ocean_basin_masks(grid, wet3D)
     global_mask = trues(Nx′, Ny′)
 
     # ── Zonal averages (figures 1-4) ──────────────────────────────────────
@@ -656,11 +658,7 @@ function plot_age_diagnostics(
             ygridvisible = false,
         )
 
-        cf_kwargs = (; colormap, nan_color = :lightgray)
-        if colorrange !== nothing
-            cf_kwargs = (; cf_kwargs..., colorrange)
-        end
-        cf = contourf!(ax, lat_repr, depth_vals, za; cf_kwargs...)
+        cf = contourf!(ax, lat_repr, depth_vals, za; levels, colormap, nan_color = :lightgray, extendhigh = :auto, extendlow = :auto)
         translate!(cf, 0, 0, -100)
         ylims!(ax, maximum(depth_vals), 0)
         Colorbar(fig[1, 2], cf; label = "Age (years)")
@@ -685,11 +683,7 @@ function plot_age_diagnostics(
             title = "$label at $depth m (k=$k, z=$actual_depth m)",
         )
 
-        hm_kwargs = (; colormap, nan_color = :black)
-        if colorrange !== nothing
-            hm_kwargs = (; hm_kwargs..., colorrange)
-        end
-        hm = heatmap!(ax, slice; hm_kwargs...)
+        hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip = colormap[1], highclip = colormap[end])
         Colorbar(fig[1, 2], hm; label = "Age (years)")
 
         outputfile = joinpath(output_dir, "$(label)_slice_$(depth)m.png")
