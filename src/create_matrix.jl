@@ -532,7 +532,7 @@ if ENABLE_AGE_SOLVE
     # ── Age diagnostic plots (zonal averages + horizontal slices) ──
     @info "Plotting age diagnostic figures"
     flush(stdout)
-    vol_3D = zeros(Float64, Nx′, Ny′, Nz′)
+    vol_3D = zeros(Float64, Nwet)
     vol_3D[idx] .= v1D
     const OCEANS = oceanpolygons()
     plot_age_diagnostics(age_coarse_3D, grid, wet3D, vol_3D, matrix_plots_dir, "steady_age_coarsened")
