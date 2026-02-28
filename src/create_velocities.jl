@@ -82,7 +82,7 @@ mkpath(w_mt_plot_dir)
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
-include("tripolargrid_reader.jl")
+include("shared_functions.jl")
 
 ################################################################################
 # Load grid from JLD2

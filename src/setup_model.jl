@@ -102,7 +102,7 @@ run_suffix = run_mode_tag
 @show outputdir
 mkpath(outputdir)
 
-include("tripolargrid_reader.jl")
+include("shared_functions.jl")
 
 ################################################################################
 # Load grid from JLD2

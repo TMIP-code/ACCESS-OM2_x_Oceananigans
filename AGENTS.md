@@ -14,7 +14,8 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── create_closures.jl        # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
 │   ├── plot_outputs.jl           # Plot u/v/w/η outputs from simulation (standalone, CPU-only)
-│   └── tripolargrid_reader.jl    # load_tripolar_grid(), make_plottable_array()
+│   ├── debug_jacobian_symmetry.jl # Debug script for Jacobian structural symmetry
+│   └── shared_functions.jl      # load_tripolar_grid(), compute_wet_mask(), plot_age_diagnostics(), etc.
 ├── scripts/
 │   ├── ACCESS-OM2-1_preprocess_job.sh   # PBS: grid + velocities (12 CPU, 47 GB, express)
 │   ├── ACCESS-OM2-1_CPU_job.sh          # PBS: offline simulation CPU (12 CPU, 47 GB, express)
@@ -147,3 +148,23 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 - Newton solver uses approximate JVP via `stop_time * M` (sparse matvec) or finite-diff via `AutoFiniteDiff()`
 - Anderson/SpeedMapping solver needs no matrix or preconditioner — pure fixed-point acceleration
 - GPU arrays preallocated once; `copyto!` used for CPU↔GPU transfer in G!
+
+## Periodic solver
+
+The intent of this package is to solve for the equilibrium periodic state of a tracer embedded in a yearly periodic circulation. The circulation is prescribed from monthly climatologies from outputs of the ACCESS-OM2 model. The goal is to find this periodic state for ventilation tracers like the water age. The key is that instead of time-stepping the tracer for thousands of years, we only time-step one year at a time and wrap this one year simulation into a nonlinear solver that accelerates the convergence of our state towards the equilibrium. That is, if ϕ is the mapping that advances tracer x by Δt = 1 year
+
+ϕ(x(t)) = x(t + Δt)
+
+then we want to find the solution to
+
+ϕ(x) = x
+
+This is a fixed-point iteration and can be solved, e.g., with Anderson Acceleration. It can also be recast as finding the zero of G where
+
+G(x) = ϕ(x) - x
+
+for which nonlinear solvers can be used, such as Newton's method.
+
+This code base explores different algorithms to solve this problem.
+
+The core idea is that we can run the 1-year simulations with Oceananigans on GPUs for

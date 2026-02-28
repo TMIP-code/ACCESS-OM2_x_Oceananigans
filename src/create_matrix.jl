@@ -73,6 +73,7 @@ using ADTypes: KnownJacobianSparsityDetector
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
 using OceanTransportMatrixBuilder
+using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 import Pardiso
 const nprocs = 48
 
@@ -125,7 +126,7 @@ mkpath(matrix_plots_dir)
 @show matrices_dir
 flush(stdout)
 
-include("tripolargrid_reader.jl")
+include("shared_functions.jl")
 
 ################################################################################
 # Load grid
@@ -283,18 +284,9 @@ autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivit
 @inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: autodifftypes} = a / b
 @inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: autodifftypes} = a / b
 
-@kernel function compute_hydrostatic_free_surface_GADc!(GADc, grid, args)
-    i, j, k = @index(Global, NTuple)
-    @inbounds GADc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
-end
-
 Nx′, Ny′, Nz′ = size(ADc0)
 N′ = Nx′ * Ny′ * Nz′
-fNaN = CenterField(grid)
-mask_immersed_field!(fNaN, NaN)
-wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
-idx = findall(wet3D)
-Nidx = length(idx)
+(; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: Nidx = $Nidx"
 flush(stdout)
 
@@ -441,19 +433,6 @@ if ENABLE_AGE_SOLVE
     @info "LUMP and SPRAY matrices"
     flush(stdout)
 
-    @kernel function compute_volume!(vol, grid)
-        i, j, k = @index(Global, NTuple)
-        @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
-    end
-
-    function compute_volume(grid)
-        vol = CenterField(grid)
-        (Nxv, Nyv, Nzv) = size(vol)
-        kp = KernelParameters(1:Nxv, 1:Nyv, 1:Nzv)
-        launch!(CPU(), grid, kp, compute_volume!, vol, grid)
-        return vol
-    end
-
     v1D = interior(compute_volume(grid))[idx]
 
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
@@ -548,6 +527,15 @@ if ENABLE_AGE_SOLVE
 
     jldsave(joinpath(matrices_dir, "steady_age_full.jld2"); age = age_full_3D, wet3D, idx)
     @info "saved full steady age to $(joinpath(matrices_dir, "steady_age_full.jld2"))"
+
+    # ── Age diagnostic plots (zonal averages + horizontal slices) ──
+    @info "Plotting age diagnostic figures"
+    flush(stdout)
+    vol_3D = zeros(Float64, Nx′, Ny′, Nz′)
+    vol_3D[idx] .= v1D
+    const OCEANS = oceanpolygons()
+    plot_age_diagnostics(age_coarse_3D, grid, wet3D, vol_3D, matrix_plots_dir, "steady_age_coarsened")
+    plot_age_diagnostics(age_full_3D, grid, wet3D, vol_3D, matrix_plots_dir, "steady_age_full")
 else
     @info "Skipping age solve (ENABLE_AGE_SOLVE = false)"
     flush(stdout)

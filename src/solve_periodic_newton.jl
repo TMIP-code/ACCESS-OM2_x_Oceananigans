@@ -71,18 +71,6 @@ set!(model, age = Returns(0.0))
 
 simulation = Simulation(model; Δt, stop_time)
 
-function progress_message(sim)
-    max_age, idx_max = findmax(adapt(Array, sim.model.tracers.age) / year)
-    mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
-    walltime = prettytime(sim.run_wall_time)
-
-    flush(stdout)
-    return @info @sprintf(
-        "  sim iter: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d), mean(age) = %.1e, wall: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_age, idx_max.I..., mean_age, walltime
-    )
-end
-
 add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 
 ################################################################################
@@ -103,11 +91,7 @@ flush(stdout)
 @info "Computing wet cell mask"
 flush(stdout)
 
-fNaN = CenterField(grid)
-mask_immersed_field!(fNaN, NaN)
-wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
-idx = findall(wet3D)
-Nidx = length(idx)
+(; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: $Nidx (matrix size: $(size(M, 1)))"
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
 Nx′, Ny′, Nz′ = size(wet3D)
@@ -119,19 +103,6 @@ flush(stdout)
 
 @info "Computing cell volumes"
 flush(stdout)
-
-@kernel function compute_volume!(vol, grid)
-    i, j, k = @index(Global, NTuple)
-    @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
-end
-
-function compute_volume(grid)
-    vol = CenterField(grid)
-    (Nxv, Nyv, Nzv) = size(vol)
-    kp = KernelParameters(1:Nxv, 1:Nyv, 1:Nzv)
-    launch!(CPU(), grid, kp, compute_volume!, vol, grid)
-    return vol
-end
 
 grid_cpu = on_architecture(CPU(), grid)
 v1D = interior(compute_volume(grid_cpu))[idx]

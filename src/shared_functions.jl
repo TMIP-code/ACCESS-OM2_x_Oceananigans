@@ -1,12 +1,17 @@
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
 using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceFolded,
-    validate_dimension_specification, generate_coordinate, on_architecture
-using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
+    validate_dimension_specification, generate_coordinate, on_architecture, znodes
+using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Utils: KernelParameters, launch!
+using Oceananigans.AbstractOperations: volume
+using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency
 using KernelAbstractions: @kernel, @index
 using GPUArraysCore: @allowscalar
+using Adapt: adapt
+using Statistics: mean, median
+using Printf: @sprintf
 
 
 @kernel function compute_coordinates_and_metrics_from_supergrid!(
@@ -450,4 +455,249 @@ function make_plottable_array(f)
     mask_immersed_field!(f)
 
     return fi_cpu
+end
+
+
+################################################################################
+# Wet cell mask and indexing
+################################################################################
+
+"""
+    compute_wet_mask(grid) -> (; wet3D, idx, Nidx)
+
+Create the 3D wet cell boolean mask, linear index vector, and count.
+Returns interior-sized arrays (excludes fold point for tripolar grids).
+"""
+function compute_wet_mask(grid)
+    fNaN = CenterField(grid)
+    mask_immersed_field!(fNaN, NaN)
+    wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
+    idx = findall(wet3D)
+    Nidx = length(idx)
+    return (; wet3D, idx, Nidx)
+end
+
+
+################################################################################
+# Cell volume computation
+################################################################################
+
+@kernel function compute_volume!(vol, grid)
+    i, j, k = @index(Global, NTuple)
+    @inbounds vol[i, j, k] = volume(i, j, k, grid, Center(), Center(), Center())
+end
+
+"""
+    compute_volume(grid) -> CenterField
+
+Compute cell volumes as a CenterField on the same architecture as grid.
+"""
+function compute_volume(grid)
+    vol = CenterField(grid)
+    (Nxv, Nyv, Nzv) = size(vol)
+    kp = KernelParameters(1:Nxv, 1:Nyv, 1:Nzv)
+    launch!(CPU(), grid, kp, compute_volume!, vol, grid)
+    return vol
+end
+
+
+################################################################################
+# Hydrostatic free surface tendency kernel
+################################################################################
+
+@kernel function compute_hydrostatic_free_surface_GADc!(GADc, grid, args)
+    i, j, k = @index(Global, NTuple)
+    @inbounds GADc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
+end
+
+
+################################################################################
+# Progress message callback for simulations
+#
+# NOTE: run_1year.jl defines its own version with a different format string
+# (divides max_age by elapsed time). That version is NOT centralized here.
+################################################################################
+
+function progress_message(sim)
+    max_age, idx_max = findmax(adapt(Array, sim.model.tracers.age) / year)
+    mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
+    walltime = prettytime(sim.run_wall_time)
+
+    flush(stdout)
+    return @info @sprintf(
+        "  sim iter: %04d, time: %1.3f, Δt: %.2e, max(age) = %.1e at (%d, %d, %d), mean(age) = %.1e, wall: %s\n",
+        iteration(sim), time(sim), sim.Δt, max_age, idx_max.I..., mean_age, walltime
+    )
+end
+
+
+################################################################################
+# Analysis utilities: zonal averages and horizontal slices
+################################################################################
+
+"""
+    compute_ocean_basin_masks(grid) -> (; ATL, PAC, IND)
+
+Compute Atlantic, Pacific, and Indian ocean basin masks using OceanBasins.jl.
+Returns a named tuple of 2D Bool arrays sized (Nx', Ny').
+
+Requires `OCEANS, isatlantic, ispacific, isindian` from OceanBasins in scope.
+"""
+function compute_ocean_basin_masks(grid)
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′ = size(ug)[1:2]
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    lon = Array(ug.λᶜᶜᵃ[1:Nx′, 1:Ny′])
+
+    flat_lat = vec(lat)
+    flat_lon = vec(lon)
+    ATL = reshape(isatlantic(flat_lat, flat_lon, OCEANS), size(lat))
+    PAC = reshape(ispacific(flat_lat, flat_lon, OCEANS), size(lat))
+    IND = reshape(isindian(flat_lat, flat_lon, OCEANS), size(lat))
+
+    return (; ATL, PAC, IND)
+end
+
+"""
+    zonalaverage(x3D, v3D, mask)
+
+Volume-weighted zonal average (average along dimension 1).
+`mask` is a 2D or 3D boolean array; 2D masks broadcast over depth.
+NaN values in `x3D` are excluded. Returns a (Ny, Nz) matrix.
+"""
+function zonalaverage(x3D, v3D, mask)
+    m = ndims(mask) == 2 ? reshape(mask, size(mask, 1), size(mask, 2), 1) : mask
+    xw = @. ifelse(isnan(x3D) | !m, 0.0, x3D * v3D)
+    w = @. ifelse(isnan(x3D) | !m, 0.0, v3D)
+    num = dropdims(sum(xw; dims = 1); dims = 1)
+    den = dropdims(sum(w; dims = 1); dims = 1)
+    return @. ifelse(den > 0, num / den, NaN)
+end
+
+"""
+    find_nearest_depth_index(grid, target_depth)
+
+Return the k-index of the vertical level nearest to `target_depth` (m, positive downward).
+"""
+function find_nearest_depth_index(grid, target_depth)
+    z = znodes(grid, Center(), Center(), Center())
+    _, k = findmin(abs.(z .+ target_depth))
+    return k
+end
+
+
+################################################################################
+# Age diagnostic plots (10 figures)
+#
+# Requires CairoMakie and OceanBasins symbols in the calling script's scope.
+################################################################################
+
+"""
+    plot_age_diagnostics(age_3D, grid, wet3D, vol_3D, output_dir, label;
+                         colorrange=nothing, colormap=:viridis)
+
+Generate 10 diagnostic figures and save as PNG:
+  1-4: Zonal average (global, Atlantic, Pacific, Indian) — contourf (lat vs depth)
+  5-10: Horizontal slices at 100, 200, 500, 1000, 2000, 3000 m — heatmap
+
+Arguments:
+- `age_3D`:     (Nx', Ny', Nz') array (years) with 0 for dry cells
+- `grid`:       ImmersedBoundaryGrid (tripolar)
+- `wet3D`:      (Nx', Ny', Nz') Bool mask
+- `vol_3D`:     (Nx', Ny', Nz') volume array (m^3)
+- `output_dir`: directory for saving PNGs
+- `label`:      filename prefix (e.g. "steady_age_full")
+"""
+function plot_age_diagnostics(
+        age_3D, grid, wet3D, vol_3D, output_dir, label;
+        colorrange = nothing,
+        colormap = :viridis,
+    )
+    mkpath(output_dir)
+
+    # Replace dry cells with NaN for plotting
+    age_plot = copy(age_3D)
+    age_plot[.!wet3D] .= NaN
+
+    # Extract grid coordinates
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′, Nz′ = size(wet3D)
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z  # positive downward
+
+    # Representative latitude for y-axis of zonal plots (mean along i)
+    lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
+
+    # Compute basin masks
+    basins = compute_ocean_basin_masks(grid)
+    global_mask = trues(Nx′, Ny′)
+
+    # ── Zonal averages (figures 1-4) ──────────────────────────────────────
+
+    basin_configs = [
+        ("global", global_mask),
+        ("atlantic", basins.ATL),
+        ("pacific", basins.PAC),
+        ("indian", basins.IND),
+    ]
+
+    for (basin_name, basin_mask) in basin_configs
+        za = zonalaverage(age_plot, vol_3D, basin_mask)
+
+        fig = Figure(; size = (800, 500))
+        ax = Axis(
+            fig[1, 1];
+            title = "$label — $basin_name zonal average",
+            xlabel = "Latitude",
+            ylabel = "Depth (m)",
+            backgroundcolor = :lightgray,
+            xgridvisible = false,
+            ygridvisible = false,
+        )
+
+        cf_kwargs = (; colormap, nan_color = :lightgray)
+        if colorrange !== nothing
+            cf_kwargs = (; cf_kwargs..., colorrange)
+        end
+        cf = contourf!(ax, lat_repr, depth_vals, za'; cf_kwargs...)
+        translate!(cf, 0, 0, -100)
+        ylims!(ax, maximum(depth_vals), 0)
+        Colorbar(fig[1, 2], cf; label = "Age (years)")
+
+        outputfile = joinpath(output_dir, "$(label)_zonal_avg_$(basin_name).png")
+        @info "Saving $outputfile"
+        save(outputfile, fig)
+    end
+
+    # ── Horizontal slices (figures 5-10) ──────────────────────────────────
+
+    target_depths = [100, 200, 500, 1000, 2000, 3000]
+
+    for depth in target_depths
+        k = find_nearest_depth_index(grid, depth)
+        actual_depth = round(depth_vals[k]; digits = 1)
+        slice = age_plot[:, :, k]
+
+        fig = Figure(; size = (1000, 500))
+        ax = Axis(
+            fig[1, 1];
+            title = "$label at $depth m (k=$k, z=$actual_depth m)",
+        )
+
+        hm_kwargs = (; colormap, nan_color = :black)
+        if colorrange !== nothing
+            hm_kwargs = (; hm_kwargs..., colorrange)
+        end
+        hm = heatmap!(ax, slice; hm_kwargs...)
+        Colorbar(fig[1, 2], hm; label = "Age (years)")
+
+        outputfile = joinpath(output_dir, "$(label)_slice_$(depth)m.png")
+        @info "Saving $outputfile"
+        save(outputfile, fig)
+    end
+
+    @info "Age diagnostic plots saved to $output_dir"
+    flush(stdout)
+    return nothing
 end

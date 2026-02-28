@@ -29,7 +29,7 @@ parentmodel = "ACCESS-OM2-1"
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
 
-include("tripolargrid_reader.jl")
+include("shared_functions.jl")
 
 ################################################################################
 # Grid Creation
@@ -111,7 +111,7 @@ grid = ImmersedBoundaryGrid(
 # Save grid to JLD2
 ################################################################################
 
-# TODO turn this into a function and place it in tripolargrid_reader.jl,
+# TODO turn this into a function and place it in shared_functions.jl,
 # and then here just call that function to save the grid.
 # TODO: Maybe someone can write a NetCDF writer/reader for OrthogonalSphericalShellGrid
 

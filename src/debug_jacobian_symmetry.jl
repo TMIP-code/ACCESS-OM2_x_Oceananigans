@@ -39,6 +39,8 @@ using SparseConnectivityTracer
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
 
+include("shared_functions.jl")
+
 ################################################################################
 # Grid
 ################################################################################
@@ -189,18 +191,9 @@ autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivit
 @inline Oceananigans.Utils.newton_div(inv_FT, a, b::FT) where {FT <: autodifftypes} = a / b
 @inline Oceananigans.Utils.newton_div(inv_FT, a::FT, b) where {FT <: autodifftypes} = a / b
 
-@kernel function compute_hydrostatic_free_surface_GADc!(GADc, grid, args)
-    i, j, k = @index(Global, NTuple)
-    @inbounds GADc[i, j, k] = hydrostatic_free_surface_tracer_tendency(i, j, k, grid, args...)
-end
-
 Nx′, Ny′, Nz′ = size(ADc0)
 N′ = Nx′ * Ny′ * Nz′
-fNaN = CenterField(grid)
-mask_immersed_field!(fNaN, NaN)
-wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
-idx = findall(wet3D)
-Nidx = length(idx)
+(; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: Nidx = $Nidx"
 flush(stdout)
 

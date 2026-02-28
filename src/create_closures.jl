@@ -39,7 +39,7 @@ parentmodel = "ACCESS-OM2-1"
 outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 
-include("tripolargrid_reader.jl")
+include("shared_functions.jl")
 
 ################################################################################
 # Load grid from JLD2
