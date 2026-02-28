@@ -497,7 +497,8 @@ if ENABLE_AGE_SOLVE
     init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12)
     @time "solve coarsened age" age_coarse_vec = SPRAY * solve!(init_prob_coarsened).u / year
 
-    age_coarse_3D = zeros(Float64, Nx′, Ny′, Nz′)
+    Nwet = size(wet3D)
+    age_coarse_3D = zeros(Float64, Nwet)
     age_coarse_3D[idx] .= age_coarse_vec
 
     vol_mean_coarse = sum(age_coarse_vec .* v1D) / sum(v1D)
@@ -516,7 +517,7 @@ if ENABLE_AGE_SOLVE
     init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12)
     @time "solve full age" age_full_vec = solve!(init_prob_full).u / year
 
-    age_full_3D = zeros(Float64, Nx′, Ny′, Nz′)
+    age_full_3D = zeros(Float64, Nwet)
     age_full_3D[idx] .= age_full_vec
 
     vol_mean_full = sum(age_full_vec .* v1D) / sum(v1D)
