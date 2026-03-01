@@ -1930,7 +1930,7 @@ version = "0.8.3"
 
 [[deps.Oceananigans]]
 deps = ["Adapt", "Crayons", "CubedSphere", "Dates", "Distances", "DocStringExtensions", "FFTW", "GPUArraysCore", "Glob", "InteractiveUtils", "JLD2", "KernelAbstractions", "Krylov", "LinearAlgebra", "Logging", "MPI", "MuladdMacro", "OffsetArrays", "OrderedCollections", "Pkg", "Printf", "ReactantCore", "Rotations", "SeawaterPolynomials", "SparseArrays", "StaticArrays", "Statistics", "StructArrays"]
-git-tree-sha1 = "74a395a30dbcb76bccf066841916a22ee4f51c78"
+git-tree-sha1 = "f1c9f6211a62c11cca6da7ecbf54c55126284334"
 repo-rev = "bp/offline-ACCESS-OM2"
 repo-url = "https://github.com/briochemc/Oceananigans.jl.git"
 uuid = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
