@@ -158,11 +158,14 @@ backend = InMemory(N_in_mem)
 time_indexing = Cyclical(1year)
 
 u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_indexing)
+@show u_ts
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
+@show v_ts
 @info "Loading sea surface height from MOM output"
 flush(stdout)
 η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
-η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
+η_ts = FieldTimeSeries(η_file, "eta"; architecture = arch, grid, backend, time_indexing)
+@show η_ts
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
@@ -174,6 +177,7 @@ if W_FORMULATION == "wprescribed"
     @info "Using prescribed w field from: $(w_file)"
     isfile(w_file) || println("W_FORMULATION=wprescribed requires file: $(w_file)")
     w_ts = FieldTimeSeries(w_file, "w"; architecture = arch, grid, backend, time_indexing)
+    @show w_ts
 
     @info "Prescribing u, v, and w"
     flush(stdout)
