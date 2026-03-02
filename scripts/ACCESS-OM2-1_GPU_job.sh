@@ -48,9 +48,7 @@ echo "SCRIPT=$SCRIPT"
 CHECK_BOUNDS=${CHECK_BOUNDS:-no}
 JULIA_BOUNDS_FLAG=""
 if [ "$CHECK_BOUNDS" = "yes" ]; then
-    JULIA_BOUNDS_FLAG="--check-bounds=yes -g2"
-    # https://discourse.julialang.org/t/out-of-bounds-error-when-calling-map/69053/6
-    export JULIA_CUDA_DEBUG_INFO=false
+    JULIA_BOUNDS_FLAG="--check-bounds=yes"
     echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
 fi
 

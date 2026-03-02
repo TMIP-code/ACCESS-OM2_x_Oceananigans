@@ -376,7 +376,7 @@ for month in 1:12
 
     # ── η (set first so _update_zstar_scaling! runs before the dht check) ────
     println("- η")
-    η_data = replace(readcubedata(η_ds.η_t[month = At(month)]).data, NaN => 0.0)
+    η_data = replace(readcubedata(η_ds.eta_t[month = At(month)]).data, NaN => 0.0)
     set!(η, η_data)
     mask_immersed_field!(η, 0.0)
     fill_halo_regions!(η)

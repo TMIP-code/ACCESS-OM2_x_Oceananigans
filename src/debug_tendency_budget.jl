@@ -41,15 +41,15 @@ output_file = joinpath(age_output_dir, "age_1year_$(ADVECTION_SCHEME).jld2")
 isfile(output_file) || error("Output file not found: $output_file")
 
 # Read the last timestep
-local age_data, final_time
-jldopen(output_file) do f
-    # Find the last iteration
-    t_keys = sort(parse.(Int, filter(k -> all(isdigit, k), collect(keys(f["timeseries/t"])))))
-    last_iter = t_keys[end]
-    final_time = f["timeseries/t/$last_iter"]
-    age_data = f["timeseries/age/$last_iter"]
-    @info "Loaded age at iteration $last_iter, t = $(final_time / year) years"
-end
+age_lazy = FieldTimeSeries(output_file, "age")
+age_times = age_lazy.times
+final_time_index = length(age_times)
+@info "Final time index in JLD2 output: $final_time_index"
+final_time = age_times[final_time_index]
+@info "Final time in JLD2 output: $(final_time / year) years"
+age_final = age_lazy[final_time_index]
+show(age_final)  # load data into memory
+
 flush(stdout)
 
 # ── Step 4: Set model state to match end of simulation ───────────────────
@@ -61,7 +61,7 @@ flush(stdout)
 model.clock.time = final_time
 
 # Set the age tracer
-set!(model, age = age_data)
+set!(model, age = age_final)
 
 # Initialize z-star scaling from η at the current clock time
 initialize_vertical_coordinate!(model.vertical_coordinate, model, model.grid)
