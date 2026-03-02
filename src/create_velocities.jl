@@ -66,7 +66,7 @@ bgrid_v_plot_dir = joinpath(plots_dir, "v")
 u_interpolated_plot_dir = joinpath(plots_dir, "u_interpolated")
 v_interpolated_plot_dir = joinpath(plots_dir, "v_interpolated")
 w_plot_dir = joinpath(plots_dir, "w")
-eta_plot_dir = joinpath(plots_dir, "eta")
+η_plot_dir = joinpath(plots_dir, "eta")
 u_mt_plot_dir = joinpath(plots_dir, "u_from_mass_transport")
 v_mt_plot_dir = joinpath(plots_dir, "v_from_mass_transport")
 w_mt_plot_dir = joinpath(plots_dir, "w_from_mass_transport")
@@ -75,7 +75,7 @@ mkpath(bgrid_v_plot_dir)
 mkpath(u_interpolated_plot_dir)
 mkpath(v_interpolated_plot_dir)
 mkpath(w_plot_dir)
-mkpath(eta_plot_dir)
+mkpath(η_plot_dir)
 mkpath(u_mt_plot_dir)
 mkpath(v_mt_plot_dir)
 mkpath(w_mt_plot_dir)
@@ -267,7 +267,7 @@ time_window = "Jan1960-Dec1979"
 u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
 v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
 wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
-eta_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
+η_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
 dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
 tx_ds = open_dataset(joinpath(inputdir, "tx_trans_periodic.nc"))
 ty_ds = open_dataset(joinpath(inputdir, "ty_trans_periodic.nc"))
@@ -318,7 +318,7 @@ w_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend =
 u_mt_periodic_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_periodic_file, name = "u", time_indexing = Cyclical(stop_time))
 v_mt_periodic_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_periodic_file, name = "v", time_indexing = Cyclical(stop_time))
 w_mt_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_periodic_file, name = "w", time_indexing = Cyclical(stop_time))
-η_periodic_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_periodic_file, name = "η", time_indexing = Cyclical(stop_time), indices = (:, :, Nz:Nz))
+η_periodic_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_periodic_file, name = "η", time_indexing = Cyclical(stop_time))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
@@ -329,7 +329,7 @@ fill_halo_regions!(Δxᶠᶠᶜ)
 fill_halo_regions!(Δyᶠᶠᶜ)
 
 # Pre-allocate fields reused every month to avoid per-month allocations
-η = Field{Center, Center, Nothing}(grid, indices = (:, :, 1))
+η = Field{Center, Center, Nothing}(grid)
 dht_diag = Field{Center, Center, Center}(grid)
 Δzstar = Field(zspacings(grid, Center(), Center(), Center()))
 
@@ -369,14 +369,14 @@ w_acc = ZFaceField(grid; boundary_conditions = wbcs)
 u_mt_acc = XFaceField(grid; boundary_conditions = ubcs)
 v_mt_acc = YFaceField(grid; boundary_conditions = vbcs)
 w_mt_acc = ZFaceField(grid; boundary_conditions = wbcs)
-η_acc = Field{Center, Center, Nothing}(grid; indices = (:, :, 1))
+η_acc = Field{Center, Center, Nothing}(grid)
 
 for month in 1:12
     println("month $month")
 
     # ── η (set first so _update_zstar_scaling! runs before the dht check) ────
     println("- η")
-    η_data = replace(readcubedata(eta_ds.eta_t[month = At(month)]).data, NaN => 0.0)
+    η_data = replace(readcubedata(η_ds.η_t[month = At(month)]).data, NaN => 0.0)
     set!(η, η_data)
     mask_immersed_field!(η, 0.0)
     fill_halo_regions!(η)
@@ -502,7 +502,7 @@ for month in 1:12
 
     println("- Plot η")
     plottable_η = view(make_plottable_array(η), :, :, 1)
-    save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(eta_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
+    save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(η_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
 
     println("- Accumulate into time-average")
     u_acc .+= u / 12

@@ -164,7 +164,7 @@ v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_ind
 @info "Loading sea surface height from MOM output"
 flush(stdout)
 η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
-η_ts = FieldTimeSeries(η_file, "eta"; architecture = arch, grid, backend, time_indexing)
+η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 @show η_ts
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing

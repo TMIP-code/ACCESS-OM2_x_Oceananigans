@@ -2,7 +2,7 @@
 Run a standalone 1-year offline age simulation.
 
 This is a lightweight test/debug script that runs the model for one year
-and saves full output (age, u, v, w, eta).
+and saves full output (age, u, v, w, η).
 
 Usage — interactive:
 ```
@@ -65,7 +65,7 @@ output_fields = Dict(
     "u" => model.velocities.u,
     "v" => model.velocities.v,
     "w" => model.velocities.w,
-    "eta" => model.free_surface.displacement,
+    "η" => model.free_surface.displacement,
 )
 
 age_output_dir = joinpath(outputdir, "age", run_mode_tag)

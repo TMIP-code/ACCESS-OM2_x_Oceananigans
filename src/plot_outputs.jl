@@ -77,7 +77,7 @@ flush(stdout)
 u_lazy = FieldTimeSeries(output_filepath, "u")
 v_lazy = FieldTimeSeries(output_filepath, "v")
 w_lazy = FieldTimeSeries(output_filepath, "w")
-η_lazy = FieldTimeSeries(output_filepath, "eta")
+η_lazy = FieldTimeSeries(output_filepath, "η")
 
 ################################################################################
 # Plot u, v, w, η for each output time
