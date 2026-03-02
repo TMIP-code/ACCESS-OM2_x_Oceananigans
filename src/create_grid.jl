@@ -68,7 +68,7 @@ println("Building Horizontal grid...")
 underlying_grid = tripolargrid_from_supergrid(
     arch;
     MOMsupergrid...,
-    halosize = (4, 4, 4),
+    halosize = (7, 7, 7),
     radius = Oceananigans.defaults.planet_radius,
     z,
     Nz,
