@@ -95,7 +95,7 @@ flush(stdout)
 u_const = XFaceField(grid)
 v_const = YFaceField(grid)
 w_const = ZFaceField(grid)
-η_const = Field{Center, Center, Nothing}(grid; indices = (:, :, 1))
+η_const = Field{Center, Center, Nothing}(grid)
 
 # set!(u_const, 1.0)
 set!(u_const, 0.0)
@@ -107,6 +107,10 @@ fill_halo_regions!(w_const)
 # set!(η_const, 1.0)  # 1 m free-surface displacement → non-trivial σ scaling
 set!(η_const, 0.0)  # 1 m free-surface displacement → non-trivial σ scaling
 fill_halo_regions!(η_const)
+@show u_const
+@show v_const
+@show w_const
+@show η_const
 
 # w is diagnosed from u and v via the continuity equation
 # velocities = PrescribedVelocityFields(u = u_const, v = v_const, formulation = DiagnosticVerticalVelocity())

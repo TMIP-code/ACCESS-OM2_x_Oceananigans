@@ -171,15 +171,19 @@ ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = FPivo
 vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = FPivotZipperBoundaryCondition(-1))
 
 u_constant = XFaceField(grid; boundary_conditions = ubcs)
-v_constant = YFaceField(grid; boundary_conditions = vbcs)
 set!(u_constant, load(u_constant_file, "u"))
 fill_halo_regions!(u_constant)
+@show u_constant
+
+v_constant = YFaceField(grid; boundary_conditions = vbcs)
 set!(v_constant, load(v_constant_file, "v"))
 fill_halo_regions!(v_constant)
+@show v_constant
 
-η_constant = Field{Center, Center, Nothing}(grid; indices = (:, :, 1))
+η_constant = Field{Center, Center, Nothing}(grid)
 set!(η_constant, load(η_constant_file, "η"))
 fill_halo_regions!(η_constant)
+@show η_constant
 
 @info "Constant velocities and η loaded"
 flush(stdout)
