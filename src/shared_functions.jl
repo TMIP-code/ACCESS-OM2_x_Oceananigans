@@ -216,7 +216,7 @@ function tripolargrid_from_supergrid(
         arch = CPU(), FT::DataType = Float64;
         x, y, dx, dy, area,
         nx, nxp, ny, nyp,
-        halosize = (4, 4, 4),
+        halosize = (7, 7, 7),
         radius = Oceananigans.defaults.planet_radius,
         z = (0, 1), # Maybe z can be 3D array here?
         Nz = 1,
