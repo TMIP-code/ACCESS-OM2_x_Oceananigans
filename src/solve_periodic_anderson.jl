@@ -32,7 +32,6 @@ using NonlinearSolve
 using SpeedMapping  # required for NonlinearSolve's SpeedMappingJL() extension
 using NLsolve       # required for NonlinearSolve's NLsolveJL() extension
 using LinearAlgebra
-using Oceananigans.Simulations: reset!
 
 # Verify package extensions loaded (Julia extension trigger can fail on HPC)
 if !isdefined(NonlinearSolve, :SpeedMappingJL)
@@ -59,29 +58,10 @@ AA_BETA = parse(Float64, get(ENV, "AA_BETA", "1.0"))
 flush(stdout)
 
 ################################################################################
-# Simulation (minimal output — no field writers during periodic solve)
+# Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
 ################################################################################
 
-@info "Creating simulation (no output writers)"
-flush(stdout)
-
-set!(model, age = Returns(0.0))
-
-simulation = Simulation(model; Δt, stop_time)
-
-add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
-
-################################################################################
-# Compute wet cell indexing
-################################################################################
-
-@info "Computing wet cell mask"
-flush(stdout)
-
-(; wet3D, idx, Nidx) = compute_wet_mask(grid)
-@info "Number of wet cells: $Nidx"
-Nx′, Ny′, Nz′ = size(wet3D)
-flush(stdout)
+include("periodic_solver_common.jl")
 
 ################################################################################
 # Warm-start from previous solution (optional)
@@ -106,49 +86,6 @@ else
     @info "Starting from zero initial guess (set WARM_START_FILE to warm-start)"
 end
 flush(stdout)
-
-################################################################################
-# Preallocate buffers for G!
-################################################################################
-
-age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
-age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
-
-################################################################################
-# G! function: 1-year drift (runs simulation on GPU, solver on CPU)
-################################################################################
-
-g_call_count = Ref(0)
-
-function G!(dage, age, p)
-    g_call_count[] += 1
-    call_num = g_call_count[]
-    t_start = time()
-    @info "G! call #$call_num starting" norm_age = norm(age) max_age = maximum(abs, age) / year
-    flush(stdout)
-
-    # Reset simulation for a fresh 1-year run
-    reset!(simulation)
-    simulation.stop_time = stop_time
-
-    # CPU vec -> CPU 3D -> preallocated GPU 3D (no new GPU allocation)
-    fill!(age3D_cpu, 0)
-    age3D_cpu[idx] .= age
-    copyto!(age3D_gpu, age3D_cpu)
-
-    # Set model field and run 1-year simulation
-    set!(model, age = age3D_gpu)
-    run!(simulation)
-
-    # GPU field -> CPU 3D -> CPU vec (drift = final - initial)
-    age3D_cpu .= Array(interior(model.tracers.age))
-    dage .= view(age3D_cpu, idx) .- age
-
-    elapsed = time() - t_start
-    @info "G! call #$call_num done ($(round(elapsed; digits = 1))s)" norm_drift = norm(dage) max_drift = maximum(abs, dage) / year mean_drift = mean(abs, dage) / year
-    flush(stdout)
-    return dage
-end
 
 ################################################################################
 # Nonlinear solve: fixed-point acceleration
@@ -194,9 +131,9 @@ flush(stdout)
 age_steady_3D = zeros(Float64, Nx′, Ny′, Nz′)
 age_steady_3D[idx] .= sol.u
 
-steady_dir = joinpath(outputdir, "age", run_mode_tag)
+steady_dir = joinpath(outputdir, "age", model_config)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "age_$(ACCELERATION_METHOD)_$(ADVECTION_SCHEME).jld2")
+steady_file = joinpath(steady_dir, "age_$(ACCELERATION_METHOD).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

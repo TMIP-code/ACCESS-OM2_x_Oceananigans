@@ -65,18 +65,15 @@ else
     outputdir = profile["outputdir"]
 end
 
-VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
-W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
-ADVECTION_SCHEME = get(ENV, "ADVECTION_SCHEME", "centered2")
-run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
 
-# The GPU simulation saves with arch_str in filename; try GPU first, fall back to CPU
-age_output_dir = joinpath(outputdir, "age", run_mode_tag)
+age_output_dir = joinpath(outputdir, "age", model_config)
 
 if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
-    output_filepath = joinpath(age_output_dir, "age_1year_$(ADVECTION_SCHEME).jld2")
+    output_filepath = joinpath(age_output_dir, "age_1year.jld2")
 end
 
 @info "Age plot configuration"

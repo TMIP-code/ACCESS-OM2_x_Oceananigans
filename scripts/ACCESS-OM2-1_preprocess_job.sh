@@ -29,22 +29,22 @@ ENABLE_AGE_SOLVE=${ENABLE_AGE_SOLVE:-false}
 export VELOCITY_SOURCE W_FORMULATION ENABLE_AGE_SOLVE
 
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-echo "Sourced: PARENT_MODEL=$PARENT_MODEL, REPO_ROOT=$repo_root"
-cd "$repo_root"
+echo "PARENT_MODEL=$PARENT_MODEL, repo_root=$repo_root"
+cd $repo_root
 
 job_id="${PBS_JOBID:-interactive}"
 
 echo "Creating grid for PARENT_MODEL=$PARENT_MODEL"
-grid_log_dir="$repo_root/logs/julia/create_grid"
+grid_log_dir=logs/julia/create_grid
 mkdir -p "$grid_log_dir"
-julia --project "$repo_root/src/create_grid.jl" &> "$grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
+julia --project src/create_grid.jl &> "$grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
 echo "Done creating grid for PARENT_MODEL=$PARENT_MODEL"
 echo "logged output in $grid_log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
 
 echo "Running preprocessing (interpolated + mass-transport velocities) for PARENT_MODEL=$PARENT_MODEL"
-vel_log_dir="$repo_root/logs/julia/create_velocities"
+vel_log_dir=logs/julia/create_velocities
 mkdir -p "$vel_log_dir"
-julia --project "$repo_root/src/create_velocities.jl" &> "$vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
+julia --project src/create_velocities.jl &> "$vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
 echo "Done preprocessing for PARENT_MODEL=$PARENT_MODEL"
 echo "logged output in $vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
 
@@ -52,17 +52,17 @@ echo "logged output in $vel_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.
 if [[ "$SUBMIT_OFFLINE_CPU" == "true" ]]; then
     echo "Submitting offline CPU job (VELOCITY_SOURCE=$VELOCITY_SOURCE, W_FORMULATION=$W_FORMULATION)"
     qsub -v PARENT_MODEL="$PARENT_MODEL",VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION" \
-        "$repo_root/scripts/ACCESS-OM2-1_CPU_job.sh"
+        scripts/ACCESS-OM2-1_CPU_job.sh
 fi
 
 if [[ "$SUBMIT_OFFLINE_GPU" == "true" ]]; then
     echo "Submitting offline GPU job (VELOCITY_SOURCE=$VELOCITY_SOURCE, W_FORMULATION=$W_FORMULATION)"
     qsub -v PARENT_MODEL="$PARENT_MODEL",VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION" \
-        "$repo_root/scripts/ACCESS-OM2-1_GPU_job.sh"
+        scripts/ACCESS-OM2-1_GPU_job.sh
 fi
 
 if [[ "$SUBMIT_MATRIX" == "true" ]]; then
     echo "Submitting matrix build job (VELOCITY_SOURCE=$VELOCITY_SOURCE, ENABLE_AGE_SOLVE=$ENABLE_AGE_SOLVE)"
     qsub -v PARENT_MODEL="$PARENT_MODEL",VELOCITY_SOURCE="$VELOCITY_SOURCE",ENABLE_AGE_SOLVE="$ENABLE_AGE_SOLVE" \
-        "$repo_root/scripts/ACCESS-OM2-1_matrix_job.sh"
+        scripts/ACCESS-OM2-1_matrix_job.sh
 fi

@@ -14,22 +14,13 @@
 
 set -euo pipefail
 
-PARENT_MODEL=ACCESS-OM2-1
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
-W_FORMULATION=${W_FORMULATION:-wdiagnosed}
-ADVECTION_SCHEME=${ADVECTION_SCHEME:-weno3}
-export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME
-echo "PARENT_MODEL=$PARENT_MODEL"
-echo "VELOCITY_SOURCE=$VELOCITY_SOURCE"
-echo "W_FORMULATION=$W_FORMULATION"
-echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"
-
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-cd "$repo_root"
+cd $repo_root
+source scripts/env_defaults.sh
 
-run_log_dir="$repo_root/logs/julia/debug"
+run_log_dir=logs/julia/debug
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 echo "Running debug_tendency_budget.jl on CPU"
-julia --project --check-bounds=yes "$repo_root/src/debug_tendency_budget.jl" &> "$run_log_dir/debug_tendency_${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${job_id}.log"
+julia --project --check-bounds=yes src/debug_tendency_budget.jl &> "$run_log_dir/debug_tendency_${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${job_id}.log"
 echo "Done"

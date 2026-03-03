@@ -1,0 +1,23 @@
+# Common env var defaults for all job scripts.
+# Sourced (not executed), so variables are set in the caller's scope.
+
+PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
+W_FORMULATION=${W_FORMULATION:-wdiagnosed}
+ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
+MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}"
+export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME
+
+echo "PARENT_MODEL=$PARENT_MODEL"
+echo "VELOCITY_SOURCE=$VELOCITY_SOURCE"
+echo "W_FORMULATION=$W_FORMULATION"
+echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"
+echo "MODEL_CONFIG=$MODEL_CONFIG"
+
+# Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes
+CHECK_BOUNDS=${CHECK_BOUNDS:-no}
+JULIA_BOUNDS_FLAG=""
+if [ "$CHECK_BOUNDS" = "yes" ]; then
+    JULIA_BOUNDS_FLAG="--check-bounds=yes"
+    echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
+fi

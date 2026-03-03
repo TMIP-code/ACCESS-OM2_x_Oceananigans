@@ -29,7 +29,6 @@ using NonlinearSolve
 using LinearAlgebra
 using SparseArrays
 using OceanTransportMatrixBuilder
-using Oceananigans.Simulations: reset!
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using KernelAbstractions: @kernel, @index
@@ -52,26 +51,13 @@ JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
 (PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
 
-matrices_dir = joinpath(outputdir, "matrices", "$(VELOCITY_SOURCE)_constant")
+matrices_dir = joinpath(outputdir, "matrices", model_config)
 
 @info "Newton-GMRES periodic solver configuration"
 @info "- JVP_METHOD  = $JVP_METHOD"
 @info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout)
-
-################################################################################
-# Simulation (minimal output — no field writers during periodic solve)
-################################################################################
-
-@info "Creating simulation (no output writers)"
-flush(stdout)
-
-set!(model, age = Returns(0.0))
-
-simulation = Simulation(model; Δt, stop_time)
-
-add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 
 ################################################################################
 # Load pre-built transport matrix M from disk
@@ -85,17 +71,12 @@ M = load(M_file, "M")
 flush(stdout)
 
 ################################################################################
-# Compute wet cell indexing
+# Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
 ################################################################################
 
-@info "Computing wet cell mask"
-flush(stdout)
+include("periodic_solver_common.jl")
 
-(; wet3D, idx, Nidx) = compute_wet_mask(grid)
-@info "Number of wet cells: $Nidx (matrix size: $(size(M, 1)))"
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
-Nx′, Ny′, Nz′ = size(wet3D)
-flush(stdout)
 
 ################################################################################
 # Compute cell volumes
@@ -194,49 +175,6 @@ precs = Returns((Pl, Pr))
 flush(stdout)
 
 ################################################################################
-# Preallocate buffers for G!
-################################################################################
-
-age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
-age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
-
-################################################################################
-# G! function: 1-year drift (runs simulation on GPU, solver on CPU)
-################################################################################
-
-g_call_count = Ref(0)
-
-function G!(dage, age, p)
-    g_call_count[] += 1
-    call_num = g_call_count[]
-    t_start = time()
-    @info "G! call #$call_num starting" norm_age = norm(age) max_age = maximum(abs, age)
-    flush(stdout)
-
-    # Reset simulation for a fresh 1-year run
-    reset!(simulation)
-    simulation.stop_time = stop_time
-
-    # CPU vec -> CPU 3D -> preallocated GPU 3D (no new GPU allocation)
-    fill!(age3D_cpu, 0)
-    age3D_cpu[idx] .= age
-    copyto!(age3D_gpu, age3D_cpu)
-
-    # Set model field and run 1-year simulation
-    set!(model, age = age3D_gpu)
-    run!(simulation)
-
-    # GPU field -> CPU 3D -> CPU vec (drift = final - initial)
-    age3D_cpu .= Array(interior(model.tracers.age))
-    dage .= view(age3D_cpu, idx) .- age
-
-    elapsed = time() - t_start
-    @info "G! call #$call_num done ($(round(elapsed; digits = 1))s)" norm_drift = norm(dage) max_drift = maximum(abs, dage)
-    flush(stdout)
-    return dage
-end
-
-################################################################################
 # JVP setup
 ################################################################################
 
@@ -311,9 +249,9 @@ age_steady_3D[idx] .= sol.u
 vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
 @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
-steady_dir = joinpath(outputdir, "age", run_mode_tag)
+steady_dir = joinpath(outputdir, "age", model_config)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "age_newton_$(ADVECTION_SCHEME).jld2")
+steady_file = joinpath(steady_dir, "age_newton.jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

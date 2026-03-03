@@ -68,9 +68,9 @@ output_fields = Dict(
     "η" => model.free_surface.displacement,
 )
 
-age_output_dir = joinpath(outputdir, "age", run_mode_tag)
+age_output_dir = joinpath(outputdir, "age", model_config)
 mkpath(age_output_dir)
-output_prefix = joinpath(age_output_dir, "age_1year_$(ADVECTION_SCHEME)")
+output_prefix = joinpath(age_output_dir, "age_1year")
 
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;

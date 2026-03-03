@@ -28,6 +28,8 @@ using Statistics
 using TOML
 using JLD2
 
+include("shared_functions.jl")
+
 ################################################################################
 # Configuration
 ################################################################################
@@ -50,19 +52,16 @@ else
     outputdir = profile["outputdir"]
 end
 
-VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
-W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
-ADVECTION_SCHEME = get(ENV, "ADVECTION_SCHEME", "centered2")
-run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
-run_suffix = "$(run_mode_tag)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
 arch_str = "CPU"
 
 # Determine JLD2 output filepath
 if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
-    age_output_dir = joinpath(outputdir, "age", run_mode_tag)
-    output_filepath = joinpath(age_output_dir, "age_1year_$(ADVECTION_SCHEME).jld2")
+    age_output_dir = joinpath(outputdir, "age", model_config)
+    output_filepath = joinpath(age_output_dir, "age_1year.jld2")
 end
 
 @info "Plotting outputs from: $output_filepath"
@@ -109,9 +108,9 @@ for itime in eachindex(u_lazy.times)
         maxvelocity = quantile(abs.(velocity2D[.!isnan.(velocity2D)]), 0.9)
         hm = heatmap!(ax, velocity2D; colormap = :RdBu_9, colorrange = maxvelocity .* (-1, 1), nan_color = :black)
         Colorbar(fig[4, 2], hm)
-        k_dir = joinpath(outputdir, "velocities", "uvweta", run_mode_tag, "k$(k)")
+        k_dir = joinpath(outputdir, "velocities", "uvweta", model_config, "k$(k)")
         mkpath(k_dir)
-        @show fig_file_name = joinpath(k_dir, "CGrid_velocities_final_k$(k)_output$(itime)_$(arch_str)_$(run_suffix).png")
+        @show fig_file_name = joinpath(k_dir, "CGrid_velocities_final_k$(k)_output$(itime)_$(arch_str).png")
         flush(stdout)
         save(fig_file_name, fig)
         fig = nothing

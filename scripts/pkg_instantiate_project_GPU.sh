@@ -13,10 +13,8 @@
 #PBS -e logs/PBS/
 #PBS -l wd
 
-# locate repo root by walking up to the directory named ACCESS-OM2_x_Oceananigans
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-echo "REPO_ROOT=$repo_root"
-cd "$repo_root"
+cd $repo_root
 
 echo "Instantiating packages on compute node on GPU"
 module load cuda/12.9.0

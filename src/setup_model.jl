@@ -86,15 +86,8 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
-VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
-W_FORMULATION = get(ENV, "W_FORMULATION", "wdiagnosed")
-ADVECTION_SCHEME = get(ENV, "ADVECTION_SCHEME", "centered2")
-(VELOCITY_SOURCE ∈ ("bgridvelocities", "cgridtransports")) || println("VELOCITY_SOURCE must be one of: bgridvelocities, cgridtransports")
-(W_FORMULATION ∈ ("wdiagnosed", "wprescribed")) || println("W_FORMULATION must be one of: wdiagnosed, wprescribed")
-(ADVECTION_SCHEME ∈ ("centered2", "weno3", "weno5")) || println("ADVECTION_SCHEME must be one of: centered2, weno3, weno5")
-
-run_mode_tag = "$(VELOCITY_SOURCE)_$(W_FORMULATION)"
-run_suffix = "$(run_mode_tag)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
 
 @info "Run configuration"
 @info "- PARENT_MODEL      = $parentmodel"
@@ -254,13 +247,7 @@ forcing = (
     age = age_dynamics,
 )
 
-tracer_advection = if ADVECTION_SCHEME == "centered2"
-    Centered(order = 2)
-elseif ADVECTION_SCHEME == "weno3"
-    WENO(order = 3)
-elseif ADVECTION_SCHEME == "weno5"
-    WENO(order = 5)
-end
+tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
 @info "Tracer advection scheme: $tracer_advection"
 
 model = HydrostaticFreeSurfaceModel(

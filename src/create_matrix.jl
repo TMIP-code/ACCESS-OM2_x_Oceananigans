@@ -19,6 +19,8 @@ include("src/create_matrix.jl")
 Environment variables:
   PARENT_MODEL      – model resolution tag  (default: ACCESS-OM2-1)
   VELOCITY_SOURCE   – cgridtransports | bgridvelocities  (default: cgridtransports)
+  W_FORMULATION     – wdiagnosed | wprescribed  (default: wdiagnosed)
+  ADVECTION_SCHEME  – centered2 | weno3 | weno5  (default: centered2)
   ENABLE_AGE_SOLVE  – true | false  (default: false)
                       When true, solves the linear age equation (coarsened + full)
                       and saves the 3-D steady-state age fields.
@@ -102,31 +104,31 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
-VELOCITY_SOURCE = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
-(VELOCITY_SOURCE ∈ ("bgridvelocities", "cgridtransports")) || println("VELOCITY_SOURCE must be one of: bgridvelocities, cgridtransports")
+include("shared_functions.jl")
+
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
 
 parse_env_bool(name, default) = lowercase(strip(get(ENV, name, string(default)))) ∈ ("1", "true", "yes", "on")
 ENABLE_AGE_SOLVE = parse_env_bool("ENABLE_AGE_SOLVE", false)
 
-run_mode_tag = "$(VELOCITY_SOURCE)_constant"
-
 @info "Run configuration"
-@info "- PARENT_MODEL    = $parentmodel"
-@info "- VELOCITY_SOURCE = $VELOCITY_SOURCE"
+@info "- PARENT_MODEL     = $parentmodel"
+@info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
+@info "- W_FORMULATION    = $W_FORMULATION"
+@info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- ENABLE_AGE_SOLVE = $ENABLE_AGE_SOLVE"
-@info "- run_mode_tag    = $run_mode_tag"
+@info "- model_config     = $model_config"
 flush(stdout)
 
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-matrices_dir = joinpath(outputdir, "matrices", run_mode_tag)
+matrices_dir = joinpath(outputdir, "matrices", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
 mkpath(matrices_dir)
 mkpath(matrix_plots_dir)
 @show outputdir
 @show matrices_dir
 flush(stdout)
-
-include("shared_functions.jl")
 
 ################################################################################
 # Load grid
@@ -192,10 +194,21 @@ flush(stdout)
 # Prescribed velocities and free surface
 ################################################################################
 
-# w is diagnosed from u and v via the continuity equation — no W_FORMULATION
-@info "Prescribing u, v (constant); diagnosing w via continuity"
-flush(stdout)
-velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, formulation = DiagnosticVerticalVelocity())
+if W_FORMULATION == "wprescribed"
+    w_constant_file = VELOCITY_SOURCE == "cgridtransports" ?
+                      joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2") :
+                      joinpath(preprocessed_inputs_dir, "w_constant.jld2")
+    @info "Using prescribed w field from: $w_constant_file"
+    flush(stdout)
+    w_constant = CenterField(grid)
+    set!(w_constant, load(w_constant_file, "w"))
+    fill_halo_regions!(w_constant)
+    velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, w = w_constant)
+elseif W_FORMULATION == "wdiagnosed"
+    @info "Prescribing u, v (constant); diagnosing w via continuity"
+    flush(stdout)
+    velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, formulation = DiagnosticVerticalVelocity())
+end
 free_surface = PrescribedFreeSurface(displacement = η_constant)
 
 ################################################################################
@@ -249,7 +262,7 @@ linear_forcing = (; ADc = linear_dynamics)
 ADc0 = CenterField(grid)
 
 jacobian_model_kwargs = (
-    tracer_advection = Centered(order = 2),
+    tracer_advection = advection_from_scheme(ADVECTION_SCHEME),
     velocities = velocities,
     free_surface = free_surface,
     tracers = (; ADc = ADc0),
