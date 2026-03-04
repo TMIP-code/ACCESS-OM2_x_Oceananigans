@@ -5,7 +5,7 @@ set -euo pipefail
 velocity_sources=(cgridtransports)
 # w_formulations=(wdiagnosed wprescribed)
 w_formulations=(wdiagnosed)
-timesteppers=(AB2 RK2 RK3 RK4 RK5)
+timesteppers=(AB2 SRK2 SRK3 SRK4 SRK5)
 
 count=0
 expected=$(( ${#velocity_sources[@]} * ${#w_formulations[@]} * ${#timesteppers[@]} ))
