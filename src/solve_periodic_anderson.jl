@@ -21,8 +21,12 @@ Environment variables (in addition to setup_model.jl):
   ACCELERATION_METHOD – speedmapping | anderson  (default: speedmapping)
                         speedmapping: Alternating Cyclic Extrapolation (SpeedMapping.jl)
                         anderson:     Anderson acceleration (NLsolve.jl)
-  AA_M               – Anderson history size (default: 10; literature recommends 5–10)
-  AA_BETA            – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
+  NLSAA_M            – Anderson history size (default: 10; literature recommends 5–10)
+  NLSAA_BETA         – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
+  SMAA_SIGMA_MIN     – SpeedMapping minimum σ (default: 0.0; setting to 1 may avoid stalling)
+  SMAA_STABILIZE     – Stabilization mapping before extrapolation (default: no; yes/no)
+  SMAA_CHECK_OBJ     – Restart at best past iterate on NaN/Inf (default: no; yes/no)
+  SMAA_ORDERS        – Alternating order sequence (default: 332; each digit 1–3)
   WARM_START_FILE    – JLD2 file with an "age" field to use as initial guess (default: empty = zeros)
 """
 
@@ -33,14 +37,6 @@ using SpeedMapping  # required for NonlinearSolve's SpeedMappingJL() extension
 using NLsolve       # required for NonlinearSolve's NLsolveJL() extension
 using LinearAlgebra
 
-# Verify package extensions loaded (Julia extension trigger can fail on HPC)
-if !isdefined(NonlinearSolve, :SpeedMappingJL)
-    error("SpeedMapping.jl extension not loaded by NonlinearSolve. Try: using Pkg; Pkg.precompile() and restart Julia.")
-end
-if !isdefined(NonlinearSolve, :NLsolveJL)
-    error("NLsolve.jl extension not loaded by NonlinearSolve. Try: using Pkg; Pkg.precompile() and restart Julia.")
-end
-
 ################################################################################
 # Configuration
 ################################################################################
@@ -48,13 +44,22 @@ end
 ACCELERATION_METHOD = get(ENV, "ACCELERATION_METHOD", "speedmapping")
 (ACCELERATION_METHOD ∈ ("speedmapping", "anderson")) || error("ACCELERATION_METHOD must be one of: speedmapping, anderson (got: $ACCELERATION_METHOD)")
 
-AA_M = parse(Int, get(ENV, "AA_M", "10"))
-AA_BETA = parse(Float64, get(ENV, "AA_BETA", "1.0"))
+NLSAA_M = parse(Int, get(ENV, "NLSAA_M", "10"))
+NLSAA_BETA = parse(Float64, get(ENV, "NLSAA_BETA", "1.0"))
+
+SMAA_SIGMA_MIN = parse(Float64, get(ENV, "SMAA_SIGMA_MIN", "0.0"))
+SMAA_STABILIZE = lowercase(get(ENV, "SMAA_STABILIZE", "no")) == "yes"
+SMAA_CHECK_OBJ = lowercase(get(ENV, "SMAA_CHECK_OBJ", "no")) == "yes"
+SMAA_ORDERS = parse.(Int, collect(get(ENV, "SMAA_ORDERS", "332")))
 
 @info "Fixed-point periodic solver configuration"
 @info "- ACCELERATION_METHOD = $ACCELERATION_METHOD"
-@info "- AA_M = $AA_M (Anderson history size)"
-@info "- AA_BETA = $AA_BETA (Anderson damping)"
+@info "- NLSAA_M = $NLSAA_M (Anderson history size)"
+@info "- NLSAA_BETA = $NLSAA_BETA (Anderson damping)"
+@info "- SMAA_SIGMA_MIN = $SMAA_SIGMA_MIN"
+@info "- SMAA_STABILIZE = $SMAA_STABILIZE"
+@info "- SMAA_CHECK_OBJ = $SMAA_CHECK_OBJ"
+@info "- SMAA_ORDERS = $SMAA_ORDERS"
 flush(stdout)
 
 ################################################################################
@@ -101,11 +106,11 @@ nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 if ACCELERATION_METHOD == "speedmapping"
     @info "Using SpeedMappingJL (Alternating Cyclic Extrapolation)"
     flush(stdout)
-    solver = SpeedMappingJL()
+    solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
 elseif ACCELERATION_METHOD == "anderson"
-    @info "Using NLsolveJL with Anderson acceleration (m=$AA_M, beta=$AA_BETA)"
+    @info "Using NLsolveJL with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
     flush(stdout)
-    solver = NLsolveJL(; method = :anderson, m = AA_M, beta = AA_BETA)
+    solver = NLsolveJL(; method = :anderson, m = NLSAA_M, beta = NLSAA_BETA)
 end
 
 @time sol = solve(

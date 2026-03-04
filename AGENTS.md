@@ -165,6 +165,17 @@ The 4 core config env vars are parsed by `parse_config_env()` in `shared_functio
 Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts.
 The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output directory paths and log filenames.
 
+### Solver-specific variables (`solve_periodic_anderson.jl`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NLSAA_M` | `10` | Anderson history size (literature recommends 5–10) |
+| `NLSAA_BETA` | `1.0` | Anderson damping parameter (try 0.5 for slow convergence) |
+| `SMAA_SIGMA_MIN` | `0.0` | SpeedMapping minimum σ; setting to 1 may avoid stalling |
+| `SMAA_STABILIZE` | `no` | Stabilization mapping before extrapolation (`yes`/`no`) |
+| `SMAA_CHECK_OBJ` | `no` | Restart at best past iterate on NaN/Inf (`yes`/`no`) |
+| `SMAA_ORDERS` | `332` | Alternating order sequence (each digit 1–3) |
+
 ## Key design decisions
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)
 - `setup_model.jl` creates the model but NOT the simulation — each downstream script creates its own
