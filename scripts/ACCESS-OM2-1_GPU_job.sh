@@ -38,6 +38,7 @@ echo "SCRIPT=$SCRIPT"
 [ -n "${ACCELERATION_METHOD:-}" ] && export ACCELERATION_METHOD && echo "ACCELERATION_METHOD=$ACCELERATION_METHOD"
 [ -n "${PRECONDITIONER_MATRIX_TYPE:-}" ] && export PRECONDITIONER_MATRIX_TYPE && echo "PRECONDITIONER_MATRIX_TYPE=$PRECONDITIONER_MATRIX_TYPE"
 [ -n "${TIMESTEPPER:-}" ] && export TIMESTEPPER && echo "TIMESTEPPER=$TIMESTEPPER"
+[ -n "${TRACE_SOLVER_HISTORY:-}" ] && export TRACE_SOLVER_HISTORY && echo "TRACE_SOLVER_HISTORY=$TRACE_SOLVER_HISTORY"
 
 echo "Loading CUDA module"
 module load cuda/12.9.0
@@ -69,4 +70,9 @@ if [ "$SOLVE_METHOD" = "100years" ]; then
     echo "Submitting plot_100years_age CPU job"
     qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME",TIMESTEPPER="$TIMESTEPPER" \
         scripts/ACCESS-OM2-1_plot_100years_age_job.sh
+fi
+if [ "$TRACE_SOLVER_HISTORY" = "yes" ] && { [ "$SOLVE_METHOD" = "newton" ] || [ "$SOLVE_METHOD" = "anderson" ]; }; then
+    echo "Submitting plot_trace_history CPU job"
+    qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME",TIMESTEPPER="$TIMESTEPPER" \
+        scripts/ACCESS-OM2-1_plot_trace_history_job.sh
 fi

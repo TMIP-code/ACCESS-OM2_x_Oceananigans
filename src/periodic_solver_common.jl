@@ -8,6 +8,23 @@ Included after `setup_model.jl` — assumes its globals are in scope:
 
 using LinearAlgebra: norm
 using Oceananigans.Simulations: reset!
+using Printf: @sprintf
+
+################################################################################
+# Trace solver history configuration
+################################################################################
+
+TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
+
+if TRACE_SOLVER_HISTORY
+    trace_dir = joinpath(outputdir, "age", model_config, "trace")
+    mkpath(trace_dir)
+    @info "TRACE_SOLVER_HISTORY enabled — saving iterates to $trace_dir"
+else
+    trace_dir = ""
+    @info "TRACE_SOLVER_HISTORY disabled (set TRACE_SOLVER_HISTORY=yes to enable)"
+end
+flush(stdout)
 
 ################################################################################
 # Simulation (no output writers)
@@ -65,9 +82,27 @@ function Φ!(age_out, age_in, p)
     age3D_cpu[idx] .= age_in
     copyto!(age3D_gpu, age3D_cpu)
 
-    # Run 1-year simulation
+    # Set initial condition and attach trace writer
     set!(model, age = age3D_gpu)
+
+    if TRACE_SOLVER_HISTORY
+        iter_str = @sprintf("%04d", call_num)
+        trace_prefix = joinpath(trace_dir, "age_trace_iter_$(iter_str)")
+        simulation.output_writers[:trace] = JLD2Writer(
+            model, Dict("age" => model.tracers.age);
+            schedule = TimeInterval(stop_time),
+            filename = trace_prefix,
+            overwrite_existing = true,
+        )
+    end
+
+    # Run 1-year simulation
     run!(simulation)
+
+    # Remove trace writer before next iteration
+    if TRACE_SOLVER_HISTORY
+        delete!(simulation.output_writers, :trace)
+    end
 
     # GPU field → CPU 3D → CPU vec  (copyto! avoids intermediate Array allocation)
     copyto!(age3D_cpu, interior(model.tracers.age))
