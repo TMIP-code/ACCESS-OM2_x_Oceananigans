@@ -4,7 +4,7 @@
 #PBS -P y99
 #PBS -l mem=47GB
 #PBS -q gpuvolta
-#PBS -l walltime=01:00:00
+#PBS -l walltime=03:00:00
 #PBS -l ngpus=1
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
@@ -19,15 +19,17 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-SOLVE_METHOD=${SOLVE_METHOD:-1year}  # 1year | newton | anderson
+SOLVE_METHOD=${SOLVE_METHOD:-1year}  # 1year | 10years | 100years | newton | anderson
 echo "SOLVE_METHOD=$SOLVE_METHOD"
 
 # Select Julia script based on SOLVE_METHOD
 case "$SOLVE_METHOD" in
     1year)    SCRIPT="src/run_1year.jl" ;;
+    10years)  SCRIPT="src/run_10years.jl" ;;
+    100years) SCRIPT="src/run_100years.jl" ;;
     newton)   SCRIPT="src/solve_periodic_newton.jl" ;;
     anderson) SCRIPT="src/solve_periodic_anderson.jl" ;;
-    *)        echo "Unknown SOLVE_METHOD=$SOLVE_METHOD (must be: 1year, newton, anderson)"; exit 1 ;;
+    *)        echo "Unknown SOLVE_METHOD=$SOLVE_METHOD (must be: 1year, 10years, 100years, newton, anderson)"; exit 1 ;;
 esac
 echo "SCRIPT=$SCRIPT"
 
@@ -52,9 +54,19 @@ echo "logging output in $run_log_dir"
 julia $JULIA_BOUNDS_FLAG --project "$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${SOLVE_METHOD}_${job_id}.log"
 echo "Done running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
 
-# Submit CPU plot job after 1-year simulation
+# Submit CPU plot job after simulation
 if [ "$SOLVE_METHOD" = "1year" ]; then
     echo "Submitting plot_1year_age CPU job"
     qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME",TIMESTEPPER="$TIMESTEPPER" \
         scripts/ACCESS-OM2-1_plot_1year_age_job.sh
+fi
+if [ "$SOLVE_METHOD" = "10years" ]; then
+    echo "Submitting plot_10years_age CPU job"
+    qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME",TIMESTEPPER="$TIMESTEPPER" \
+        scripts/ACCESS-OM2-1_plot_10years_age_job.sh
+fi
+if [ "$SOLVE_METHOD" = "100years" ]; then
+    echo "Submitting plot_100years_age CPU job"
+    qsub -v VELOCITY_SOURCE="$VELOCITY_SOURCE",W_FORMULATION="$W_FORMULATION",ADVECTION_SCHEME="$ADVECTION_SCHEME",TIMESTEPPER="$TIMESTEPPER" \
+        scripts/ACCESS-OM2-1_plot_100years_age_job.sh
 fi

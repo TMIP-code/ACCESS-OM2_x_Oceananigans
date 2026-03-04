@@ -25,6 +25,18 @@ count=$((count + 1))
 echo "[$count] Submitted 1year. Waiting ${DELAY}s..."
 sleep $DELAY
 
+# 10years
+qsub -v SOLVE_METHOD=10years${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted 10years. Waiting ${DELAY}s..."
+sleep $DELAY
+
+# 100years
+qsub -v SOLVE_METHOD=100years${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted 100years. Waiting ${DELAY}s..."
+sleep $DELAY
+
 # Anderson — speedmapping
 qsub -v SOLVE_METHOD=anderson,ACCELERATION_METHOD=speedmapping${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))

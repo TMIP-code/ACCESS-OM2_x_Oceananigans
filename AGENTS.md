@@ -7,12 +7,17 @@ ACCESS-OM2_x_Oceananigans/
 ├── src/
 │   ├── setup_model.jl            # Shared model setup (include'd by run/solve scripts)
 │   ├── run_1year.jl              # Standalone 1-year age simulation → outputs/{model}/age/
+│   ├── run_10years.jl            # Standalone 10-year age simulation → outputs/{model}/age/
+│   ├── run_100years.jl           # Standalone 100-year age simulation → outputs/{model}/age/
 │   ├── solve_periodic_newton.jl  # Newton-GMRES periodic steady-state solver
 │   ├── solve_periodic_anderson.jl # Anderson/SpeedMapping periodic solver
 │   ├── create_grid.jl            # Build tripolar grid → preprocessed_inputs/{model}/{model}_grid.jld2
 │   ├── create_velocities.jl      # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
 │   ├── create_closures.jl        # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
+│   ├── plot_1year_age.jl         # Plot age diagnostics from 1-year output (standalone, CPU-only)
+│   ├── plot_10years_age.jl       # Plot age diagnostics from 10-year output (standalone, CPU-only)
+│   ├── plot_100years_age.jl      # Plot age diagnostics from 100-year output (standalone, CPU-only)
 │   ├── plot_outputs.jl           # Plot u/v/w/η outputs from simulation (standalone, CPU-only)
 │   ├── debug_jacobian_symmetry.jl # Debug script for Jacobian structural symmetry
 │   └── shared_functions.jl      # load_tripolar_grid(), compute_wet_mask(), plot_age_diagnostics(), etc.
@@ -20,6 +25,9 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── ACCESS-OM2-1_preprocess_job.sh   # PBS: grid + velocities (12 CPU, 47 GB, express)
 │   ├── ACCESS-OM2-1_CPU_job.sh          # PBS: offline simulation CPU (12 CPU, 47 GB, express)
 │   ├── ACCESS-OM2-1_GPU_job.sh          # PBS: GPU job (1 GPU, 47 GB, gpuvolta) — SOLVE_METHOD selects script
+│   ├── ACCESS-OM2-1_plot_1year_age_job.sh  # PBS: CPU plot job for 1-year age diagnostics
+│   ├── ACCESS-OM2-1_plot_10years_age_job.sh # PBS: CPU plot job for 10-year age diagnostics
+│   ├── ACCESS-OM2-1_plot_100years_age_job.sh # PBS: CPU plot job for 100-year age diagnostics
 │   ├── ACCESS-OM2-1_matrix_job.sh       # PBS: matrix build CPU (48 CPU, 190 GB, normal)
 │   ├── submit_all_gpu_job_modes.sh      # Submit all VELOCITY_SOURCE × W_FORMULATION combinations
 │   ├── pkg_instantiate_project_CPU.sh
@@ -122,6 +130,8 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 |--------|---------|-------------|
 | `src/setup_model.jl` | Shared model setup (include'd by run/solve scripts) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/run_1year.jl` | Standalone 1-year age simulation | (inherits from setup_model.jl) |
+| `src/run_10years.jl` | Standalone 10-year age simulation | (inherits from setup_model.jl) |
+| `src/run_100years.jl` | Standalone 100-year age simulation | (inherits from setup_model.jl) |
 | `src/solve_periodic_newton.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD (matrix/finitediff) |
 | `src/solve_periodic_anderson.jl` | Anderson/SpeedMapping periodic solver | ACCELERATION_METHOD (speedmapping/anderson) |
 | `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
@@ -132,7 +142,10 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 ## PBS scripts
 - `scripts/ACCESS-OM2-1_preprocess_job.sh` — grid + velocities preprocessing (12 CPU, 47 GB)
 - `scripts/ACCESS-OM2-1_CPU_job.sh` — offline simulation on CPU (12 CPU, 47 GB)
-- `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `SOLVE_METHOD` selects script (1year/newton/anderson)
+- `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `SOLVE_METHOD` selects script (1year/10years/100years/newton/anderson)
+- `scripts/ACCESS-OM2-1_plot_1year_age_job.sh` — CPU plot job for 1-year age diagnostics (auto-submitted after 1year GPU job)
+- `scripts/ACCESS-OM2-1_plot_10years_age_job.sh` — CPU plot job for 10-year age diagnostics (auto-submitted after 10years GPU job)
+- `scripts/ACCESS-OM2-1_plot_100years_age_job.sh` — CPU plot job for 100-year age diagnostics (auto-submitted after 100years GPU job)
 - `scripts/ACCESS-OM2-1_matrix_job.sh` — matrix build on CPU (48 CPU, 190 GB, normal queue)
 
 ## Configuration environment variables
