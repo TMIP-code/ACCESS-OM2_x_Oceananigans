@@ -18,9 +18,10 @@ include("src/solve_periodic_anderson.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
-  ACCELERATION_METHOD – speedmapping | anderson  (default: speedmapping)
-                        speedmapping: Alternating Cyclic Extrapolation (SpeedMapping.jl)
-                        anderson:     Anderson acceleration (NLsolve.jl)
+  AA_SOLVER            – SpeedMapping | NLsolve | SIAMFANL  (default: SpeedMapping)
+                         SpeedMapping: Alternating Cyclic Extrapolation (SpeedMapping.jl)
+                         NLsolve:      Anderson acceleration (NLsolve.jl)
+                         SIAMFANL:     Anderson acceleration (SIAMFANLEquations.jl)
   NLSAA_M            – Anderson history size (default: 10; literature recommends 5–10)
   NLSAA_BETA         – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
   SMAA_SIGMA_MIN     – SpeedMapping minimum σ (default: 0.0; setting to 1 may avoid stalling)
@@ -33,16 +34,17 @@ Environment variables (in addition to setup_model.jl):
 include("setup_model.jl")
 
 using NonlinearSolve
-using SpeedMapping  # required for NonlinearSolve's SpeedMappingJL() extension
-using NLsolve       # required for NonlinearSolve's NLsolveJL() extension
+using SpeedMapping          # required for NonlinearSolve's SpeedMappingJL() extension
+using NLsolve               # required for NonlinearSolve's NLsolveJL() extension
+using SIAMFANLEquations     # required for NonlinearSolve's SIAMFANLEquationsJL() extension
 using LinearAlgebra
 
 ################################################################################
 # Configuration
 ################################################################################
 
-ACCELERATION_METHOD = get(ENV, "ACCELERATION_METHOD", "speedmapping")
-(ACCELERATION_METHOD ∈ ("speedmapping", "anderson")) || error("ACCELERATION_METHOD must be one of: speedmapping, anderson (got: $ACCELERATION_METHOD)")
+AA_SOLVER = get(ENV, "AA_SOLVER", "SpeedMapping")
+(AA_SOLVER ∈ ("SpeedMapping", "NLsolve", "SIAMFANL")) || error("AA_SOLVER must be one of: SpeedMapping, NLsolve, SIAMFANL (got: $AA_SOLVER)")
 
 NLSAA_M = parse(Int, get(ENV, "NLSAA_M", "10"))
 NLSAA_BETA = parse(Float64, get(ENV, "NLSAA_BETA", "1.0"))
@@ -53,7 +55,7 @@ SMAA_CHECK_OBJ = lowercase(get(ENV, "SMAA_CHECK_OBJ", "no")) == "yes"
 SMAA_ORDERS = parse.(Int, collect(get(ENV, "SMAA_ORDERS", "332")))
 
 @info "Fixed-point periodic solver configuration"
-@info "- ACCELERATION_METHOD = $ACCELERATION_METHOD"
+@info "- AA_SOLVER = $AA_SOLVER"
 @info "- NLSAA_M = $NLSAA_M (Anderson history size)"
 @info "- NLSAA_BETA = $NLSAA_BETA (Anderson damping)"
 @info "- SMAA_SIGMA_MIN = $SMAA_SIGMA_MIN"
@@ -96,21 +98,25 @@ flush(stdout)
 # Nonlinear solve: fixed-point acceleration
 ################################################################################
 
-@info "Solving nonlinear problem with fixed-point acceleration ($ACCELERATION_METHOD)"
+@info "Solving nonlinear problem with fixed-point acceleration ($AA_SOLVER)"
 @info "- abstol = $(0.001 * stop_time) seconds ($(0.001 * stop_time / day) days)"
 flush(stdout)
 
 f! = NonlinearFunction(G!)
 nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 
-if ACCELERATION_METHOD == "speedmapping"
+if AA_SOLVER == "SpeedMapping"
     @info "Using SpeedMappingJL (Alternating Cyclic Extrapolation)"
     flush(stdout)
     solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
-elseif ACCELERATION_METHOD == "anderson"
+elseif AA_SOLVER == "NLsolve"
     @info "Using NLsolveJL with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
     flush(stdout)
     solver = NLsolveJL(; method = :anderson, m = NLSAA_M, beta = NLSAA_BETA)
+elseif AA_SOLVER == "SIAMFANL"
+    @info "Using SIAMFANLEquationsJL with Anderson acceleration"
+    flush(stdout)
+    solver = SIAMFANLEquationsJL(; method = :anderson)
 end
 
 @time sol = solve(
@@ -138,7 +144,7 @@ age_steady_3D[idx] .= sol.u
 
 steady_dir = joinpath(outputdir, "age", model_config)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "age_$(ACCELERATION_METHOD).jld2")
+steady_file = joinpath(steady_dir, "age_$(AA_SOLVER).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

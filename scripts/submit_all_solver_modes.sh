@@ -37,26 +37,44 @@ count=$((count + 1))
 echo "[$count] Submitted 100years. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# Anderson — speedmapping
-qsub -v SOLVE_METHOD=anderson,ACCELERATION_METHOD=speedmapping${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# Anderson — SpeedMapping
+qsub -v SOLVE_METHOD=anderson,AA_SOLVER=SpeedMapping${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
-echo "[$count] Submitted anderson/speedmapping. Waiting ${DELAY}s..."
+echo "[$count] Submitted anderson/SpeedMapping. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# Anderson — anderson
-qsub -v SOLVE_METHOD=anderson,ACCELERATION_METHOD=anderson${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# Anderson — NLsolve
+qsub -v SOLVE_METHOD=anderson,AA_SOLVER=NLsolve${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
-echo "[$count] Submitted anderson/anderson. Waiting ${DELAY}s..."
+echo "[$count] Submitted anderson/NLsolve. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# Newton — nonsym (default), finitediff JVP
-qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# Anderson — SIAMFANL
+qsub -v SOLVE_METHOD=anderson,AA_SOLVER=SIAMFANL${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
-echo "[$count] Submitted newton/finitediff/nonsym. Waiting ${DELAY}s..."
+echo "[$count] Submitted anderson/SIAMFANL. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# Newton — sym_cleaned, finitediff JVP
-qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff,PRECONDITIONER_MATRIX_TYPE=sym_cleaned${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# Newton — Pardiso, no lump-and-spray (default), finitediff JVP
+qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
+sleep $DELAY
+
+# Newton — Pardiso, lump-and-spray, finitediff JVP
+qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/Pardiso/LSprec. Waiting ${DELAY}s..."
+sleep $DELAY
+
+# Newton — ParU, no lump-and-spray, finitediff JVP
+qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/ParU/prec. Waiting ${DELAY}s..."
+sleep $DELAY
+
+# Newton — ParU, lump-and-spray, finitediff JVP
+qsub -v SOLVE_METHOD=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
 
 echo "Submitted ${count} jobs."

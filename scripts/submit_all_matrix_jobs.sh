@@ -18,8 +18,7 @@ for velocity_source in "${velocity_sources[@]}"; do
         echo "  W_FORMULATION=${w_formulation}"
         for advection_scheme in "${advection_schemes[@]}"; do
             echo "  ADVECTION_SCHEME=${advection_scheme}"
-            echo "  ENABLE_AGE_SOLVE=true"
-            qsub -v PARENT_MODEL=ACCESS-OM2-1,VELOCITY_SOURCE="${velocity_source}",W_FORMULATION="${w_formulation}",ADVECTION_SCHEME="${advection_scheme}",TIMESTEPPER="${TIMESTEPPER:-AB2}",ENABLE_AGE_SOLVE=true scripts/ACCESS-OM2-1_matrix_job.sh
+            qsub -v PARENT_MODEL=ACCESS-OM2-1,VELOCITY_SOURCE="${velocity_source}",W_FORMULATION="${w_formulation}",ADVECTION_SCHEME="${advection_scheme}",TIMESTEPPER="${TIMESTEPPER:-AB2}" scripts/ACCESS-OM2-1_matrix_job.sh
             count=$((count + 1))
         done
     done

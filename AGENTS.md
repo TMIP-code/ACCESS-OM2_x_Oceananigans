@@ -15,6 +15,7 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── create_velocities.jl      # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
 │   ├── create_closures.jl        # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
+│   ├── solve_matrix_age.jl      # Solve steady-state age from saved matrix M (CPU-only)
 │   ├── plot_1year_age.jl         # Plot age diagnostics from 1-year output (standalone, CPU-only)
 │   ├── plot_10years_age.jl       # Plot age diagnostics from 10-year output (standalone, CPU-only)
 │   ├── plot_100years_age.jl      # Plot age diagnostics from 100-year output (standalone, CPU-only)
@@ -29,6 +30,7 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── ACCESS-OM2-1_plot_10years_age_job.sh # PBS: CPU plot job for 10-year age diagnostics
 │   ├── ACCESS-OM2-1_plot_100years_age_job.sh # PBS: CPU plot job for 100-year age diagnostics
 │   ├── ACCESS-OM2-1_matrix_job.sh       # PBS: matrix build CPU (48 CPU, 190 GB, normal)
+│   ├── ACCESS-OM2-1_solve_matrix_age_job.sh # PBS: solve steady-state age from matrix (12 CPU, 47 GB, normal)
 │   ├── submit_all_gpu_job_modes.sh      # Submit all VELOCITY_SOURCE × W_FORMULATION combinations
 │   ├── pkg_instantiate_project_CPU.sh
 │   └── pkg_instantiate_project_GPU.sh
@@ -52,8 +54,10 @@ ACCESS-OM2_x_Oceananigans/
 │       │   └── create_velocities_{parentmodel}_{job_id}.{out,err}
 │       ├── run_ACCESS-OM2/
 │       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{SOLVE_METHOD}_{job_id}.log
-│       └── create_matrix/
-│           └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
+│       ├── create_matrix/
+│       │   └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
+│       └── solve_matrix_age/
+│           └── solve_matrix_age_{MODEL_CONFIG}_{LINEAR_SOLVER}_{lumpspray_tag}_{job_id}.log
 ├── Project.toml
 ├── LocalPreferences.toml               # CUDA version pin (local = true, version = "12.9")
 └── AGENTS.md
@@ -87,7 +91,7 @@ qsub scripts/ACCESS-OM2-1_preprocess_job.sh
 qsub scripts/ACCESS-OM2-1_GPU_job.sh
 # with solver selection:
 qsub -v SOLVE_METHOD=newton scripts/ACCESS-OM2-1_GPU_job.sh
-qsub -v SOLVE_METHOD=anderson,ACCELERATION_METHOD=anderson scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v SOLVE_METHOD=anderson,AA_SOLVER=NLsolve scripts/ACCESS-OM2-1_GPU_job.sh
 ```
 
 Monitor:
@@ -98,8 +102,11 @@ qstat -f <job_id>        # detailed status for one job
 
 Pass environment variables at submission time:
 ```bash
-qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
+qsub -v VELOCITY_SOURCE=bgridvelocities \
     scripts/ACCESS-OM2-1_matrix_job.sh
+# solve matrix age with specific solver options:
+qsub -v LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=yes \
+    scripts/ACCESS-OM2-1_solve_matrix_age_job.sh
 ```
 
 ## Naming conventions
@@ -132,12 +139,13 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 | `src/run_1year.jl` | Standalone 1-year age simulation | (inherits from setup_model.jl) |
 | `src/run_10years.jl` | Standalone 10-year age simulation | (inherits from setup_model.jl) |
 | `src/run_100years.jl` | Standalone 100-year age simulation | (inherits from setup_model.jl) |
-| `src/solve_periodic_newton.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD (matrix/finitediff) |
-| `src/solve_periodic_anderson.jl` | Anderson/SpeedMapping periodic solver | ACCELERATION_METHOD (speedmapping/anderson) |
+| `src/solve_periodic_newton.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD, LINEAR_SOLVER, LUMP_AND_SPRAY, PRECONDITIONER_MATRIX_TYPE |
+| `src/solve_periodic_anderson.jl` | Anderson/SpeedMapping periodic solver | AA_SOLVER (SpeedMapping/NLsolve/SIAMFANL) |
 | `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
 | `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
 | `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
-| `src/create_matrix.jl` | Build transport matrix from constant fields; optionally solve for steady-state age | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, ENABLE_AGE_SOLVE |
+| `src/create_matrix.jl` | Build transport matrix from constant fields | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
+| `src/solve_matrix_age.jl` | Solve steady-state age from saved matrix M (CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, LINEAR_SOLVER, LUMP_AND_SPRAY, PRECONDITIONER_MATRIX_TYPE |
 
 ## PBS scripts
 - `scripts/ACCESS-OM2-1_preprocess_job.sh` — grid + velocities preprocessing (12 CPU, 47 GB)
@@ -147,6 +155,7 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
 - `scripts/ACCESS-OM2-1_plot_10years_age_job.sh` — CPU plot job for 10-year age diagnostics (auto-submitted after 10years GPU job)
 - `scripts/ACCESS-OM2-1_plot_100years_age_job.sh` — CPU plot job for 100-year age diagnostics (auto-submitted after 100years GPU job)
 - `scripts/ACCESS-OM2-1_matrix_job.sh` — matrix build on CPU (48 CPU, 190 GB, normal queue)
+- `scripts/ACCESS-OM2-1_solve_matrix_age_job.sh` — solve steady-state age from saved matrix (12 CPU, 47 GB, normal queue)
 
 ## Configuration environment variables
 
@@ -165,10 +174,23 @@ The 4 core config env vars are parsed by `parse_config_env()` in `shared_functio
 Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts.
 The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output directory paths and log filenames.
 
-### Solver-specific variables (`solve_periodic_anderson.jl`)
+### Newton solver variables (`solve_periodic_newton.jl`, `solve_matrix_age.jl`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `JVP_METHOD` | `matrix` | JVP method (`matrix` or `finitediff`); Newton solver only |
+| `LINEAR_SOLVER` | `Pardiso` | Direct solver for preconditioner (`Pardiso` or `ParU`) |
+| `LUMP_AND_SPRAY` | `no` | Lump-and-spray coarsening for preconditioner (`yes`/`no`) |
+| `PRECONDITIONER_MATRIX_TYPE` | `nonsym` | Pardiso matrix type (`nonsym` or `sym_cleaned`); Pardiso only |
+
+- Output filename tags: `Pardiso`/`ParU` for LINEAR_SOLVER; `LSprec`/`prec` for LUMP_AND_SPRAY
+- Example: `age_newton_Pardiso_prec.jld2`, `steady_age_full_ParU_LSprec.jld2`
+
+### Anderson solver variables (`solve_periodic_anderson.jl`)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AA_SOLVER` | `SpeedMapping` | Solver backend: `SpeedMapping` (SpeedMapping.jl), `NLsolve` (NLsolve.jl), `SIAMFANL` (SIAMFANLEquations.jl) |
 | `NLSAA_M` | `10` | Anderson history size (literature recommends 5–10) |
 | `NLSAA_BETA` | `1.0` | Anderson damping parameter (try 0.5 for slow convergence) |
 | `SMAA_SIGMA_MIN` | `0.0` | SpeedMapping minimum σ; setting to 1 may avoid stalling |
@@ -184,8 +206,9 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output director
 - Simulation scripts use periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
 - Constant fields for matrix build use same BCs (`FPivotZipperBoundaryCondition`) as the per-month fields in `create_velocities.jl`
 - zstar initialisation before Jacobian: `_update_zstar_scaling!(η_constant, grid)`
-- ENABLE_AGE_SOLVE (default false) gates the LUMP/SPRAY + linear solves + 3D field save in create_matrix.jl
-- Newton solver loads M from `create_matrix.jl` output, builds LUMP/SPRAY preconditioner
+- Age solving is factored out into `solve_matrix_age.jl` (runs on saved M.jld2)
+- Newton solver loads M from `create_matrix.jl` output; LUMP_AND_SPRAY controls preconditioner coarsening
+- LINEAR_SOLVER selects direct solver: Pardiso (MKL) or ParU (SuiteSparse parallel LU)
 - Newton solver uses approximate JVP via `stop_time * M` (sparse matvec) or finite-diff via `AutoFiniteDiff()`
 - Anderson/SpeedMapping solver needs no matrix or preconditioner — pure fixed-point acceleration
 - GPU arrays preallocated once; `copyto!` used for CPU↔GPU transfer in G!

@@ -2,9 +2,9 @@
 Solve for the periodic steady-state age using Newton-GMRES.
 
 Finds x such that G(x) = Φ(x) - x = 0, where Φ(x) is the result of running
-the model for 1 year from initial condition x. Uses a lump-and-spray
-preconditioner (Bardin et al., 2014) and either matrix-based or finite-difference
-JVP for GMRES.
+the model for 1 year from initial condition x. Uses either a lump-and-spray
+preconditioner (Bardin et al., 2014) or a direct Q⁻¹ - I preconditioner, and
+either matrix-based or finite-difference JVP for GMRES.
 
 Usage — interactive:
 ```
@@ -18,9 +18,15 @@ include("src/solve_periodic_newton.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
-  JVP_METHOD – matrix | finitediff  (default: matrix)
-               matrix:     approximate JVP using transport matrix M (fast, sparse matvec)
-               finitediff: finite-difference JVP via AutoFiniteDiff (slow, extra G! evals)
+  JVP_METHOD     – matrix | finitediff  (default: matrix)
+                   matrix:     approximate JVP using transport matrix M (fast, sparse matvec)
+                   finitediff: finite-difference JVP via AutoFiniteDiff (slow, extra G! evals)
+  LINEAR_SOLVER  – Pardiso | ParU  (default: Pardiso)
+                   Pardiso: MKL Pardiso iterative solver
+                   ParU:    ParU parallel sparse LU factorization
+  LUMP_AND_SPRAY – yes | no  (default: no)
+                   yes: lump-and-spray coarsening (Bardin et al., 2014)
+                   no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
 """
 
 include("setup_model.jl")
@@ -33,6 +39,8 @@ using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using KernelAbstractions: @kernel, @index
 import Pardiso
+import ParU_jll
+using LinearSolve: ParUFactorization
 const nprocs = 12
 
 ################################################################################
@@ -42,7 +50,10 @@ const nprocs = 12
 JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 (JVP_METHOD ∈ ("matrix", "finitediff")) || error("JVP_METHOD must be one of: matrix, finitediff (got: $JVP_METHOD)")
 
-# Pardiso matrix type for the preconditioner:
+LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
+(LINEAR_SOLVER ∈ ("Pardiso", "ParU")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU (got: $LINEAR_SOLVER)")
+
+# Pardiso matrix type for the preconditioner (applies whenever LINEAR_SOLVER=Pardiso):
 #   nonsym      → REAL_NONSYM (mtype=11): safe fallback, treats matrix as fully nonsymmetric
 #   sym_cleaned → REAL_SYM    (mtype=1):  structurally symmetric. Despite its name, REAL_SYM in
 #                 MKL Pardiso means the matrix is structurally symmetric (not numerically), so
@@ -51,11 +62,16 @@ JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
 (PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
 
+LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
+lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+
 matrices_dir = joinpath(outputdir, "matrices", model_config)
 
 @info "Newton-GMRES periodic solver configuration"
 @info "- JVP_METHOD  = $JVP_METHOD"
+@info "- LINEAR_SOLVER = $LINEAR_SOLVER"
 @info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
+@info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout)
 
@@ -79,7 +95,7 @@ include("periodic_solver_common.jl")
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
 
 ################################################################################
-# Compute cell volumes
+# Compute cell volumes (needed for vol_mean and optionally for lump_and_spray)
 ################################################################################
 
 @info "Computing cell volumes"
@@ -89,82 +105,87 @@ grid_cpu = on_architecture(CPU(), grid)
 v1D = interior(compute_volume(grid_cpu))[idx]
 
 ################################################################################
-# LUMP, SPRAY, and coarsened Jacobian
+# LUMP, SPRAY, and preconditioner matrix Q_precond
 ################################################################################
 
-@info "Computing LUMP and SPRAY matrices"
-flush(stdout)
-LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-Mc = LUMP * M * SPRAY
-@info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
+if LUMP_AND_SPRAY
+    @info "Computing LUMP and SPRAY matrices"
+    flush(stdout)
+    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+    Mc = LUMP * M * SPRAY
+    @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
+    Q_precond = stop_time * Mc
+else
+    @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no); using full Q = stop_time * M"
+    LUMP = I
+    SPRAY = I
+    Q_precond = stop_time * M
+end
 flush(stdout)
 
 ################################################################################
-# Preconditioner setup (Pardiso, CPU-only)
+# Preconditioner setup
 ################################################################################
 
-@info "Setting up preconditioner (PRECONDITIONER_MATRIX_TYPE=$PRECONDITIONER_MATRIX_TYPE)"
+@info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
 flush(stdout)
 
-if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned"
-    # Clean the sparsity structure of Mc so it is guaranteed structurally symmetric:
-    # 1. Drop explicit zeros (entries stored in CSC but numerically zero)
-    # 2. Remove any remaining non-zero entries that lack a symmetric counterpart
-    # This is safe because Mc is a rough coarsened approximation used only as a preconditioner.
-    dropzeros!(Mc)
-    # Symmetrise the sparsity: keep entry (i,j) only if (j,i) also exists
-    Mc_t = copy(Mc')
-    # Build a mask of entries that have a counterpart in the transpose
-    Mc_sym = Mc .* (Mc_t .!= 0)
-    nnz_before = nnz(Mc)
-    Mc = Mc_sym
-    dropzeros!(Mc)
-    nnz_after = nnz(Mc)
-    @info "Sparsity cleaning: nnz $nnz_before → $nnz_after (removed $(nnz_before - nnz_after) non-symmetric entries)"
+if LINEAR_SOLVER == "Pardiso"
+    if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned"
+        # Clean the sparsity structure so it is guaranteed structurally symmetric:
+        # 1. Drop explicit zeros (entries stored in CSC but numerically zero)
+        # 2. Remove any remaining non-zero entries that lack a symmetric counterpart
+        # This is safe because Q_precond is used only as a preconditioner.
+        dropzeros!(Q_precond)
+        Q_t = copy(Q_precond')
+        Q_sym = Q_precond .* (Q_t .!= 0)
+        nnz_before = nnz(Q_precond)
+        Q_precond = Q_sym
+        dropzeros!(Q_precond)
+        nnz_after = nnz(Q_precond)
+        @info "Sparsity cleaning: nnz $nnz_before → $nnz_after (removed $(nnz_before - nnz_after) non-symmetric entries)"
 
-    # Despite its name, REAL_SYM (mtype=1) in MKL Pardiso means "structurally symmetric"
-    # (not numerically symmetric). Pardiso expects the full matrix but exploits the symmetric
-    # sparsity pattern for reordering. This is correct for our cleaned Mc.
-    if Pardiso.isstructurallysymmetric(Mc)
-        matrix_type = Pardiso.REAL_SYM
-        @info "Mc is structurally symmetric after cleaning; using Pardiso REAL_SYM (mtype=1)"
-        @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
-    else
-        @warn "Mc still not structurally symmetric after cleaning; falling back to REAL_NONSYM"
+        if Pardiso.isstructurallysymmetric(Q_precond)
+            matrix_type = Pardiso.REAL_SYM
+            @info "Q_precond is structurally symmetric after cleaning; using Pardiso REAL_SYM (mtype=1)"
+        else
+            @warn "Q_precond still not structurally symmetric after cleaning; falling back to REAL_NONSYM"
+            matrix_type = Pardiso.REAL_NONSYM
+        end
+    else  # "nonsym" (default, safe fallback)
         matrix_type = Pardiso.REAL_NONSYM
-        @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
+        @info "Using Pardiso REAL_NONSYM (mtype=11)"
     end
-else  # "nonsym" (default, safe fallback)
-    matrix_type = Pardiso.REAL_NONSYM
-    @info "Using Pardiso REAL_NONSYM (mtype=11)"
-    @show pardiso_solver = MKLPardisoIterate(; nprocs, matrix_type)
+    @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
+elseif LINEAR_SOLVER == "ParU"
+    @info "Using ParUFactorization (parallel sparse LU)"
+    @show linear_solver = ParUFactorization(; reuse_symbolic = true)
 end
 
-# P = S Qc⁻¹ L - I  (Bardin et al., 2014)
-# Q = stop_time * M
-# Qc = L Q S = stop_time * Mc
-if !@isdefined(MyPreconditioner)
-    struct MyPreconditioner
+# P = S Q⁻¹ L - I  (Bardin et al., 2014)
+# When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
+if !@isdefined(Preconditioner)
+    struct Preconditioner
         prob
     end
 end
 
-Qc = stop_time * Mc
-Plprob = LinearProblem(Qc, ones(size(Qc, 1)))
-Plprob = init(Plprob, pardiso_solver, rtol = 1.0e-12)
-Pl = MyPreconditioner(Plprob)
+Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
+Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
+Pl = Preconditioner(Plprob)
 
-Base.eltype(::MyPreconditioner) = Float64
-function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
+Base.eltype(::Preconditioner) = Float64
+function LinearAlgebra.ldiv!(Pl::Preconditioner, x::AbstractVector)
     Pl.prob.b = LUMP * x
-    solve!(Pl.prob) # solves Qc u = b = L x
-    x .= SPRAY * Pl.prob.u .- x # x <- (S Qc⁻¹ L - I) x = P x
+    solve!(Pl.prob)
+    x .= SPRAY * Pl.prob.u .- x
     return x
 end
-function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
-    Pl.prob.b = LUMP * x
-    solve!(Pl.prob) # solves Qc u = b = L x
-    y .= SPRAY * Pl.prob.u .- x # y <- (S Qc⁻¹ L - I) x = P x
+function LinearAlgebra.ldiv!(y::AbstractVector, Pl::Preconditioner, x::AbstractVector)
+    mul!(Pl.prob.b, LUMP, x)
+    solve!(Pl.prob)
+    mul!(y, SPRAY, Pl.prob.u)
+    y .-= x
     return y
 end
 
@@ -217,7 +238,8 @@ end
 
 @info "Solving nonlinear problem with Newton-GMRES"
 @info "- JVP method: $JVP_METHOD"
-@info "- Preconditioner: lump-and-spray (Bardin et al., 2014)"
+@info "- Preconditioner: $(LUMP_AND_SPRAY ? "lump-and-spray (Bardin et al., 2014)" : "direct Q⁻¹ - I")"
+@info "- Linear solver: $LINEAR_SOLVER"
 @info "- abstol = $(0.001 * stop_time)"
 flush(stdout)
 
@@ -251,7 +273,7 @@ vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
 
 steady_dir = joinpath(outputdir, "age", model_config)
 mkpath(steady_dir)
-steady_file = joinpath(steady_dir, "age_newton.jld2")
+steady_file = joinpath(steady_dir, "age_newton_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout)

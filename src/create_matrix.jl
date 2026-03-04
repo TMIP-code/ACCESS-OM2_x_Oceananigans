@@ -22,9 +22,7 @@ Environment variables:
   W_FORMULATION     – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME  – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
-  ENABLE_AGE_SOLVE  – true | false  (default: false)
-                      When true, solves the linear age equation (coarsened + full)
-                      and saves the 3-D steady-state age fields.
+  (Age solving has been factored out into solve_matrix_age.jl)
 """
 
 @info "Loading packages and functions"
@@ -67,7 +65,6 @@ using TOML
 using JLD2
 using Printf
 using CairoMakie
-using NonlinearSolve
 using KernelAbstractions: @kernel, @index
 using DifferentiationInterface
 using DifferentiationInterface: Cache, jacobian_sparsity_with_contexts
@@ -75,10 +72,6 @@ using SparseConnectivityTracer
 using ADTypes: KnownJacobianSparsityDetector
 using ForwardDiff: ForwardDiff
 using SparseMatrixColorings
-using OceanTransportMatrixBuilder
-using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
-import Pardiso
-const nprocs = 48
 
 ################################################################################
 # Configuration
@@ -110,16 +103,12 @@ include("shared_functions.jl")
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
-parse_env_bool(name, default) = lowercase(strip(get(ENV, name, string(default)))) ∈ ("1", "true", "yes", "on")
-ENABLE_AGE_SOLVE = parse_env_bool("ENABLE_AGE_SOLVE", false)
-
 @info "Run configuration"
 @info "- PARENT_MODEL     = $parentmodel"
 @info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
 @info "- W_FORMULATION    = $W_FORMULATION"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
-@info "- ENABLE_AGE_SOLVE = $ENABLE_AGE_SOLVE"
 @info "- model_config     = $model_config"
 flush(stdout)
 
@@ -435,132 +424,6 @@ Colorbar(fig[1, 2], plt)
 save(joinpath(matrix_plots_dir, "M_spy.png"), fig)
 
 
-################################################################################
-# Optional: age solve
-################################################################################
-
-if ENABLE_AGE_SOLVE
-    # Check structural symmetry of M
-    i, j, v = findnz(M)
-    M1 = sparse(i, j, true)
-    asymmetric_entries = M1 - M1' .> 0
-    @info "Non-structurally-symmetric part of M ($(nnz(asymmetric_entries)) asymmetric entries):"
-    display(asymmetric_entries)
-    ISSTRUCTURALLYSYMMETRIC = Pardiso.isstructurallysymmetric(M)
-    @info "M is structurally symmetric: $ISSTRUCTURALLYSYMMETRIC"
-    flush(stdout)
-
-    @info "LUMP and SPRAY matrices"
-    flush(stdout)
-
-    v1D = interior(compute_volume(grid))[idx]
-
-    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-    @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP))):"
-    display(LUMP)
-    @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY))):"
-    display(SPRAY)
-
-    @info "Coarsened Jacobian"
-    flush(stdout)
-    Mc = LUMP * M * SPRAY
-    @info "Coarsened Jacobian Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))):"
-    display(Mc)
-
-    jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
-    jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
-    jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
-
-
-    # TODO: Keep preconditioner code below for later when doing iterative solves.
-    # @info "Setting up preconditioner"
-    # stop_time = 12 * month  # reference time for preconditioner scaling
-    # flush(stdout)
-    # struct MyPreconditioner
-    #     prob
-    # end
-    # Qc = stop_time * Mc
-    # Plprob = LinearProblem(Qc, ones(size(Qc, 1)))
-    # Plprob = init(Plprob, solver, rtol = 1.0e-12)
-    # Pl = MyPreconditioner(Plprob)
-    # Base.eltype(::MyPreconditioner) = Float64
-    # function LinearAlgebra.ldiv!(Pl::MyPreconditioner, x::AbstractVector)
-    #     Pl.prob.b = LUMP * x
-    #     solve!(Pl.prob)
-    #     x .= SPRAY * Pl.prob.u .- x
-    #     return x
-    # end
-    # function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MyPreconditioner, x::AbstractVector)
-    #     Pl.prob.b = LUMP * x
-    #     solve!(Pl.prob)
-    #     y .= SPRAY * Pl.prob.u .- x
-    #     return y
-    # end
-    # Pr = I
-    # precs = Returns((Pl, Pr))
-
-    if ISSTRUCTURALLYSYMMETRIC
-        @info "Setting up Pardiso solver"
-        flush(stdout)
-        matrix_type = Pardiso.REAL_SYM
-        @show solver = MKLPardisoIterate(; nprocs, matrix_type)
-    else
-        @info "Matrix is not structurally symmetric; using UMFPACKFactorization()"
-        flush(stdout)
-        @show solver = UMFPACKFactorization()
-    end
-
-    # ── Coarsened linear solve ──
-    @info "Solving coarsened linear system (Mc \\ -1)"
-    flush(stdout)
-    init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1)))
-    init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12)
-    @time "solve coarsened age" age_coarse_vec = SPRAY * solve!(init_prob_coarsened).u / year
-
-    Nwet = size(wet3D)
-    age_coarse_3D = zeros(Float64, Nwet)
-    age_coarse_3D[idx] .= age_coarse_vec
-
-    vol_mean_coarse = sum(age_coarse_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean coarsened steady age: $(vol_mean_coarse) years"
-
-    fig, ax, plt = hist(age_coarse_vec)
-    save(joinpath(matrix_plots_dir, "steady_age_coarsened_histogram.png"), fig)
-
-    jldsave(joinpath(matrices_dir, "steady_age_coarsened.jld2"); age = age_coarse_3D, wet3D, idx)
-    @info "saved coarsened steady age to $(joinpath(matrices_dir, "steady_age_coarsened.jld2"))"
-
-    # ── Full linear solve ──
-    @info "Solving full linear system (M \\ -1)"
-    flush(stdout)
-    init_prob_full = LinearProblem(M, -ones(size(M, 1)))
-    init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12)
-    @time "solve full age" age_full_vec = solve!(init_prob_full).u / year
-
-    age_full_3D = zeros(Float64, Nwet)
-    age_full_3D[idx] .= age_full_vec
-
-    vol_mean_full = sum(age_full_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean full steady age: $(vol_mean_full) years"
-
-    fig, ax, plt = hist(age_full_vec)
-    save(joinpath(matrix_plots_dir, "steady_age_full_histogram.png"), fig)
-
-    jldsave(joinpath(matrices_dir, "steady_age_full.jld2"); age = age_full_3D, wet3D, idx)
-    @info "saved full steady age to $(joinpath(matrices_dir, "steady_age_full.jld2"))"
-
-    # ── Age diagnostic plots (zonal averages + horizontal slices) ──
-    @info "Plotting age diagnostic figures"
-    flush(stdout)
-    vol_3D = zeros(Float64, Nwet)
-    vol_3D[idx] .= v1D
-    const OCEANS = oceanpolygons()
-    plot_age_diagnostics(age_coarse_3D, grid, wet3D, vol_3D, matrix_plots_dir, "steady_age_coarsened")
-    plot_age_diagnostics(age_full_3D, grid, wet3D, vol_3D, matrix_plots_dir, "steady_age_full")
-else
-    @info "Skipping age solve (ENABLE_AGE_SOLVE = false)"
-    flush(stdout)
-end
-
 @info "create_matrix.jl complete. Outputs in $(matrices_dir)"
+@info "(Run solve_matrix_age.jl to solve for steady-state age using the saved matrix)"
 flush(stdout)
