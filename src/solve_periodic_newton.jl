@@ -21,9 +21,10 @@ Environment variables (in addition to setup_model.jl):
   JVP_METHOD     – matrix | finitediff  (default: matrix)
                    matrix:     approximate JVP using transport matrix M (fast, sparse matvec)
                    finitediff: finite-difference JVP via AutoFiniteDiff (slow, extra G! evals)
-  LINEAR_SOLVER  – Pardiso | ParU  (default: Pardiso)
+  LINEAR_SOLVER  – Pardiso | ParU | UMFPACK  (default: Pardiso)
                    Pardiso: MKL Pardiso iterative solver
                    ParU:    ParU parallel sparse LU factorization
+                   UMFPACK: UMFPACK sparse LU factorization (ships with Julia)
   LUMP_AND_SPRAY – yes | no  (default: no)
                    yes: lump-and-spray coarsening (Bardin et al., 2014)
                    no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
@@ -40,7 +41,7 @@ using Oceananigans.AbstractOperations: volume
 using KernelAbstractions: @kernel, @index
 import Pardiso
 import ParU_jll
-using LinearSolve: ParUFactorization
+using LinearSolve: ParUFactorization, UMFPACKFactorization
 const nprocs = 12
 
 ################################################################################
@@ -51,7 +52,7 @@ JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 (JVP_METHOD ∈ ("matrix", "finitediff")) || error("JVP_METHOD must be one of: matrix, finitediff (got: $JVP_METHOD)")
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
-(LINEAR_SOLVER ∈ ("Pardiso", "ParU")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU (got: $LINEAR_SOLVER)")
+(LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
 # Pardiso matrix type for the preconditioner (applies whenever LINEAR_SOLVER=Pardiso):
 #   nonsym      → REAL_NONSYM (mtype=11): safe fallback, treats matrix as fully nonsymmetric
@@ -160,6 +161,9 @@ if LINEAR_SOLVER == "Pardiso"
 elseif LINEAR_SOLVER == "ParU"
     @info "Using ParUFactorization (parallel sparse LU)"
     @show linear_solver = ParUFactorization(; reuse_symbolic = true)
+elseif LINEAR_SOLVER == "UMFPACK"
+    @info "Using UMFPACKFactorization (serial sparse LU)"
+    @show linear_solver = UMFPACKFactorization(; reuse_symbolic = true)
 end
 
 # P = S Q⁻¹ L - I  (Bardin et al., 2014)

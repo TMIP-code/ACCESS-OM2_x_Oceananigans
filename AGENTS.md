@@ -179,12 +179,12 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output director
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `JVP_METHOD` | `matrix` | JVP method (`matrix` or `finitediff`); Newton solver only |
-| `LINEAR_SOLVER` | `Pardiso` | Direct solver for preconditioner (`Pardiso` or `ParU`) |
+| `LINEAR_SOLVER` | `Pardiso` | Direct solver for preconditioner (`Pardiso`, `ParU`, or `UMFPACK`) |
 | `LUMP_AND_SPRAY` | `no` | Lump-and-spray coarsening for preconditioner (`yes`/`no`) |
 | `PRECONDITIONER_MATRIX_TYPE` | `nonsym` | Pardiso matrix type (`nonsym` or `sym_cleaned`); Pardiso only |
 
-- Output filename tags: `Pardiso`/`ParU` for LINEAR_SOLVER; `LSprec`/`prec` for LUMP_AND_SPRAY
-- Example: `age_newton_Pardiso_prec.jld2`, `steady_age_full_ParU_LSprec.jld2`
+- Output filename tags: `Pardiso`/`ParU`/`UMFPACK` for LINEAR_SOLVER; `LSprec`/`prec` for LUMP_AND_SPRAY
+- Example: `age_newton_Pardiso_prec.jld2`, `steady_age_full_ParU_LSprec.jld2`, `steady_age_full_UMFPACK_prec.jld2`
 
 ### Anderson solver variables (`solve_periodic_anderson.jl`)
 
@@ -208,7 +208,7 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output director
 - zstar initialisation before Jacobian: `_update_zstar_scaling!(η_constant, grid)`
 - Age solving is factored out into `solve_matrix_age.jl` (runs on saved M.jld2)
 - Newton solver loads M from `create_matrix.jl` output; LUMP_AND_SPRAY controls preconditioner coarsening
-- LINEAR_SOLVER selects direct solver: Pardiso (MKL) or ParU (SuiteSparse parallel LU)
+- LINEAR_SOLVER selects direct solver: Pardiso (MKL), ParU (SuiteSparse parallel LU), or UMFPACK (SuiteSparse serial LU)
 - Newton solver uses approximate JVP via `stop_time * M` (sparse matvec) or finite-diff via `AutoFiniteDiff()`
 - Anderson/SpeedMapping solver needs no matrix or preconditioner — pure fixed-point acceleration
 - GPU arrays preallocated once; `copyto!` used for CPU↔GPU transfer in G!

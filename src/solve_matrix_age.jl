@@ -22,7 +22,7 @@ Environment variables:
   W_FORMULATION     – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME  – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
-  LINEAR_SOLVER     – Pardiso | ParU  (default: Pardiso)
+  LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
   LUMP_AND_SPRAY    – yes | no  (default: no)
   PRECONDITIONER_MATRIX_TYPE – nonsym | sym_cleaned  (default: nonsym; Pardiso only)
 """
@@ -86,7 +86,7 @@ year = years = 365.25 * 86400  # seconds
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
-(LINEAR_SOLVER ∈ ("Pardiso", "ParU")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU (got: $LINEAR_SOLVER)")
+(LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
 PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
 (PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
@@ -187,6 +187,9 @@ if LINEAR_SOLVER == "Pardiso"
 elseif LINEAR_SOLVER == "ParU"
     @info "Using ParUFactorization (parallel sparse LU)"
     @show solver = ParUFactorization(; reuse_symbolic = true)
+elseif LINEAR_SOLVER == "UMFPACK"
+    @info "Using UMFPACKFactorization (serial sparse LU)"
+    @show solver = UMFPACKFactorization(; reuse_symbolic = true)
 end
 flush(stdout)
 
