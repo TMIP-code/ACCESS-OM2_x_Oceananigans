@@ -96,16 +96,6 @@ include("periodic_solver_common.jl")
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
 
 ################################################################################
-# Compute cell volumes (needed for vol_mean and optionally for lump_and_spray)
-################################################################################
-
-@info "Computing cell volumes"
-flush(stdout)
-
-grid_cpu = on_architecture(CPU(), grid)
-v1D = interior(compute_volume(grid_cpu))[idx]
-
-################################################################################
 # LUMP, SPRAY, and preconditioner matrix Q_precond
 ################################################################################
 
@@ -244,7 +234,7 @@ end
 @info "- JVP method: $JVP_METHOD"
 @info "- Preconditioner: $(LUMP_AND_SPRAY ? "lump-and-spray (Bardin et al., 2014)" : "direct Q⁻¹ - I")"
 @info "- Linear solver: $LINEAR_SOLVER"
-@info "- abstol = $(0.001 * stop_time)"
+@info "- abstol = 0.001 years (volume-weighted RMS norm)"
 flush(stdout)
 
 age_init_vec = zeros(Nidx)
@@ -253,9 +243,10 @@ nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 @time sol = solve(
     nonlinearprob,
     newton_solver;
+    internalnorm = vol_norm,
     show_trace = Val(true),
     reltol = Inf,
-    abstol = 0.001 * stop_time,
+    abstol = 0.001,
     verbose = true,
 )
 

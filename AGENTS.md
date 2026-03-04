@@ -25,7 +25,7 @@ ACCESS-OM2_x_Oceananigans/
 ├── scripts/
 │   ├── ACCESS-OM2-1_preprocess_job.sh   # PBS: grid + velocities (12 CPU, 47 GB, express)
 │   ├── ACCESS-OM2-1_CPU_job.sh          # PBS: offline simulation CPU (12 CPU, 47 GB, express)
-│   ├── ACCESS-OM2-1_GPU_job.sh          # PBS: GPU job (1 GPU, 47 GB, gpuvolta) — SOLVE_METHOD selects script
+│   ├── ACCESS-OM2-1_GPU_job.sh          # PBS: GPU job (1 GPU, 47 GB, gpuvolta) — NONLINEAR_SOLVER selects script
 │   ├── ACCESS-OM2-1_plot_1year_age_job.sh  # PBS: CPU plot job for 1-year age diagnostics
 │   ├── ACCESS-OM2-1_plot_10years_age_job.sh # PBS: CPU plot job for 10-year age diagnostics
 │   ├── ACCESS-OM2-1_plot_100years_age_job.sh # PBS: CPU plot job for 100-year age diagnostics
@@ -53,7 +53,7 @@ ACCESS-OM2_x_Oceananigans/
 │       ├── create_velocities/
 │       │   └── create_velocities_{parentmodel}_{job_id}.{out,err}
 │       ├── run_ACCESS-OM2/
-│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{SOLVE_METHOD}_{job_id}.log
+│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{NONLINEAR_SOLVER}_{job_id}.log
 │       ├── create_matrix/
 │       │   └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
 │       └── solve_matrix_age/
@@ -90,8 +90,8 @@ qsub scripts/ACCESS-OM2-1_matrix_job.sh
 qsub scripts/ACCESS-OM2-1_preprocess_job.sh
 qsub scripts/ACCESS-OM2-1_GPU_job.sh
 # with solver selection:
-qsub -v SOLVE_METHOD=newton scripts/ACCESS-OM2-1_GPU_job.sh
-qsub -v SOLVE_METHOD=anderson,AA_SOLVER=NLsolve scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=newton scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=NLsolve scripts/ACCESS-OM2-1_GPU_job.sh
 ```
 
 Monitor:
@@ -150,7 +150,7 @@ qsub -v LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=yes \
 ## PBS scripts
 - `scripts/ACCESS-OM2-1_preprocess_job.sh` — grid + velocities preprocessing (12 CPU, 47 GB)
 - `scripts/ACCESS-OM2-1_CPU_job.sh` — offline simulation on CPU (12 CPU, 47 GB)
-- `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `SOLVE_METHOD` selects script (1year/10years/100years/newton/anderson)
+- `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `NONLINEAR_SOLVER` selects script (1year/10years/100years/newton/anderson)
 - `scripts/ACCESS-OM2-1_plot_1year_age_job.sh` — CPU plot job for 1-year age diagnostics (auto-submitted after 1year GPU job)
 - `scripts/ACCESS-OM2-1_plot_10years_age_job.sh` — CPU plot job for 10-year age diagnostics (auto-submitted after 10years GPU job)
 - `scripts/ACCESS-OM2-1_plot_100years_age_job.sh` — CPU plot job for 100-year age diagnostics (auto-submitted after 100years GPU job)
@@ -190,13 +190,14 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output director
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AA_SOLVER` | `SpeedMapping` | Solver backend: `SpeedMapping` (SpeedMapping.jl), `NLsolve` (NLsolve.jl), `SIAMFANL` (SIAMFANLEquations.jl) |
+| `AA_SOLVER` | `SpeedMapping` | Solver backend: `SpeedMapping` (SpeedMapping.jl), `NLsolve` (NLsolve.jl), `SIAMFANL` (SIAMFANLEquations.jl), `FixedPoint` (FixedPointAcceleration.jl) |
 | `NLSAA_M` | `10` | Anderson history size (literature recommends 5–10) |
 | `NLSAA_BETA` | `1.0` | Anderson damping parameter (try 0.5 for slow convergence) |
 | `SMAA_SIGMA_MIN` | `0.0` | SpeedMapping minimum σ; setting to 1 may avoid stalling |
 | `SMAA_STABILIZE` | `no` | Stabilization mapping before extrapolation (`yes`/`no`) |
 | `SMAA_CHECK_OBJ` | `no` | Restart at best past iterate on NaN/Inf (`yes`/`no`) |
 | `SMAA_ORDERS` | `332` | Alternating order sequence (each digit 1–3) |
+| `FPAA_M` | `10` | FixedPointAcceleration Anderson history size |
 
 ## Key design decisions
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)

@@ -6,7 +6,7 @@ Included after `setup_model.jl` — assumes its globals are in scope:
   year, on_architecture, compute_wet_mask
 """
 
-using LinearAlgebra: norm
+using LinearAlgebra: norm, dot
 using Oceananigans.Simulations: reset!
 using Printf: @sprintf
 
@@ -53,6 +53,29 @@ flush(stdout)
 
 age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
 age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
+
+################################################################################
+# Cell volumes and volume-weighted norm
+################################################################################
+
+@info "Computing cell volumes for volume-weighted norm"
+flush(stdout)
+
+grid_cpu = on_architecture(CPU(), grid)
+v1D = interior(compute_volume(grid_cpu))[idx]
+
+"""
+    make_vol_norm(v1D, year)
+
+Return a volume-weighted RMS norm function in units of years:
+  vol_norm(x) = sqrt(∑ vᵢ xᵢ² / ∑ vᵢ) / year
+"""
+function make_vol_norm(v1D, year)
+    inv_sumv = 1 / sum(v1D)
+    return x -> sqrt(dot(v1D, x .^ 2) * inv_sumv) / year
+end
+
+vol_norm = make_vol_norm(v1D, year)
 
 ################################################################################
 # Forward map Φ! and residual G!
@@ -122,7 +145,7 @@ end
 function G!(dage, age, p)
     Φ!(dage, age, p)
     dage .-= age
-    @info "G! residual" norm_drift = norm(dage) max_drift = maximum(abs, dage) / year mean_drift = mean(abs, dage) / year
+    @info "G! residual" vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
     flush(stdout)
     return dage
 end
