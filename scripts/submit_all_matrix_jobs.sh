@@ -5,7 +5,8 @@ set -euo pipefail
 velocity_sources=(cgridtransports)
 # w_formulations=(wdiagnosed wprescribed)
 w_formulations=(wdiagnosed)
-advection_schemes=(centered2 weno3 weno5)
+# advection_schemes=(centered2 weno3 weno5)
+advection_schemes=(centered2)
 
 count=0
 expected=$(( ${#velocity_sources[@]} * ${#w_formulations[@]} * ${#advection_schemes[@]} ))
