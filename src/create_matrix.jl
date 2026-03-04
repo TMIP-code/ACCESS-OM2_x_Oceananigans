@@ -21,6 +21,7 @@ Environment variables:
   VELOCITY_SOURCE   – cgridtransports | bgridvelocities  (default: cgridtransports)
   W_FORMULATION     – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME  – centered2 | weno3 | weno5  (default: centered2)
+  TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   ENABLE_AGE_SOLVE  – true | false  (default: false)
                       When true, solves the linear age equation (coarsened + full)
                       and saves the 3-D steady-state age fields.
@@ -106,8 +107,8 @@ end
 
 include("shared_functions.jl")
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
 parse_env_bool(name, default) = lowercase(strip(get(ENV, name, string(default)))) ∈ ("1", "true", "yes", "on")
 ENABLE_AGE_SOLVE = parse_env_bool("ENABLE_AGE_SOLVE", false)
@@ -117,6 +118,7 @@ ENABLE_AGE_SOLVE = parse_env_bool("ENABLE_AGE_SOLVE", false)
 @info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
 @info "- W_FORMULATION    = $W_FORMULATION"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
+@info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- ENABLE_AGE_SOLVE = $ENABLE_AGE_SOLVE"
 @info "- model_config     = $model_config"
 flush(stdout)
@@ -196,8 +198,8 @@ flush(stdout)
 
 if W_FORMULATION == "wprescribed"
     w_constant_file = VELOCITY_SOURCE == "cgridtransports" ?
-                      joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2") :
-                      joinpath(preprocessed_inputs_dir, "w_constant.jld2")
+        joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2") :
+        joinpath(preprocessed_inputs_dir, "w_constant.jld2")
     @info "Using prescribed w field from: $w_constant_file"
     flush(stdout)
     w_constant = CenterField(grid)
@@ -262,6 +264,7 @@ linear_forcing = (; ADc = linear_dynamics)
 ADc0 = CenterField(grid)
 
 jacobian_model_kwargs = (
+    timestepper = timestepper_from_string(TIMESTEPPER),
     tracer_advection = advection_from_scheme(ADVECTION_SCHEME),
     velocities = velocities,
     free_surface = free_surface,

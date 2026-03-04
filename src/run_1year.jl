@@ -20,6 +20,7 @@ Environment variables:
   VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
+  TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
 """
 
 include("setup_model.jl")

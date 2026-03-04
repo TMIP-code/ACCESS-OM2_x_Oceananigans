@@ -26,7 +26,8 @@ arch = CPU()
 # ── Grid: RectilinearGrid with z-star ────────────────────────────────────
 Nz = 4
 z_faces = collect(range(-100, 0, length = Nz + 1))
-grid = RectilinearGrid(arch;
+grid = RectilinearGrid(
+    arch;
     size = (4, 4, Nz),
     x = (0, 100),
     y = (0, 100),
@@ -43,10 +44,12 @@ stop_time = 12 * prescribed_dt
 tmpdir = mktempdir()
 η_file = joinpath(tmpdir, "η.jld2")
 
-η_ondisk = FieldTimeSeries{Center, Center, Face}(grid, fts_times;
+η_ondisk = FieldTimeSeries{Center, Center, Face}(
+    grid, fts_times;
     indices = (:, :, Nz + 1),
     backend = OnDisk(), path = η_file, name = "η",
-    time_indexing = Cyclical(stop_time))
+    time_indexing = Cyclical(stop_time)
+)
 for n in 1:12
     η_field = Field{Center, Center, Face}(grid; indices = (:, :, Nz + 1))
     set!(η_field, sin(2pi * n / 12))
@@ -54,15 +57,18 @@ for n in 1:12
 end
 
 # ── Reload with InMemory(4) ─────────────────────────────────────────────
-η_ts = FieldTimeSeries(η_file, "η";
+η_ts = FieldTimeSeries(
+    η_file, "η";
     architecture = arch, grid,
     backend = InMemory(4),
-    time_indexing = Cyclical(year))
+    time_indexing = Cyclical(year)
+)
 
 # ── Model with PrescribedFreeSurface + z-star ────────────────────────────
 free_surface = PrescribedFreeSurface(displacement = η_ts)
 
-model = HydrostaticFreeSurfaceModel(grid;
+model = HydrostaticFreeSurfaceModel(
+    grid;
     tracers = :c,
     free_surface,
     velocities = PrescribedVelocityFields(; formulation = DiagnosticVerticalVelocity()),

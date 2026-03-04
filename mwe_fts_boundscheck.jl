@@ -82,9 +82,11 @@ v_file = joinpath(tmpdir, "v_periodic.jld2")
 @info "Writing FTS to JLD2 in $tmpdir"
 
 # u: Face, Center, Center — uniform eastward flow
-u_ondisk = FieldTimeSeries{Face, Center, Center}(grid, fts_times;
+u_ondisk = FieldTimeSeries{Face, Center, Center}(
+    grid, fts_times;
     backend = OnDisk(), path = u_file, name = "u",
-    time_indexing = Cyclical(stop_time))
+    time_indexing = Cyclical(stop_time)
+)
 for n in 1:12
     u_field = Field{Face, Center, Center}(grid)
     set!(u_field, 0.01)
@@ -92,9 +94,11 @@ for n in 1:12
 end
 
 # v: Center, Face, Center — zero
-v_ondisk = FieldTimeSeries{Center, Face, Center}(grid, fts_times;
+v_ondisk = FieldTimeSeries{Center, Face, Center}(
+    grid, fts_times;
     backend = OnDisk(), path = v_file, name = "v",
-    time_indexing = Cyclical(stop_time))
+    time_indexing = Cyclical(stop_time)
+)
 for n in 1:12
     v_field = Field{Center, Face, Center}(grid)
     set!(v_field, 0.0)
@@ -105,10 +109,12 @@ end
 # Using Face in z with indices restricted to Nz+1 ensures _update_zstar_scaling!
 # can access η[i, j, Nz+1] without a BoundsError.
 # η_ondisk = FieldTimeSeries{Center, Center, Face}(grid, fts_times;
-η_ondisk = FieldTimeSeries{Center, Center, Face}(grid, fts_times;
+η_ondisk = FieldTimeSeries{Center, Center, Face}(
+    grid, fts_times;
     indices = (:, :, Nz + 1),
     backend = OnDisk(), path = η_file, name = "η",
-    time_indexing = Cyclical(stop_time))
+    time_indexing = Cyclical(stop_time)
+)
 for n in 1:12
     # η_field = Field{Center, Center, Face}(grid; indices = (:, :, Nz + 1))
     η_field = Field{Center, Center, Face}(grid; indices = (:, :, Nz + 1))
@@ -123,21 +129,29 @@ N_in_mem = 4
 backend = InMemory(N_in_mem)
 time_indexing = Cyclical(1year)
 
-u_ts = FieldTimeSeries(u_file, "u";
-    architecture = arch, grid, backend, time_indexing)
+u_ts = FieldTimeSeries(
+    u_file, "u";
+    architecture = arch, grid, backend, time_indexing
+)
 @show u_ts
 
-v_ts = FieldTimeSeries(v_file, "v";
-    architecture = arch, grid, backend, time_indexing)
+v_ts = FieldTimeSeries(
+    v_file, "v";
+    architecture = arch, grid, backend, time_indexing
+)
 @show v_ts
 
-η_ts = FieldTimeSeries(η_file, "η";
-    architecture = arch, grid, backend, time_indexing)
+η_ts = FieldTimeSeries(
+    η_file, "η";
+    architecture = arch, grid, backend, time_indexing
+)
 @show η_ts
 
 # ── Velocities and free surface ──────────────────────────────────────────
-velocities = PrescribedVelocityFields(u = u_ts, v = v_ts,
-    formulation = DiagnosticVerticalVelocity())
+velocities = PrescribedVelocityFields(
+    u = u_ts, v = v_ts,
+    formulation = DiagnosticVerticalVelocity()
+)
 
 free_surface = PrescribedFreeSurface(displacement = η_ts)
 
@@ -147,7 +161,7 @@ z_center = znodes(grid, Center(), Center(), Center())
 # Simple MLD-based vertical diffusivity: strong in top layer, weak below
 mld = -500.0  # uniform mixed layer depth (m)
 is_above_mld = z_center .> mld
-κV_data = 0.1 .* is_above_mld .+ 3e-5 .* .!is_above_mld
+κV_data = 0.1 .* is_above_mld .+ 3.0e-5 .* .!is_above_mld
 κV_field = CenterField(grid)
 set!(κV_field, reshape(κV_data, 1, 1, Nz))
 
@@ -197,7 +211,7 @@ set!(model, age = 0.0)
 simulation = Simulation(model; Δt = dt, stop_time)
 
 function progress(sim)
-    @info "Iteration $(iteration(sim)), time = $(time(sim) / day) days"
+    return @info "Iteration $(iteration(sim)), time = $(time(sim) / day) days"
 end
 add_callback!(simulation, progress, TimeInterval(prescribed_dt))
 

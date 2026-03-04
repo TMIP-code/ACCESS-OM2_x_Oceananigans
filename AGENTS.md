@@ -33,8 +33,8 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── (v_*, w_*, eta_* analogues)
 │   └── plots/                          # diagnostic plots from create_velocities.jl
 ├── outputs/{parentmodel}/              # symlink → /scratch/y99/TMIP/…/outputs/
-│   ├── age/{VELOCITY_SOURCE}_{W_FORMULATION}/   # offline simulation outputs
-│   └── matrices/{VELOCITY_SOURCE}_constant/     # Jacobian M.jld2, steady_age_*.jld2, plots/
+│   ├── age/{model_config}/            # offline simulation outputs (model_config = VS_WF_AS_TS)
+│   └── matrices/{model_config}/       # Jacobian M.jld2, steady_age_*.jld2, plots/
 ├── logs/                               # symlink → /scratch/y99/TMIP/…/logs/
 │   ├── PBS/                            # PBS scheduler stdout/stderr (set via #PBS -o/-e)
 │   └── julia/                          # Julia script stdout/stderr, organised by script name
@@ -53,6 +53,7 @@ ACCESS-OM2_x_Oceananigans/
 
 ## Julia depot
 Julia packages are installed in `JULIA_DEPOT_PATH=/g/data/y99/bp3051/.julia/`.
+If you need to check Oceananigans code or any package loaded in this project, that where you should look.
 
 ## NetCDF inspection before coding
 Use this quick check before changing data-loading, grid, or velocity scripts.
@@ -108,32 +109,48 @@ qsub -v VELOCITY_SOURCE=bgridvelocities,ENABLE_AGE_SOLVE=true \
   - `eta_periodic.jld2` / `eta_constant.jld2`
   - `{parentmodel}_grid.jld2` (grid; no periodic/constant distinction)
 
-### Output directories
-- Age simulation outputs: `outputs/{parentmodel}/age/{VELOCITY_SOURCE}_{W_FORMULATION}/`
-- Matrix outputs: `outputs/{parentmodel}/matrices/{VELOCITY_SOURCE}_constant/`
-- Matrix plots: `outputs/{parentmodel}/matrices/{VELOCITY_SOURCE}_constant/plots/`
+### Output directories (unified 4-part tag: `{VS}_{WF}_{AS}_{TS}` = `model_config`)
+- Age simulation outputs: `outputs/{parentmodel}/age/{model_config}/`
+- Matrix outputs: `outputs/{parentmodel}/matrices/{model_config}/`
+- Matrix plots: `outputs/{parentmodel}/matrices/{model_config}/plots/`
 
 ### Log directories (`logs/julia/`)
-- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}` for simulation/solver scripts
-- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_constant` for `create_matrix`
+- `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}_{ADVECTION_SCHEME}_{TIMESTEPPER}`
 
 ## Script overview
 | Script | Purpose | Key env vars |
 |--------|---------|-------------|
-| `src/setup_model.jl` | Shared model setup (include'd by run/solve scripts) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION |
+| `src/setup_model.jl` | Shared model setup (include'd by run/solve scripts) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/run_1year.jl` | Standalone 1-year age simulation | (inherits from setup_model.jl) |
 | `src/solve_periodic_newton.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD (matrix/finitediff) |
 | `src/solve_periodic_anderson.jl` | Anderson/SpeedMapping periodic solver | ACCELERATION_METHOD (speedmapping/anderson) |
 | `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
 | `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
-| `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION |
-| `src/create_matrix.jl` | Build transport matrix from constant fields; optionally solve for steady-state age | PARENT_MODEL, VELOCITY_SOURCE, ENABLE_AGE_SOLVE |
+| `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
+| `src/create_matrix.jl` | Build transport matrix from constant fields; optionally solve for steady-state age | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, ENABLE_AGE_SOLVE |
 
 ## PBS scripts
 - `scripts/ACCESS-OM2-1_preprocess_job.sh` — grid + velocities preprocessing (12 CPU, 47 GB)
 - `scripts/ACCESS-OM2-1_CPU_job.sh` — offline simulation on CPU (12 CPU, 47 GB)
 - `scripts/ACCESS-OM2-1_GPU_job.sh` — GPU job (1 GPU, 12 CPU, 47 GB); `SOLVE_METHOD` selects script (1year/newton/anderson)
 - `scripts/ACCESS-OM2-1_matrix_job.sh` — matrix build on CPU (48 CPU, 190 GB, normal queue)
+
+## Configuration environment variables
+
+The 4 core config env vars are parsed by `parse_config_env()` in `shared_functions.jl`:
+
+| Variable | Valid values | Default |
+|----------|-------------|---------|
+| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities` | `cgridtransports` |
+| `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` |
+| `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` |
+| `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` |
+
+- `AB2` = `:QuasiAdamsBashforth2` (Oceananigans default)
+- `SRK{N}` = `:SplitRungeKutta{N}` (N = 2..5 stages)
+
+Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts.
+The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output directory paths and log filenames.
 
 ## Key design decisions
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)

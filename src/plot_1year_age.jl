@@ -21,6 +21,7 @@ Environment variables:
   VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
+  TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
 """
 
 @info "Loading packages for age plotting"
@@ -65,8 +66,8 @@ else
     outputdir = profile["outputdir"]
 end
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
 age_output_dir = joinpath(outputdir, "age", model_config)
 
@@ -81,6 +82,7 @@ end
 @info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
 @info "- W_FORMULATION    = $W_FORMULATION"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
+@info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- Output file      = $output_filepath"
 flush(stdout)
 

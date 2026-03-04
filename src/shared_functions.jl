@@ -17,23 +17,35 @@ using Printf: @sprintf
 # Config env var helpers
 ################################################################################
 
-"""Parse and validate the 3 core config env vars."""
+"""Parse and validate the 4 core config env vars."""
 function parse_config_env()
     VS = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
     WF = get(ENV, "W_FORMULATION", "wdiagnosed")
     AS = get(ENV, "ADVECTION_SCHEME", "centered2")
+    TS = get(ENV, "TIMESTEPPER", "AB2")
     VS ∈ ("bgridvelocities", "cgridtransports") || error("VELOCITY_SOURCE must be bgridvelocities or cgridtransports (got: $VS)")
     WF ∈ ("wdiagnosed", "wprescribed") || error("W_FORMULATION must be wdiagnosed or wprescribed (got: $WF)")
     AS ∈ ("centered2", "weno3", "weno5") || error("ADVECTION_SCHEME must be centered2, weno3, or weno5 (got: $AS)")
-    return (; VELOCITY_SOURCE = VS, W_FORMULATION = WF, ADVECTION_SCHEME = AS)
+    TS ∈ ("AB2", "SRK2", "SRK3", "SRK4", "SRK5") || error("TIMESTEPPER must be AB2, SRK2, SRK3, SRK4, or SRK5 (got: $TS)")
+    return (; VELOCITY_SOURCE = VS, W_FORMULATION = WF, ADVECTION_SCHEME = AS, TIMESTEPPER = TS)
 end
 
 """Convert ADVECTION_SCHEME string to Oceananigans advection object."""
 function advection_from_scheme(s::AbstractString)
     return s == "centered2" ? Centered(order = 2) :
-           s == "weno3" ? WENO(order = 3) :
-           s == "weno5" ? WENO(order = 5) :
-           error("Unknown ADVECTION_SCHEME: $s")
+        s == "weno3" ? WENO(order = 3) :
+        s == "weno5" ? WENO(order = 5) :
+        error("Unknown ADVECTION_SCHEME: $s")
+end
+
+"""Convert TIMESTEPPER string to Oceananigans timestepper Symbol."""
+function timestepper_from_string(s::AbstractString)
+    return s == "AB2" ? :QuasiAdamsBashforth2 :
+        s == "SRK2" ? :SplitRungeKutta2 :
+        s == "SRK3" ? :SplitRungeKutta3 :
+        s == "SRK4" ? :SplitRungeKutta4 :
+        s == "SRK5" ? :SplitRungeKutta5 :
+        error("Unknown TIMESTEPPER: $s")
 end
 
 @kernel function compute_coordinates_and_metrics_from_supergrid!(

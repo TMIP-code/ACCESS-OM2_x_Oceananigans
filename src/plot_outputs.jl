@@ -11,9 +11,11 @@ include("src/plot_outputs.jl")
 ```
 
 Environment variables:
-  PARENT_MODEL    – model resolution tag  (default: ACCESS-OM2-1)
-  VELOCITY_SOURCE – cgridtransports | bgridvelocities  (default: cgridtransports)
-  W_FORMULATION   – wdiagnosed | wprescribed  (default: wdiagnosed)
+  PARENT_MODEL     – model resolution tag  (default: ACCESS-OM2-1)
+  VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
+  W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
+  ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
+  TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
 
 Alternatively, pass the JLD2 output filepath as ARGS[1].
 """
@@ -52,8 +54,8 @@ else
     outputdir = profile["outputdir"]
 end
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 arch_str = "CPU"
 
 # Determine JLD2 output filepath

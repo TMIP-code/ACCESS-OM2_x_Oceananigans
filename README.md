@@ -11,28 +11,29 @@ use transport matrices to solve for periodic state using a Newon–Krylov solver
 
 ## Project setup notes
 
-Gadi compute nodes don't have access to the internet, so the project dependencies must be downloaded on the login node. But the default mutli-threaded precompilation could use too much resources and crash during `pkg> up`. A solution may be to first download the deps on a login node, with a flag to prevent precompilation:
+Gadi compute nodes don't have access to the internet, so the project dependencies must be downloaded on the login node. But the default mutli-threaded precompilation could use too much resources and crash during `pkg> up`. Instead, run the dedicated script in `scripts/pkg_udate_project.sh`, which run `pkg> up` on the login node _without_ precompilation, then run precompilation on compute nodes on the CPU and then on the GPU.
+
+## Configuration
+
+Simulations are configured via environment variables. The 4 core config variables determine the model setup and output directory paths:
+
+| Variable | Valid values | Default | Description |
+|----------|-------------|---------|-------------|
+| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities` | `cgridtransports` | Source of prescribed velocities |
+| `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` | Vertical velocity treatment |
+| `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` | Tracer advection scheme |
+| `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` | Time-stepping scheme |
+
+Timestepper values map to Oceananigans symbols:
+- `AB2` = `:QuasiAdamsBashforth2` (default quasi-Adams-Bashforth 2nd order)
+- `SRK{N}` = `:SplitRungeKutta{N}` (split Runge-Kutta with N = 2..5 stages)
+
+The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `cgridtransports_wdiagnosed_centered2_AB2`) determines output directory paths and log filenames.
+
+Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts. Override at submission time:
 
 ```bash
-env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.update()'
-```
-
-and then precompile on a compute node, essentially running
-
-```bash
-julia --project -e 'using Pkg; Pkg.instantiate()'
-```
-
-by simply submitting the job (48 CPUs)
-```bash
-qsub scripts/pkg_instantiate_project_CPU.sh
-```
-
-<!-- TODO: Not sure I need a separate script for GPU? -->
-<!-- TODO: Maybe it should also use `pkg> update` instead of just `instantiate`? -->
-and for GPU (1 GPU, 12 CPUs)
-```bash
-qsub scripts/pkg_instantiate_project_GPU.sh
+qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_GPU_job.sh
 ```
 
 ## Preprocessed outputs layout

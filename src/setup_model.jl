@@ -15,6 +15,7 @@ Environment variables:
   VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
+  TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
 """
 
 @info "Loading packages and functions"
@@ -86,14 +87,15 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)"
+(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
 @info "Run configuration"
 @info "- PARENT_MODEL      = $parentmodel"
 @info "- VELOCITY_SOURCE   = $VELOCITY_SOURCE"
 @info "- W_FORMULATION     = $W_FORMULATION"
 @info "- ADVECTION_SCHEME  = $ADVECTION_SCHEME"
+@info "- TIMESTEPPER       = $TIMESTEPPER"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -252,6 +254,7 @@ tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
 
 model = HydrostaticFreeSurfaceModel(
     grid;
+    timestepper = timestepper_from_string(TIMESTEPPER),
     tracer_advection,
     velocities = velocities,
     free_surface = free_surface,

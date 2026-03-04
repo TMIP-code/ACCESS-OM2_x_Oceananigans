@@ -5,13 +5,13 @@ set -euo pipefail
 # 60s delay between submissions to avoid concurrent precompilation OOM.
 #
 # Optional env vars forwarded to all jobs:
-#   VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, CHECK_BOUNDS
+#   VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, CHECK_BOUNDS
 
 DELAY=60  # seconds between submissions
 
 # Forward optional env vars to all jobs
 EXTRA_VARS=""
-for var in VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME CHECK_BOUNDS; do
+for var in VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME TIMESTEPPER CHECK_BOUNDS; do
     val="${!var:-}"
     [ -n "$val" ] && EXTRA_VARS="${EXTRA_VARS},${var}=${val}"
 done
