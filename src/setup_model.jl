@@ -87,6 +87,8 @@ else
     Δt = profile["dt_seconds"] * second
 end
 
+include("shared_functions.jl")
+
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
@@ -100,8 +102,6 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 
 @show outputdir
 mkpath(outputdir)
-
-include("shared_functions.jl")
 
 ################################################################################
 # Load grid from JLD2
