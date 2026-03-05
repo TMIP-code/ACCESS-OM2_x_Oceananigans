@@ -2,7 +2,7 @@
 
 #PBS -N run_OM2-1_long
 #PBS -P y99
-#PBS -l mem=47GB
+#PBS -l mem=96GB
 #PBS -q gpuvolta
 #PBS -l walltime=48:00:00
 #PBS -l ngpus=1

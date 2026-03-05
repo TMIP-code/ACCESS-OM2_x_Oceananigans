@@ -2,7 +2,7 @@
 
 #PBS -N instantiate_GPU
 #PBS -P y99
-#PBS -l mem=47GB
+#PBS -l mem=96GB
 #PBS -q gpuvolta
 #PBS -l walltime=01:00:00
 #PBS -l ngpus=1
