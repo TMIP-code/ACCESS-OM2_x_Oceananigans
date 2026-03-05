@@ -100,7 +100,7 @@ add_callback!(simulation, progress_message, TimeInterval(12 * prescribed_Δt))
 # Checkpoint saving callback
 ################################################################################
 
-age_output_dir = joinpath(outputdir, "age", model_config)
+age_output_dir = joinpath(outputdir, "standardrun", model_config)
 mkpath(age_output_dir)
 
 prev_mean_age = Ref(0.0)

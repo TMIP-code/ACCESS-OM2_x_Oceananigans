@@ -62,7 +62,7 @@ arch_str = "CPU"
 if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
-    age_output_dir = joinpath(outputdir, "age", model_config)
+    age_output_dir = joinpath(outputdir, "standardrun", model_config)
     output_filepath = joinpath(age_output_dir, "age_1year.jld2")
 end
 

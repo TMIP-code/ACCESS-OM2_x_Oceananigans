@@ -271,7 +271,7 @@ set!(model, age = 0)
 @info "Loading saved age field from 1-year simulation output"
 flush(stdout); flush(stderr)
 
-age_output_dir = joinpath(outputdir, "age", model_config)
+age_output_dir = joinpath(outputdir, "standardrun", model_config)
 output_file = joinpath(age_output_dir, "age_1year.jld2")
 isfile(output_file) || error("Output file not found: $output_file")
 

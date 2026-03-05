@@ -68,7 +68,7 @@ end
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
-trace_dir = joinpath(outputdir, "age", model_config, "trace")
+trace_dir = joinpath(outputdir, "periodic", model_config, "trace")
 trace_plots_dir = joinpath(trace_dir, "plots")
 mkpath(trace_plots_dir)
 

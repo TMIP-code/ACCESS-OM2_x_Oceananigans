@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N matrix_OM2-1_CPU
+#PBS -N OM2-1_TM_build
 #PBS -P y99
 #PBS -l mem=190GB
 #PBS -q normal
@@ -20,11 +20,12 @@ source scripts/env_defaults.sh
 
 # ulimit -s unlimited
 
-run_log_dir=logs/julia/create_matrix
+run_log_dir=logs/julia/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
 echo "Building transport matrix for MODEL_CONFIG=$MODEL_CONFIG"
-julia $JULIA_BOUNDS_FLAG --project src/create_matrix.jl &> "$run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.log"
+log_file="$run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.log"
+julia $JULIA_BOUNDS_FLAG --project src/create_matrix.jl &> "$log_file"
 echo "Done building transport matrix"
-echo "logged output in $run_log_dir/create_matrix_${MODEL_CONFIG}_${job_id}.log"
+echo "logged output in $log_file"

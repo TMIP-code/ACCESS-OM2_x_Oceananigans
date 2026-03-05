@@ -69,7 +69,7 @@ end
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
-age_output_dir = joinpath(outputdir, "age", model_config)
+age_output_dir = joinpath(outputdir, "standardrun", model_config)
 
 if !isempty(ARGS)
     output_filepath = ARGS[1]

@@ -18,11 +18,12 @@ include("src/solve_periodic_anderson.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
-  AA_SOLVER            – SpeedMapping | NLsolve | SIAMFANL | FixedPoint  (default: SpeedMapping)
+  AA_SOLVER            – SpeedMapping | NLsolve | SIAMFANL | FixedPoint | Picard  (default: SpeedMapping)
                          SpeedMapping: Alternating Cyclic Extrapolation (SpeedMapping.jl)
                          NLsolve:      Anderson acceleration (NLsolve.jl)
                          SIAMFANL:     Anderson acceleration (SIAMFANLEquations.jl)
                          FixedPoint:   Anderson acceleration (FixedPointAcceleration.jl)
+                         Picard:       Plain fixed-point iteration via aasol(m=0) (SIAMFANLEquations.jl)
   NLSAA_M            – Anderson history size (default: 10; literature recommends 5–10)
   NLSAA_BETA         – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
   SMAA_SIGMA_MIN     – SpeedMapping minimum σ (default: 0.0; setting to 1 may avoid stalling)
@@ -47,7 +48,7 @@ using LinearAlgebra
 ################################################################################
 
 AA_SOLVER = get(ENV, "AA_SOLVER", "SpeedMapping")
-(AA_SOLVER ∈ ("SpeedMapping", "NLsolve", "SIAMFANL", "FixedPoint")) || error("AA_SOLVER must be one of: SpeedMapping, NLsolve, SIAMFANL, FixedPoint (got: $AA_SOLVER)")
+(AA_SOLVER ∈ ("SpeedMapping", "NLsolve", "SIAMFANL", "FixedPoint", "Picard")) || error("AA_SOLVER must be one of: SpeedMapping, NLsolve, SIAMFANL, FixedPoint, Picard (got: $AA_SOLVER)")
 
 NLSAA_M = parse(Int, get(ENV, "NLSAA_M", "10"))
 NLSAA_BETA = parse(Float64, get(ENV, "NLSAA_BETA", "1.0"))
@@ -159,6 +160,49 @@ elseif AA_SOLVER == "SIAMFANL"
 
     sol_vec = result.solution
     retcode_str = result.idid ? "Success" : "Failure(errcode=$(result.errcode))"
+
+elseif AA_SOLVER == "Picard"
+    # --- Plain fixed-point iteration (no acceleration): aasol with m=0 ---
+    PICARD_MAXIT = parse(Int, get(ENV, "PICARD_MAXIT", "10"))
+    @info "Using SIAMFANLEquations.aasol with m=0 (Picard/plain fixed-point iteration)"
+    @info "- maxit = $PICARD_MAXIT (each iteration = 1 year via Φ!)"
+    flush(stdout); flush(stderr)
+
+    Φ_picard!(G, x) = Φ!(G, x, nothing)
+    Vstore = zeros(Float64, Nidx, 4)   # m=0 needs only 4 columns
+    @time result = SIAMFANLEquations.aasol(
+        Φ_picard!, age_init_vec, 0, Vstore;
+        maxit = PICARD_MAXIT,
+        rtol = 0.0,
+        atol = 0.0,
+        beta = 1.0,
+        keepsolhist = true,
+    )
+
+    sol_vec = result.solution
+    retcode_str = result.idid ? "Success" : "MaxIters(errcode=$(result.errcode))"
+
+    # ── Compare iterates with 10-year forward run ──────────────────────────
+    tenyr_file = joinpath(outputdir, "standardrun", model_config, "age_10years.jld2")
+    if isfile(tenyr_file) && PICARD_MAXIT == 10
+        @info "Comparing Picard iterates with 10-year forward run: $tenyr_file"
+        flush(stdout); flush(stderr)
+        age_fts = FieldTimeSeries(tenyr_file, "age")
+        n_snaps = length(age_fts.times)
+        for k in 1:min(PICARD_MAXIT, n_snaps)
+            snap_3D = Array(interior(age_fts[k]))
+            snap_vec = snap_3D[idx]
+            picard_vec = @view result.solhist[:, k + 1]  # solhist col 1 = initial, col k+1 = iterate k
+            diff_norm = norm(picard_vec .- snap_vec)
+            rel_diff = diff_norm / max(norm(snap_vec), 1.0)
+            @info @sprintf("  Year %2d: ‖picard - forward‖ = %.4e,  relative = %.4e", k, diff_norm, rel_diff)
+        end
+        flush(stdout); flush(stderr)
+    elseif PICARD_MAXIT == 10
+        @info "No 10-year forward run found at $tenyr_file — skipping comparison"
+        @info "Run with NONLINEAR_SOLVER=10years first to enable comparison"
+        flush(stdout); flush(stderr)
+    end
 end
 
 @info "Fixed-point solve complete" retcode = retcode_str total_G_calls = g_call_count[]
@@ -177,7 +221,7 @@ age_steady_3D[idx] .= sol_vec
 vol_mean = sum(sol_vec .* v1D) / sum(v1D) / year
 @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
-steady_dir = joinpath(outputdir, "age", model_config)
+steady_dir = joinpath(outputdir, "periodic", model_config, "AA")
 mkpath(steady_dir)
 steady_file = joinpath(steady_dir, "age_$(AA_SOLVER).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)

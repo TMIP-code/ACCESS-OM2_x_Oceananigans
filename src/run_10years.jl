@@ -75,7 +75,7 @@ output_fields = Dict(
     "η" => model.free_surface.displacement,
 )
 
-age_output_dir = joinpath(outputdir, "age", model_config)
+age_output_dir = joinpath(outputdir, "standardrun", model_config)
 mkpath(age_output_dir)
 output_prefix = joinpath(age_output_dir, "age_10years")
 

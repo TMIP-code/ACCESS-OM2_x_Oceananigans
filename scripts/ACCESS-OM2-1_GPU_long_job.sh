@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N run_OM2-1_long
+#PBS -N OM2-1_sim_long
 #PBS -P y99
 #PBS -l mem=96GB
 #PBS -q gpuvolta
@@ -28,9 +28,10 @@ module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
 echo "Running run_long.jl for PARENT_MODEL=$PARENT_MODEL, NYEARS=$NYEARS"
-run_log_dir=logs/julia/run_ACCESS-OM2
+run_log_dir=logs/julia/standardrun
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
-echo "logging output in $run_log_dir"
-julia $JULIA_BOUNDS_FLAG --project src/run_long.jl &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
+log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
+echo "logging output in $log_file"
+julia $JULIA_BOUNDS_FLAG --project src/run_long.jl &> "$log_file"
 echo "Done running run_long.jl"

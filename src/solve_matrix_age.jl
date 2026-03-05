@@ -1,7 +1,7 @@
 """
 Solve for the steady-state age using the pre-built transport matrix M.
 
-Loads M from `outputs/{parentmodel}/matrices/{model_config}/M.jld2` (produced by
+Loads M from `outputs/{parentmodel}/TM/{model_config}/M.jld2` (produced by
 `create_matrix.jl`) and solves the linear system M x = -1 for the steady-state age.
 When LUMP_AND_SPRAY=yes, solves the coarsened system instead.
 
@@ -95,7 +95,7 @@ LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
 output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 
-matrices_dir = joinpath(outputdir, "matrices", model_config)
+matrices_dir = joinpath(outputdir, "TM", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
 mkpath(matrix_plots_dir)
 

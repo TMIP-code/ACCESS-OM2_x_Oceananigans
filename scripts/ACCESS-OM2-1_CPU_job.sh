@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N run_OM2-1_CPU
+#PBS -N OM2-1_preproc
 #PBS -P y99
 #PBS -l mem=47GB
 #PBS -q express
@@ -19,7 +19,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 echo "Creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir=logs/julia/create_velocities
+run_log_dir=logs/julia/preprocess
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/create_velocities.jl &> "$run_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"

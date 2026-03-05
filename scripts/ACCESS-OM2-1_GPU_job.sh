@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N run_OM2-1_GPU
+#PBS -N OM2-1_GPU
 #PBS -P y99
 #PBS -l mem=96GB
 #PBS -q gpuvolta
@@ -53,14 +53,31 @@ export JULIA_CUDA_USE_COMPAT=false
 # ulimit -s unlimited
 
 echo "Running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir=logs/julia/run_ACCESS-OM2
-mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
-# Build solver suffix for log filename (include AA_SOLVER for anderson runs)
-solver_tag="${NONLINEAR_SOLVER}"
-[ "$NONLINEAR_SOLVER" = "anderson" ] && [ -n "${AA_SOLVER:-}" ] && solver_tag="${NONLINEAR_SOLVER}_${AA_SOLVER}"
-echo "logging output in $run_log_dir"
-julia $JULIA_BOUNDS_FLAG --project "$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${solver_tag}_${job_id}.log"
+# Route log to run-type subdirectory and strip redundant prefixes from filename
+case "$NONLINEAR_SOLVER" in
+    1year|10years|100years)
+        run_log_dir=logs/julia/standardrun
+        log_file="$run_log_dir/${MODEL_CONFIG}_${NONLINEAR_SOLVER}_${job_id}.log"
+        ;;
+    long)
+        run_log_dir=logs/julia/standardrun
+        log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS:-3000}years_${job_id}.log"
+        ;;
+    newton)
+        lumpspray_tag="prec"
+        [ "${LUMP_AND_SPRAY:-no}" = "yes" ] && lumpspray_tag="LSprec"
+        run_log_dir=logs/julia/periodic/NK
+        log_file="$run_log_dir/${MODEL_CONFIG}_${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}_${job_id}.log"
+        ;;
+    anderson)
+        run_log_dir=logs/julia/periodic/AA
+        log_file="$run_log_dir/${MODEL_CONFIG}_${AA_SOLVER:-SpeedMapping}_${job_id}.log"
+        ;;
+esac
+mkdir -p "$run_log_dir"
+echo "logging output in $log_file"
+julia $JULIA_BOUNDS_FLAG --project "$SCRIPT" &> "$log_file"
 echo "Done running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
 
 # Submit CPU plot job after simulation

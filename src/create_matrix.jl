@@ -113,7 +113,7 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 flush(stdout); flush(stderr)
 
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-matrices_dir = joinpath(outputdir, "matrices", model_config)
+matrices_dir = joinpath(outputdir, "TM", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
 mkpath(matrices_dir)
 mkpath(matrix_plots_dir)

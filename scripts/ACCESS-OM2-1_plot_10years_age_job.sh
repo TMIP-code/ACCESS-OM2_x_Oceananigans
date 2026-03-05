@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N plot_10years_age_OM2-1
+#PBS -N OM2-1_plt_sim
 #PBS -P y99
 #PBS -l mem=47GB
 #PBS -q express
@@ -22,8 +22,8 @@ source scripts/env_defaults.sh
 # ulimit -s unlimited
 
 echo "Running plot_10years_age.jl on CPU"
-log_dir=logs/julia/plot_10years_age
+log_dir=logs/julia/plot/standardrun
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
-julia --project src/plot_10years_age.jl &> "$log_dir/plot_10years_age_${MODEL_CONFIG}_${job_id}.log"
+julia --project src/plot_10years_age.jl &> "$log_dir/${MODEL_CONFIG}_10years_${job_id}.log"
 echo "Done running plot_10years_age.jl"

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N solve_age_OM2-1
+#PBS -N OM2-1_TM_solve
 #PBS -P y99
 #PBS -l mem=190GB
 #PBS -q normal
@@ -30,11 +30,12 @@ else
     COARSE_TAG="full"
 fi
 
-run_log_dir=logs/julia/solve_matrix_age
+run_log_dir=logs/julia/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
 echo "Solving matrix age for MODEL_CONFIG=$MODEL_CONFIG, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, MATRIX_PROCESSING=$MATRIX_PROCESSING"
-julia $JULIA_BOUNDS_FLAG --project src/solve_matrix_age.jl &> "$run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${COARSE_TAG}_${LINEAR_SOLVER}_${MATRIX_PROCESSING}_${job_id}.log"
+log_file="$run_log_dir/solve_${MODEL_CONFIG}_${COARSE_TAG}_${LINEAR_SOLVER}_${MATRIX_PROCESSING}_${job_id}.log"
+julia $JULIA_BOUNDS_FLAG --project src/solve_matrix_age.jl &> "$log_file"
 echo "Done solving matrix age"
-echo "logged output in $run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${COARSE_TAG}_${LINEAR_SOLVER}_${MATRIX_PROCESSING}_${job_id}.log"
+echo "logged output in $log_file"

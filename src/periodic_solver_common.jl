@@ -17,7 +17,7 @@ using Printf: @sprintf
 TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
 
 if TRACE_SOLVER_HISTORY
-    trace_dir = joinpath(outputdir, "age", model_config, "trace")
+    trace_dir = joinpath(outputdir, "periodic", model_config, "trace")
     mkpath(trace_dir)
     @info "TRACE_SOLVER_HISTORY enabled — saving iterates to $trace_dir"
 else
@@ -97,7 +97,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
     age_init_vec = zeros(Nidx)
 
     if INITIAL_AGE == "TMage"
-        matrices_dir = joinpath(outputdir, "matrices", model_config)
+        matrices_dir = joinpath(outputdir, "TM", model_config)
         # Try candidate files in priority order
         candidates = [
             "steady_age_full_$(solver)_$(mp).jld2"
