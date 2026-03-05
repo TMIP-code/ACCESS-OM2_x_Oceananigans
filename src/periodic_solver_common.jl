@@ -88,12 +88,12 @@ Load the initial age vector based on the INITIAL_AGE environment variable.
 
 Returns a Vector{Float64} of length `Nidx` (wet cells) in **seconds**.
 
-- `INITIAL_AGE="0"` (default): zeros
-- `INITIAL_AGE="TMage"`: load transport-matrix-computed steady-state age
+- `INITIAL_AGE="TMage"` (default): load transport-matrix-computed steady-state age
+- `INITIAL_AGE="0"`: zeros
   (tries ParU, UMFPACK, then generic full files in the matrices directory)
 """
 function load_initial_age(idx, Nidx, outputdir, model_config; year)
-    INITIAL_AGE = get(ENV, "INITIAL_AGE", "0")
+    INITIAL_AGE = get(ENV, "INITIAL_AGE", "TMage")
     age_init_vec = zeros(Nidx)
 
     if INITIAL_AGE == "TMage"

@@ -7,7 +7,7 @@ set -euo pipefail
 # Optional env vars forwarded to all jobs:
 #   VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, CHECK_BOUNDS
 
-DELAY=60  # seconds between submissions
+DELAY=10  # seconds between submissions
 
 # Forward optional env vars to all jobs
 EXTRA_VARS=""
@@ -73,11 +73,11 @@ count=$((count + 1))
 echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# # Newton — Pardiso, lump-and-spray, finitediff JVP
-# qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
-# count=$((count + 1))
-# echo "[$count] Submitted newton/finitediff/Pardiso/LSprec. Waiting ${DELAY}s..."
-# sleep $DELAY
+# Newton — Pardiso, lump-and-spray, finitediff JVP
+qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/Pardiso/LSprec. Waiting ${DELAY}s..."
+sleep $DELAY
 
 # Newton — ParU, no lump-and-spray, finitediff JVP
 qsub -N OM2-1_NK_PU -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
@@ -85,9 +85,9 @@ count=$((count + 1))
 echo "[$count] Submitted newton/finitediff/ParU/prec. Waiting ${DELAY}s..."
 sleep $DELAY
 
-# # Newton — ParU, lump-and-spray, finitediff JVP
-# qsub -N OM2-1_NK_PU -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
-# count=$((count + 1))
-# echo "[$count] Submitted newton/finitediff/ParU/LSprec. Waiting ${DELAY}s..."
+# Newton — ParU, lump-and-spray, finitediff JVP
+qsub -N OM2-1_NK_PU -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=ParU,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/ParU/LSprec. Waiting ${DELAY}s..."
 
 echo "Submitted ${count} jobs."
