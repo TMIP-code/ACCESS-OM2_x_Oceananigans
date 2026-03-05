@@ -7,7 +7,7 @@ set -euo pipefail
 # MATRIX_PROCESSING variants are only submitted for Pardiso (the only solver
 # that uses matrix_type); ParU and UMFPACK use raw only.
 #
-# Total: Pardiso (1 × 2 × 4 = 8) + ParU (1 × 2 × 1 = 2) + UMFPACK (1 × 2 × 1 = 2) + CUDSS (1 × 2 × 1 = 2) = 14 jobs
+# Total: Pardiso (1 × 2 × 4 = 8) + ParU (1 × 2 × 1 = 2) + UMFPACK (1 × 2 × 1 = 2) + CUDSS (1 × 2 × 1 = 2) + CUDSS_hopper (1 × 2 × 1 = 2) = 16 jobs
 #
 # 60s delay between submissions to avoid concurrent precompilation OOM.
 #
@@ -30,22 +30,26 @@ submit() {
     local ls="$1" las="$2" mp="$3"
     # Abbreviate for PBS job name: LS=Pa/PU/UM, coarse=c/f, MP=r/sf/dz/sd
     local ls_abbr mp_abbr c_abbr
-    case "$ls" in Pardiso) ls_abbr=Pa;; ParU) ls_abbr=PU;; UMFPACK) ls_abbr=UM;; CUDSS) ls_abbr=CU;; esac
+    case "$ls" in Pardiso) ls_abbr=Pa;; ParU) ls_abbr=PU;; UMFPACK) ls_abbr=UM;; CUDSS|CUDSS_hopper) ls_abbr=CU;; esac
     case "$mp" in raw) mp_abbr=r;; symfill) mp_abbr=sf;; dropzeros) mp_abbr=dz;; symdrop) mp_abbr=sd;; esac
     [ "$las" = "yes" ] && c_abbr=c || c_abbr=f
     # CUDSS uses the GPU job script; all others use the CPU job script
-    if [ "$ls" = "CUDSS" ]; then
+    if [ "$ls" = "CUDSS_hopper" ]; then
+        local job_script=scripts/ACCESS-OM2-1_solve_matrix_age_GPU_hopper_job.sh
+    elif [ "$ls" = "CUDSS" ]; then
         local job_script=scripts/ACCESS-OM2-1_solve_matrix_age_GPU_job.sh
     else
         local job_script=scripts/ACCESS-OM2-1_solve_matrix_age_job.sh
     fi
+    # Map internal solver name to LINEAR_SOLVER env var (CUDSS_hopper → CUDSS)
+    local ls_env="${ls%_hopper}"
     qsub -N "OM2-1_TM_${c_abbr}_${ls_abbr}_${mp_abbr}" \
-        -v LINEAR_SOLVER=${ls},LUMP_AND_SPRAY=${las},MATRIX_PROCESSING=${mp}${EXTRA_VARS} \
+        -v LINEAR_SOLVER=${ls_env},LUMP_AND_SPRAY=${las},MATRIX_PROCESSING=${mp}${EXTRA_VARS} \
         "$job_script"
     count=$((count + 1))
     local tag="${ls}/${las}/${mp}"
     echo "[$count] Submitted $tag."
-    if [ "$count" -lt 14 ]; then
+    if [ "$count" -lt 16 ]; then
         echo "Waiting ${DELAY}s..."
         sleep $DELAY
     fi
@@ -68,9 +72,14 @@ for las in no yes; do
     submit UMFPACK "$las" raw
 done
 
-# CUDSS (GPU) — raw only
+# CUDSS (GPU, gpuvolta) — raw only
 for las in no yes; do
     submit CUDSS "$las" raw
+done
+
+# CUDSS (GPU, gpuhopper) — raw only
+for las in no yes; do
+    submit CUDSS_hopper "$las" raw
 done
 
 echo "Submitted ${count} jobs."
