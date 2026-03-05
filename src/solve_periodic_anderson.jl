@@ -189,13 +189,25 @@ elseif AA_SOLVER == "Picard"
         flush(stdout); flush(stderr)
         age_fts = FieldTimeSeries(tenyr_file, "age")
         n_snaps = length(age_fts.times)
-        for k in 1:min(PICARD_MAXIT, n_snaps)
-            snap_3D = Array(interior(age_fts[k]))
+        # Oceananigans JLD2OutputWriter may include a t=0 snapshot; detect and skip it
+        t0_offset = age_fts.times[1] ≈ 0.0 ? 1 : 0
+        if t0_offset == 1
+            @info "  Forward run includes t=0 snapshot — offsetting indices by 1"
+        end
+        inv_sumv = 1 / sum(v1D)
+        n_compare = min(PICARD_MAXIT, n_snaps - t0_offset)
+        for k in 1:n_compare
+            snap_3D = Array(interior(age_fts[k + t0_offset]))
             snap_vec = snap_3D[idx]
             picard_vec = @view result.solhist[:, k + 1]  # solhist col 1 = initial, col k+1 = iterate k
             diff_norm = norm(picard_vec .- snap_vec)
             rel_diff = diff_norm / max(norm(snap_vec), 1.0)
-            @info @sprintf("  Year %2d: ‖picard - forward‖ = %.4e,  relative = %.4e", k, diff_norm, rel_diff)
+            vol_mean_picard = sum(picard_vec .* v1D) * inv_sumv / year
+            vol_mean_forward = sum(snap_vec .* v1D) * inv_sumv / year
+            @info @sprintf(
+                "  Year %2d: ‖picard - forward‖ = %.4e,  relative = %.4e,  vol-mean: picard=%.2f yr, forward=%.2f yr",
+                k, diff_norm, rel_diff, vol_mean_picard, vol_mean_forward,
+            )
         end
         flush(stdout); flush(stderr)
     elseif PICARD_MAXIT == 10
