@@ -56,8 +56,11 @@ echo "Running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
 run_log_dir=logs/julia/run_ACCESS-OM2
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
+# Build solver suffix for log filename (include AA_SOLVER for anderson runs)
+solver_tag="${NONLINEAR_SOLVER}"
+[ "$NONLINEAR_SOLVER" = "anderson" ] && [ -n "${AA_SOLVER:-}" ] && solver_tag="${NONLINEAR_SOLVER}_${AA_SOLVER}"
 echo "logging output in $run_log_dir"
-julia $JULIA_BOUNDS_FLAG --project "$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${NONLINEAR_SOLVER}_${job_id}.log"
+julia $JULIA_BOUNDS_FLAG --project "$SCRIPT" &> "$run_log_dir/run_ACCESS-OM2_${MODEL_CONFIG}_${solver_tag}_${job_id}.log"
 echo "Done running $SCRIPT for PARENT_MODEL=$PARENT_MODEL"
 
 # Submit CPU plot job after simulation
