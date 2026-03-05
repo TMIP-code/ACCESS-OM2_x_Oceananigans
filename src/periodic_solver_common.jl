@@ -100,9 +100,9 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
         matrices_dir = joinpath(outputdir, "matrices", model_config)
         # Try candidate files in priority order
         candidates = [
-            "steady_age_full_ParU_LSprec.jld2",
-            "steady_age_full_UMFPACK_LSprec.jld2",
-            "steady_age_full.jld2",
+            "steady_age_full_$(solver)_$(mp).jld2"
+                for mp in ("raw", "dropzeros", "symfill", "symdrop")
+                for solver in ("ParU", "UMFPACK", "Pardiso")
         ]
         loaded = false
         for candidate in candidates
