@@ -8,7 +8,7 @@ set -euo pipefail
 # Reference for making the GPU job wait for the CPU job to finish:
 # https://opus.nci.org.au/spaces/Help/pages/241927682/Job+Dependencies...
 
-# 1. Update (and download) packages on the login node but WITHOUT precoimpilation
+# 1. Update (and download) packages on the login node but WITHOUT precompilation
 env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.update()'
 
 # 3. Submit the GPU job second, but it will wait for the CPU job to finish.

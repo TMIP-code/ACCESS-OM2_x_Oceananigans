@@ -2,10 +2,10 @@
 
 #PBS -N instantiate_CPU
 #PBS -P y99
-#PBS -l mem=190GB
+#PBS -l mem=47GB
 #PBS -q express
 #PBS -l walltime=01:00:00
-#PBS -l ncpus=48
+#PBS -l ncpus=12
 #PBS -l storage=scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o logs/PBS/
