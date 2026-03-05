@@ -230,11 +230,17 @@ Nwet = size(wet3D)
 
 if LUMP_AND_SPRAY
     # ── Coarsened linear solve ──
+    n_solve = size(Mc, 1)
     @info "Solving coarsened linear system (Mc \\ -1)"
     flush(stdout); flush(stderr)
-    init_prob = LinearProblem(Mc, -ones(size(Mc, 1)))
-    init_prob = init(init_prob, solver, rtol = 1.0e-12)
-    @time "solve coarsened age" age_vec = SPRAY * solve!(init_prob).u / year
+    cache = init(LinearProblem(Mc, -ones(n_solve)), solver, rtol = 1.0e-12)
+    @time "1st solve" age_vec = SPRAY * solve!(cache).u / year
+
+    # 2nd solve (reuses cached factorization)
+    @info "2nd solve with random RHS"
+    flush(stdout); flush(stderr)
+    cache.b = randn(n_solve)
+    @time "2nd solve" solve!(cache)
 
     age_3D = zeros(Float64, Nwet)
     age_3D[idx] .= age_vec
@@ -243,11 +249,17 @@ if LUMP_AND_SPRAY
     @info "Volume-weighted mean coarsened steady age: $(vol_mean) years"
 else
     # ── Full linear solve ──
+    n_solve = size(M, 1)
     @info "Solving full linear system (M \\ -1)"
     flush(stdout); flush(stderr)
-    init_prob = LinearProblem(M, -ones(size(M, 1)))
-    init_prob = init(init_prob, solver, rtol = 1.0e-12)
-    @time "solve full age" age_vec = solve!(init_prob).u / year
+    cache = init(LinearProblem(M, -ones(n_solve)), solver, rtol = 1.0e-12)
+    @time "1st solve" age_vec = solve!(cache).u / year
+
+    # 2nd solve (reuses cached factorization)
+    @info "2nd solve with random RHS"
+    flush(stdout); flush(stderr)
+    cache.b = randn(n_solve)
+    @time "2nd solve" solve!(cache)
 
     age_3D = zeros(Float64, Nwet)
     age_3D[idx] .= age_vec

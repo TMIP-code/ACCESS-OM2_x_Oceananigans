@@ -210,4 +210,6 @@ function main()
     return @printf("Successful: %d / %d\n", length(successful), length(records))
 end
 
-main()
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
+end

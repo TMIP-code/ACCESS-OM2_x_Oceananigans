@@ -24,13 +24,12 @@ Environment variables (in addition to setup_model.jl):
                          SIAMFANL:     Anderson acceleration (SIAMFANLEquations.jl)
                          FixedPoint:   Anderson acceleration (FixedPointAcceleration.jl)
                          Picard:       Plain fixed-point iteration via aasol(m=0) (SIAMFANLEquations.jl)
-  NLSAA_M            – Anderson history size (default: 10; literature recommends 5–10)
+  AA_M               – Anderson history size for all AA solvers (default: 40)
   NLSAA_BETA         – Anderson damping parameter (default: 1.0; try 0.5 for slow convergence)
   SMAA_SIGMA_MIN     – SpeedMapping minimum σ (default: 0.0; setting to 1 may avoid stalling)
   SMAA_STABILIZE     – Stabilization mapping before extrapolation (default: no; yes/no)
   SMAA_CHECK_OBJ     – Restart at best past iterate on NaN/Inf (default: no; yes/no)
   SMAA_ORDERS        – Alternating order sequence (default: 332; each digit 1–3)
-  FPAA_M             – FixedPointAcceleration Anderson history size (default: 10)
   WARM_START_FILE    – JLD2 file with an "age" field to use as initial guess (default: empty = zeros)
 """
 
@@ -50,7 +49,7 @@ using LinearAlgebra
 AA_SOLVER = get(ENV, "AA_SOLVER", "SpeedMapping")
 (AA_SOLVER ∈ ("SpeedMapping", "NLsolve", "SIAMFANL", "FixedPoint", "Picard")) || error("AA_SOLVER must be one of: SpeedMapping, NLsolve, SIAMFANL, FixedPoint, Picard (got: $AA_SOLVER)")
 
-NLSAA_M = parse(Int, get(ENV, "NLSAA_M", "10"))
+AA_M = parse(Int, get(ENV, "AA_M", "40"))
 NLSAA_BETA = parse(Float64, get(ENV, "NLSAA_BETA", "1.0"))
 
 SMAA_SIGMA_MIN = parse(Float64, get(ENV, "SMAA_SIGMA_MIN", "0.0"))
@@ -58,17 +57,14 @@ SMAA_STABILIZE = lowercase(get(ENV, "SMAA_STABILIZE", "no")) == "yes"
 SMAA_CHECK_OBJ = lowercase(get(ENV, "SMAA_CHECK_OBJ", "no")) == "yes"
 SMAA_ORDERS = parse.(Int, collect(get(ENV, "SMAA_ORDERS", "332")))
 
-FPAA_M = parse(Int, get(ENV, "FPAA_M", "10"))
-
 @info "Fixed-point periodic solver configuration"
 @info "- AA_SOLVER = $AA_SOLVER"
-@info "- NLSAA_M = $NLSAA_M (Anderson history size)"
+@info "- AA_M = $AA_M (Anderson history size)"
 @info "- NLSAA_BETA = $NLSAA_BETA (Anderson damping)"
 @info "- SMAA_SIGMA_MIN = $SMAA_SIGMA_MIN"
 @info "- SMAA_STABILIZE = $SMAA_STABILIZE"
 @info "- SMAA_CHECK_OBJ = $SMAA_CHECK_OBJ"
 @info "- SMAA_ORDERS = $SMAA_ORDERS"
-@info "- FPAA_M = $FPAA_M (FixedPoint Anderson history size)"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -103,9 +99,9 @@ if AA_SOLVER in ("SpeedMapping", "FixedPoint")
         flush(stdout); flush(stderr)
         solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
     else
-        @info "Using FixedPointAccelerationJL with Anderson acceleration (m=$FPAA_M)"
+        @info "Using FixedPointAccelerationJL with Anderson acceleration (m=$AA_M)"
         flush(stdout); flush(stderr)
-        solver = FixedPointAccelerationJL(; algorithm = :Anderson, m = FPAA_M)
+        solver = FixedPointAccelerationJL(; algorithm = :Anderson, m = AA_M)
     end
 
     @time sol = solve(
@@ -124,7 +120,7 @@ if AA_SOLVER in ("SpeedMapping", "FixedPoint")
 
 elseif AA_SOLVER == "NLsolve"
     # --- Direct call (bypasses NonlinearSolve dense Jacobian allocation bug) ---
-    @info "Using NLsolve.nlsolve directly with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
+    @info "Using NLsolve.nlsolve directly with Anderson acceleration (m=$AA_M, beta=$NLSAA_BETA)"
     @info "- ftol = $(0.001 * year) seconds (inf-norm ≈ 0.001 years)"
     flush(stdout); flush(stderr)
 
@@ -132,7 +128,7 @@ elseif AA_SOLVER == "NLsolve"
     @time result = NLsolve.nlsolve(
         G_nlsolve!, age_init_vec;
         method = :anderson,
-        m = NLSAA_M,
+        m = AA_M,
         beta = NLSAA_BETA,
         ftol = 0.001 * year,
         iterations = 1000,
@@ -144,14 +140,14 @@ elseif AA_SOLVER == "NLsolve"
 
 elseif AA_SOLVER == "SIAMFANL"
     # --- Direct call (bypasses NonlinearSolve dense N×N allocation bug) ---
-    @info "Using SIAMFANLEquations.aasol directly with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
+    @info "Using SIAMFANLEquations.aasol directly with Anderson acceleration (m=$AA_M, beta=$NLSAA_BETA)"
     @info "- atol = $(0.001 * year) seconds (2-norm ≈ 0.001 years)"
     flush(stdout); flush(stderr)
 
     Φ_siamfanl!(G, x) = Φ!(G, x, nothing)
-    Vstore = zeros(Float64, Nidx, 3 * NLSAA_M + 3)
+    Vstore = zeros(Float64, Nidx, 3 * AA_M + 3)
     @time result = SIAMFANLEquations.aasol(
-        Φ_siamfanl!, age_init_vec, NLSAA_M, Vstore;
+        Φ_siamfanl!, age_init_vec, AA_M, Vstore;
         maxit = 1000,
         rtol = 0.0,
         atol = 0.001 * year,

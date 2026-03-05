@@ -36,7 +36,7 @@ These configure the fixed-point acceleration solvers in `solve_periodic_anderson
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NLSAA_M` | `10` | Anderson history size (literature recommends 5–10) |
+| `AA_M` | `40` | Anderson history size (used by NLsolve, SIAMFANL, FixedPoint) |
 | `NLSAA_BETA` | `1.0` | Anderson damping parameter (try 0.5 for slow convergence) |
 | `SMAA_SIGMA_MIN` | `0.0` | SpeedMapping minimum σ; setting to 1 may avoid stalling |
 | `SMAA_STABILIZE` | `no` | Stabilization mapping before extrapolation (`yes`/`no`) |

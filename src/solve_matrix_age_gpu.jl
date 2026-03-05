@@ -214,13 +214,20 @@ flush(stdout); flush(stderr)
 M_gpu = CuSparseMatrixCSR(solve_matrix)
 b_gpu = CuVector(-ones(n))
 
-@info "Computing LU factorization on GPU via CUDSS"
+@info "1st solve (factorize + solve) on GPU via CUDSS"
 flush(stdout); flush(stderr)
-@time "GPU LU factorization" F = lu(M_gpu)
+print("1st solve: "); flush(stdout)
+CUDA.@time begin
+    F = lu(M_gpu)
+    x_gpu = F \ b_gpu
+end
 
-@info "Solving linear system on GPU"
+# 2nd solve (reuses factorization)
+@info "2nd solve with random RHS on GPU"
 flush(stdout); flush(stderr)
-@time "GPU solve" x_gpu = F \ b_gpu
+b2_gpu = CUDA.randn(n)
+print("2nd solve: "); flush(stdout)
+CUDA.@time x2_gpu = F \ b2_gpu
 
 # Transfer result back to CPU
 x_cpu = Array(x_gpu)

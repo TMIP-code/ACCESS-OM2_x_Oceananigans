@@ -191,13 +191,12 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` determines output director
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AA_SOLVER` | `SpeedMapping` | Solver backend: `SpeedMapping` (SpeedMapping.jl), `NLsolve` (NLsolve.jl), `SIAMFANL` (SIAMFANLEquations.jl), `FixedPoint` (FixedPointAcceleration.jl) |
-| `NLSAA_M` | `10` | Anderson history size (literature recommends 5–10) |
+| `AA_M` | `40` | Anderson history size (used by NLsolve, SIAMFANL, FixedPoint) |
 | `NLSAA_BETA` | `1.0` | Anderson damping parameter (try 0.5 for slow convergence) |
 | `SMAA_SIGMA_MIN` | `0.0` | SpeedMapping minimum σ; setting to 1 may avoid stalling |
 | `SMAA_STABILIZE` | `no` | Stabilization mapping before extrapolation (`yes`/`no`) |
 | `SMAA_CHECK_OBJ` | `no` | Restart at best past iterate on NaN/Inf (`yes`/`no`) |
 | `SMAA_ORDERS` | `332` | Alternating order sequence (each digit 1–3) |
-| `FPAA_M` | `10` | FixedPointAcceleration Anderson history size |
 
 ## Key design decisions
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)
