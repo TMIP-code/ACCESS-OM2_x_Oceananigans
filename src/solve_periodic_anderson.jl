@@ -35,11 +35,11 @@ Environment variables (in addition to setup_model.jl):
 
 include("setup_model.jl")
 
-using NonlinearSolve
-using SpeedMapping          # required for NonlinearSolve's SpeedMappingJL() extension
-using NLsolve               # required for NonlinearSolve's NLsolveJL() extension
-using SIAMFANLEquations     # required for NonlinearSolve's SIAMFANLEquationsJL() extension
-using FixedPointAcceleration # required for NonlinearSolve's FixedPointAccelerationJL() extension
+using NonlinearSolve             # for SpeedMappingJL / FixedPointAccelerationJL wrappers
+using SpeedMapping               # required for NonlinearSolve's SpeedMappingJL() extension
+using NLsolve                    # called directly (NonlinearSolve wrapper has dense Jacobian bug)
+using SIAMFANLEquations          # called directly (NonlinearSolve wrapper has dense N×N allocation bug)
+using FixedPointAcceleration     # required for NonlinearSolve's FixedPointAccelerationJL() extension
 using LinearAlgebra
 
 ################################################################################
@@ -87,42 +87,81 @@ age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
 ################################################################################
 
 @info "Solving nonlinear problem with fixed-point acceleration ($AA_SOLVER)"
-@info "- abstol = 0.001 years (volume-weighted RMS norm)"
 flush(stdout); flush(stderr)
 
-f! = NonlinearFunction(G!)
-nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
+if AA_SOLVER in ("SpeedMapping", "FixedPoint")
+    # --- Via NonlinearSolve (wrappers are fine) ---
+    @info "- abstol = 0.001 years (volume-weighted RMS norm)"
+    flush(stdout); flush(stderr)
 
-if AA_SOLVER == "SpeedMapping"
-    @info "Using SpeedMappingJL (Alternating Cyclic Extrapolation)"
-    flush(stdout); flush(stderr)
-    solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
+    f! = NonlinearFunction(G!)
+    nonlinearprob = NonlinearProblem(f!, age_init_vec, nothing)
+
+    if AA_SOLVER == "SpeedMapping"
+        @info "Using SpeedMappingJL (Alternating Cyclic Extrapolation)"
+        flush(stdout); flush(stderr)
+        solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
+    else
+        @info "Using FixedPointAccelerationJL with Anderson acceleration (m=$FPAA_M)"
+        flush(stdout); flush(stderr)
+        solver = FixedPointAccelerationJL(; algorithm = :Anderson, m = FPAA_M)
+    end
+
+    @time sol = solve(
+        nonlinearprob,
+        solver;
+        internalnorm = vol_norm,
+        show_trace = Val(true),
+        reltol = Inf,
+        abstol = 0.001,
+        maxiters = 1000,
+        verbose = true,
+    )
+
+    sol_vec = sol.u
+    retcode_str = string(sol.retcode)
+
 elseif AA_SOLVER == "NLsolve"
-    @info "Using NLsolveJL with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
+    # --- Direct call (bypasses NonlinearSolve dense Jacobian allocation bug) ---
+    @info "Using NLsolve.nlsolve directly with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
+    @info "- ftol = $(0.001 * year) seconds (inf-norm ≈ 0.001 years)"
     flush(stdout); flush(stderr)
-    solver = NLsolveJL(; method = :anderson, m = NLSAA_M, beta = NLSAA_BETA)
+
+    G_nlsolve!(F, x) = G!(F, x, nothing)
+    @time result = NLsolve.nlsolve(
+        G_nlsolve!, age_init_vec;
+        method = :anderson,
+        m = NLSAA_M,
+        beta = NLSAA_BETA,
+        ftol = 0.001 * year,
+        iterations = 1000,
+        show_trace = true,
+    )
+
+    sol_vec = result.zero
+    retcode_str = NLsolve.converged(result) ? "Success" : "MaxIters"
+
 elseif AA_SOLVER == "SIAMFANL"
-    @info "Using SIAMFANLEquationsJL with Anderson acceleration"
+    # --- Direct call (bypasses NonlinearSolve dense N×N allocation bug) ---
+    @info "Using SIAMFANLEquations.aasol directly with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
+    @info "- atol = $(0.001 * year) seconds (2-norm ≈ 0.001 years)"
     flush(stdout); flush(stderr)
-    solver = SIAMFANLEquationsJL(; method = :anderson)
-elseif AA_SOLVER == "FixedPoint"
-    @info "Using FixedPointAccelerationJL with Anderson acceleration (m=$FPAA_M)"
-    flush(stdout); flush(stderr)
-    solver = FixedPointAccelerationJL(; algorithm = :Anderson, m = FPAA_M)
+
+    Φ_siamfanl!(G, x) = Φ!(G, x, nothing)
+    Vstore = zeros(Float64, Nidx, 3 * NLSAA_M + 3)
+    @time result = SIAMFANLEquations.aasol(
+        Φ_siamfanl!, age_init_vec, NLSAA_M, Vstore;
+        maxit = 1000,
+        rtol = 0.0,
+        atol = 0.001 * year,
+        beta = NLSAA_BETA,
+    )
+
+    sol_vec = result.solution
+    retcode_str = result.idid ? "Success" : "Failure(errcode=$(result.errcode))"
 end
 
-@time sol = solve(
-    nonlinearprob,
-    solver;
-    internalnorm = vol_norm,
-    show_trace = Val(true),
-    reltol = Inf,
-    abstol = 0.001,
-    maxiters = 1000,
-    verbose = true,
-)
-
-@info "Fixed-point solve complete" retcode = sol.retcode total_G_calls = g_call_count[]
+@info "Fixed-point solve complete" retcode = retcode_str total_G_calls = g_call_count[]
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -133,9 +172,9 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 
 age_steady_3D = zeros(Float64, Nx′, Ny′, Nz′)
-age_steady_3D[idx] .= sol.u
+age_steady_3D[idx] .= sol_vec
 
-vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
+vol_mean = sum(sol_vec .* v1D) / sum(v1D) / year
 @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
 steady_dir = joinpath(outputdir, "age", model_config)

@@ -38,25 +38,25 @@ count=0
 # sleep $DELAY
 
 # Anderson — SpeedMapping
-qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SpeedMapping${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SpeedMapping${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
 echo "[$count] Submitted anderson/SpeedMapping. Waiting ${DELAY}s..."
 sleep $DELAY
 
 # Anderson — NLsolve
-qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=NLsolve${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=NLsolve${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
 echo "[$count] Submitted anderson/NLsolve. Waiting ${DELAY}s..."
 sleep $DELAY
 
 # Anderson — SIAMFANL
-qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SIAMFANL${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SIAMFANL${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
 echo "[$count] Submitted anderson/SIAMFANL. Waiting ${DELAY}s..."
 sleep $DELAY
 
 # Anderson — FixedPoint
-qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=FixedPoint${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v NONLINEAR_SOLVER=anderson,AA_SOLVER=FixedPoint${EXTRA_VARS,INITIAL_AGE=TMage} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
 echo "[$count] Submitted anderson/FixedPoint. Waiting ${DELAY}s..."
 sleep $DELAY
