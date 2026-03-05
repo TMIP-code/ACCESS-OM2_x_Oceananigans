@@ -54,8 +54,8 @@ function progress_message(sim)
 
     flush(stdout)
     return @info @sprintf(
-        "Iteration: %04d, time: %1.3f, Δt: %.2e, max(age)/time = %.1e at (%d, %d, %d), mean(age) = %.1e, wall time: %s\n",
-        iteration(sim), time(sim), sim.Δt, max_age / (time(sim) / year), idx_max.I..., mean_age, walltime
+        "Iteration: %04d, time: %1.3f yr, Δt: %.2e yr, max(age)/time = %.1e at (%d, %d, %d), mean(age) = %.1e yr, wall time: %s\n",
+        iteration(sim), time(sim) / year, sim.Δt / year, max_age / (time(sim) / year), idx_max.I..., mean_age, walltime
     )
 end
 

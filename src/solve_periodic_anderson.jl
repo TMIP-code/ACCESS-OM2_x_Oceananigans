@@ -91,7 +91,7 @@ if !isempty(WARM_START_FILE)
         age_warm = warm_data["age"]
         close(warm_data)
         age_init_vec .= view(age_warm, idx)
-        @info "Warm-start loaded" norm = norm(age_init_vec) max = maximum(abs, age_init_vec)
+        @info "Warm-start loaded" norm_years = norm(age_init_vec) / year max_years = maximum(abs, age_init_vec) / year
     else
         @warn "WARM_START_FILE not found: $WARM_START_FILE — starting from zeros"
     end

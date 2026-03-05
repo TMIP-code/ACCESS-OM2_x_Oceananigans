@@ -93,7 +93,7 @@ function Φ!(age_out, age_in, p)
     g_call_count[] += 1
     call_num = g_call_count[]
     t_start = time()
-    @info "Φ! call #$call_num starting" norm_age = norm(age_in) max_age = maximum(abs, age_in) / year
+    @info "Φ! call #$call_num starting" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
     flush(stdout)
 
     # Reset simulation for a fresh 1-year run
@@ -143,8 +143,8 @@ end
 1-year drift residual: G(x) = Φ(x) − x.
 """
 function G!(dage, age, p)
-    Φ!(dage, age, p)
-    dage .-= age
+    Φ!(dage, age, p) # dage <- Φ(age)       = age after 1 year
+    dage .-= age     # dage <- Φ(age) - age = age drift after after 1 year
     @info "G! residual" vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
     flush(stdout)
     return dage
