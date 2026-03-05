@@ -21,20 +21,20 @@ source scripts/env_defaults.sh
 # Export solver-specific env vars if set
 [ -n "${LINEAR_SOLVER:-}" ] && export LINEAR_SOLVER && echo "LINEAR_SOLVER=$LINEAR_SOLVER"
 [ -n "${LUMP_AND_SPRAY:-}" ] && export LUMP_AND_SPRAY && echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
-[ -n "${PRECONDITIONER_MATRIX_TYPE:-}" ] && export PRECONDITIONER_MATRIX_TYPE && echo "PRECONDITIONER_MATRIX_TYPE=$PRECONDITIONER_MATRIX_TYPE"
+[ -n "${MATRIX_PROCESSING:-}" ] && export MATRIX_PROCESSING && echo "MATRIX_PROCESSING=$MATRIX_PROCESSING"
 
-# Determine lumpspray tag for log file naming
+# Determine coarse tag for log file naming
 if [ "$LUMP_AND_SPRAY" = "yes" ]; then
-    LUMPSPRAY_TAG="LSprec"
+    COARSE_TAG="coarse"
 else
-    LUMPSPRAY_TAG="prec"
+    COARSE_TAG="full"
 fi
 
 run_log_dir=logs/julia/solve_matrix_age
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
-echo "Solving matrix age for MODEL_CONFIG=$MODEL_CONFIG, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
-julia $JULIA_BOUNDS_FLAG --project src/solve_matrix_age.jl &> "$run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${LINEAR_SOLVER}_${LUMPSPRAY_TAG}_${job_id}.log"
+echo "Solving matrix age for MODEL_CONFIG=$MODEL_CONFIG, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, MATRIX_PROCESSING=$MATRIX_PROCESSING"
+julia $JULIA_BOUNDS_FLAG --project src/solve_matrix_age.jl &> "$run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${COARSE_TAG}_${LINEAR_SOLVER}_${MATRIX_PROCESSING}_${job_id}.log"
 echo "Done solving matrix age"
-echo "logged output in $run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${LINEAR_SOLVER}_${LUMPSPRAY_TAG}_${job_id}.log"
+echo "logged output in $run_log_dir/solve_matrix_age_${MODEL_CONFIG}_${COARSE_TAG}_${LINEAR_SOLVER}_${MATRIX_PROCESSING}_${job_id}.log"

@@ -3,7 +3,7 @@ Solve for the steady-state age using the pre-built transport matrix M.
 
 Loads M from `outputs/{parentmodel}/matrices/{model_config}/M.jld2` (produced by
 `create_matrix.jl`) and solves the linear system M x = -1 for the steady-state age.
-Optionally uses lump-and-spray coarsening for a coarsened solve as well.
+When LUMP_AND_SPRAY=yes, solves the coarsened system instead.
 
 This script runs on CPU only (no GPU required).
 
@@ -24,7 +24,7 @@ Environment variables:
   TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
   LUMP_AND_SPRAY    – yes | no  (default: no)
-  PRECONDITIONER_MATRIX_TYPE – nonsym | sym_cleaned  (default: nonsym; Pardiso only)
+  MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
 """
 
 @info "Loading packages"
@@ -88,27 +88,29 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
-PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
-(PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
+MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
+(MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
 
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
-lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
+output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 
 matrices_dir = joinpath(outputdir, "matrices", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
 mkpath(matrix_plots_dir)
 
 @info "Run configuration"
-@info "- PARENT_MODEL     = $parentmodel"
-@info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
-@info "- W_FORMULATION    = $W_FORMULATION"
-@info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
-@info "- TIMESTEPPER      = $TIMESTEPPER"
-@info "- LINEAR_SOLVER    = $LINEAR_SOLVER"
-@info "- LUMP_AND_SPRAY   = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
-@info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
-@info "- model_config     = $model_config"
-@info "- matrices_dir     = $matrices_dir"
+@info "- PARENT_MODEL      = $parentmodel"
+@info "- VELOCITY_SOURCE   = $VELOCITY_SOURCE"
+@info "- W_FORMULATION     = $W_FORMULATION"
+@info "- ADVECTION_SCHEME  = $ADVECTION_SCHEME"
+@info "- TIMESTEPPER       = $TIMESTEPPER"
+@info "- LINEAR_SOLVER     = $LINEAR_SOLVER"
+@info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
+@info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
+@info "- output_tag        = $output_tag"
+@info "- model_config      = $model_config"
+@info "- matrices_dir      = $matrices_dir"
 flush(stdout)
 
 ################################################################################
@@ -148,7 +150,37 @@ v1D = interior(compute_volume(grid))[idx]
 flush(stdout)
 
 ################################################################################
-# LUMP/SPRAY and linear solver setup
+# Matrix processing
+################################################################################
+
+@info "Applying matrix processing: $MATRIX_PROCESSING"
+flush(stdout)
+
+if MATRIX_PROCESSING == "symfill"
+    # Fill sparsity structure to be structurally symmetric by adding zero-valued
+    # entries at (j, i) for every existing (i, j) entry
+    I_idx, J_idx, V = findnz(M)
+    M = sparse([I_idx; J_idx], [J_idx; I_idx], [V; zeros(length(V))], size(M)...)
+    @info "After symfill: nnz=$(nnz(M))"
+elseif MATRIX_PROCESSING == "dropzeros"
+    nnz_before = nnz(M)
+    dropzeros!(M)
+    @info "After dropzeros: nnz $nnz_before → $(nnz(M))"
+elseif MATRIX_PROCESSING == "symdrop"
+    # Drop non-symmetric structural entries: keep (i,j) only if (j,i) also exists
+    dropzeros!(M)
+    M_t = copy(M')
+    nnz_before = nnz(M)
+    M = M .* (M_t .!= 0)
+    dropzeros!(M)
+    @info "After symdrop: nnz $nnz_before → $(nnz(M))"
+else
+    @info "No matrix processing applied (raw)"
+end
+flush(stdout)
+
+################################################################################
+# LUMP/SPRAY coarsening (if requested)
 ################################################################################
 
 if LUMP_AND_SPRAY
@@ -158,31 +190,28 @@ if LUMP_AND_SPRAY
     @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP)))"
     @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY)))"
     Mc = LUMP * M * SPRAY
-    @info "Coarsened Jacobian Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc)))"
+    @info "Coarsened matrix Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc)))"
 
     jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
     jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
     jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
 else
     @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no)"
-    LUMP = I
-    SPRAY = I
 end
 flush(stdout)
 
+################################################################################
+# Linear solver setup
+################################################################################
+
 # Set up linear solver
 if LINEAR_SOLVER == "Pardiso"
-    # Check structural symmetry
-    ISSTRUCTURALLYSYMMETRIC = Pardiso.isstructurallysymmetric(M)
-    @info "M is structurally symmetric: $ISSTRUCTURALLYSYMMETRIC"
-
-    if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned" && ISSTRUCTURALLYSYMMETRIC
-        matrix_type = Pardiso.REAL_SYM
-        @info "Using Pardiso REAL_SYM (mtype=1)"
-    else
-        matrix_type = Pardiso.REAL_NONSYM
-        @info "Using Pardiso REAL_NONSYM (mtype=11)"
-    end
+    # Determine matrix type based on structural symmetry of the solve matrix
+    solve_matrix = LUMP_AND_SPRAY ? Mc : M
+    ISSTRUCTURALLYSYMMETRIC = Pardiso.isstructurallysymmetric(solve_matrix)
+    @info "Solve matrix is structurally symmetric: $ISSTRUCTURALLYSYMMETRIC"
+    matrix_type = ISSTRUCTURALLYSYMMETRIC ? Pardiso.REAL_SYM : Pardiso.REAL_NONSYM
+    @info "Using Pardiso $(ISSTRUCTURALLYSYMMETRIC ? "REAL_SYM (mtype=1)" : "REAL_NONSYM (mtype=11)")"
     @show solver = MKLPardisoIterate(; nprocs, matrix_type)
 elseif LINEAR_SOLVER == "ParU"
     @info "Using ParUFactorization (parallel sparse LU)"
@@ -203,43 +232,36 @@ if LUMP_AND_SPRAY
     # ── Coarsened linear solve ──
     @info "Solving coarsened linear system (Mc \\ -1)"
     flush(stdout)
-    init_prob_coarsened = LinearProblem(Mc, -ones(size(Mc, 1)))
-    init_prob_coarsened = init(init_prob_coarsened, solver, rtol = 1.0e-12)
-    @time "solve coarsened age" age_coarse_vec = SPRAY * solve!(init_prob_coarsened).u / year
+    init_prob = LinearProblem(Mc, -ones(size(Mc, 1)))
+    init_prob = init(init_prob, solver, rtol = 1.0e-12)
+    @time "solve coarsened age" age_vec = SPRAY * solve!(init_prob).u / year
 
-    age_coarse_3D = zeros(Float64, Nwet)
-    age_coarse_3D[idx] .= age_coarse_vec
+    age_3D = zeros(Float64, Nwet)
+    age_3D[idx] .= age_vec
 
-    vol_mean_coarse = sum(age_coarse_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean coarsened steady age: $(vol_mean_coarse) years"
+    vol_mean = sum(age_vec .* v1D) / sum(v1D)
+    @info "Volume-weighted mean coarsened steady age: $(vol_mean) years"
+else
+    # ── Full linear solve ──
+    @info "Solving full linear system (M \\ -1)"
+    flush(stdout)
+    init_prob = LinearProblem(M, -ones(size(M, 1)))
+    init_prob = init(init_prob, solver, rtol = 1.0e-12)
+    @time "solve full age" age_vec = solve!(init_prob).u / year
 
-    fig, ax, plt = hist(age_coarse_vec)
-    save(joinpath(matrix_plots_dir, "steady_age_coarsened_$(LINEAR_SOLVER)_$(lumpspray_tag)_histogram.png"), fig)
+    age_3D = zeros(Float64, Nwet)
+    age_3D[idx] .= age_vec
 
-    coarsened_file = joinpath(matrices_dir, "steady_age_coarsened_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
-    jldsave(coarsened_file; age = age_coarse_3D, wet3D, idx)
-    @info "Saved coarsened steady age to $coarsened_file"
+    vol_mean = sum(age_vec .* v1D) / sum(v1D)
+    @info "Volume-weighted mean full steady age: $(vol_mean) years"
 end
 
-# ── Full linear solve ──
-@info "Solving full linear system (M \\ -1)"
-flush(stdout)
-init_prob_full = LinearProblem(M, -ones(size(M, 1)))
-init_prob_full = init(init_prob_full, solver, rtol = 1.0e-12)
-@time "solve full age" age_full_vec = solve!(init_prob_full).u / year
+fig, ax, plt = hist(age_vec)
+save(joinpath(matrix_plots_dir, "$(output_tag)_histogram.png"), fig)
 
-age_full_3D = zeros(Float64, Nwet)
-age_full_3D[idx] .= age_full_vec
-
-vol_mean_full = sum(age_full_vec .* v1D) / sum(v1D)
-@info "Volume-weighted mean full steady age: $(vol_mean_full) years"
-
-fig, ax, plt = hist(age_full_vec)
-save(joinpath(matrix_plots_dir, "steady_age_full_$(LINEAR_SOLVER)_$(lumpspray_tag)_histogram.png"), fig)
-
-full_file = joinpath(matrices_dir, "steady_age_full_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
-jldsave(full_file; age = age_full_3D, wet3D, idx)
-@info "Saved full steady age to $full_file"
+output_file = joinpath(matrices_dir, "$(output_tag).jld2")
+jldsave(output_file; age = age_3D, wet3D, idx)
+@info "Saved steady age to $output_file"
 
 ################################################################################
 # Age diagnostic plots
@@ -253,16 +275,8 @@ vol_3D[idx] .= v1D
 const OCEANS = oceanpolygons()
 
 plot_age_diagnostics(
-    age_full_3D, grid, wet3D, vol_3D, matrix_plots_dir,
-    "steady_age_full_$(LINEAR_SOLVER)_$(lumpspray_tag)"
+    age_3D, grid, wet3D, vol_3D, matrix_plots_dir, output_tag
 )
-
-if LUMP_AND_SPRAY
-    plot_age_diagnostics(
-        age_coarse_3D, grid, wet3D, vol_3D, matrix_plots_dir,
-        "steady_age_coarsened_$(LINEAR_SOLVER)_$(lumpspray_tag)"
-    )
-end
 
 @info "solve_matrix_age.jl complete. Outputs in $(matrices_dir)"
 flush(stdout)
