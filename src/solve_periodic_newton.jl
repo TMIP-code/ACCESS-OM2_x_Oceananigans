@@ -105,12 +105,14 @@ if LUMP_AND_SPRAY
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
     Mc = LUMP * M * SPRAY
     @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
-    Q_precond = stop_time * Mc
+    Q_precond = copy(Mc)
+    Q_precond.nzval .*= stop_time
 else
     @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no); using full Q = stop_time * M"
     LUMP = I
     SPRAY = I
-    Q_precond = stop_time * M
+    Q_precond = copy(M)
+    Q_precond.nzval .*= stop_time
 end
 flush(stdout); flush(stderr)
 
@@ -203,7 +205,8 @@ if JVP_METHOD == "matrix"
     # The true Jacobian of G(x) = Φ(x) - x is J_G = exp(M*T) - I ≈ M*T
     # (first-order approximation). Using this avoids expensive G! evaluations
     # during GMRES iterations (sparse matvec vs full year simulation).
-    MT = stop_time * M
+    MT = copy(M)
+    MT.nzval .*= stop_time
 
     function approximate_jvp!(Jv, v, u, p)
         return mul!(Jv, MT, v)
