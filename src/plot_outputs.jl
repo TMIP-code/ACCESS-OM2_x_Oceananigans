@@ -21,7 +21,7 @@ Alternatively, pass the JLD2 output filepath as ARGS[1].
 """
 
 @info "Loading packages for plotting"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.OutputReaders: FieldTimeSeries
@@ -67,14 +67,14 @@ else
 end
 
 @info "Plotting outputs from: $output_filepath"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load output lazily from disk
 ################################################################################
 
 @info "Loading output lazily from disk for visualization"
-flush(stdout)
+flush(stdout); flush(stderr)
 u_lazy = FieldTimeSeries(output_filepath, "u")
 v_lazy = FieldTimeSeries(output_filepath, "v")
 w_lazy = FieldTimeSeries(output_filepath, "w")
@@ -87,7 +87,7 @@ w_lazy = FieldTimeSeries(output_filepath, "w")
 for itime in eachindex(u_lazy.times)
     itime_str = "$itime/$(length(u_lazy.times))"
     @info "Visualizing output $itime_str"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     for k in 25:25
         local fig = Figure(size = (1200, 2400))
         local ax = Axis(fig[1, 1], title = "C-grid u[k=$k, output=$itime_str]")
@@ -113,7 +113,7 @@ for itime in eachindex(u_lazy.times)
         k_dir = joinpath(outputdir, "velocities", "uvweta", model_config, "k$(k)")
         mkpath(k_dir)
         @show fig_file_name = joinpath(k_dir, "CGrid_velocities_final_k$(k)_output$(itime)_$(arch_str).png")
-        flush(stdout)
+        flush(stdout); flush(stderr)
         save(fig_file_name, fig)
         fig = nothing
         GC.gc()
@@ -121,4 +121,4 @@ for itime in eachindex(u_lazy.times)
 end
 
 @info "Plotting complete"
-flush(stdout)
+flush(stdout); flush(stderr)

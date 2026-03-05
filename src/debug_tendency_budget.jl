@@ -39,7 +39,7 @@ using Oceananigans.ImmersedBoundaries: immersed_cell
 @info "╔═══════════════════════════════════════════════════════════════╗"
 @info "║  Tendency check at t=0 (age = 0 everywhere)                 ║"
 @info "╚═══════════════════════════════════════════════════════════════╝"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Model starts at t=0 with age=0 by default after setup_model.jl
 # Just need to initialize vertical coordinate and update state
@@ -47,7 +47,7 @@ initialize_vertical_coordinate!(model.vertical_coordinate, model, model.grid)
 update_state!(model)
 
 @info "Model state updated at t=0"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Extract components at t=0
 begin
@@ -80,7 +80,7 @@ begin
     local i, j, k = 224, 40, 28
 
     @info "Computing tendency budget at (i=$i, j=$j, k=$k) at t=0"
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     local term_advection = -div_Uc(i, j, k, grid, c_advection, total_velocities, c)
     local term_diffusion = -∇_dot_qᶜ(i, j, k, grid, closure, closure_fields, Val(1), c, clock, model_fields, buoyancy)
@@ -147,21 +147,21 @@ begin
     end
 end
 
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # ── Step 2c: Tendency check at t=0 (age=1 everywhere) ────────────────────
 
 @info "╔═══════════════════════════════════════════════════════════════╗"
 @info "║  Tendency check at t=0 (age = 1 everywhere)                 ║"
 @info "╚═══════════════════════════════════════════════════════════════╝"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Set age=1 everywhere, keep clock at t=0
 set!(model, age = 1year)
 update_state!(model)
 
 @info "Model state updated at t=0 with age=1"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Extract components at t=0, age=1
 begin
@@ -194,7 +194,7 @@ begin
     local i, j, k = 224, 40, 28
 
     @info "Computing tendency budget at (i=$i, j=$j, k=$k) at t=0, age=1"
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     local term_advection = -div_Uc(i, j, k, grid, c_advection, total_velocities, c)
     local term_diffusion = -∇_dot_qᶜ(i, j, k, grid, closure, closure_fields, Val(1), c, clock, model_fields, buoyancy)
@@ -261,7 +261,7 @@ begin
     end
 end
 
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Reset age back to 0 before loading saved field
 set!(model, age = 0)
@@ -269,7 +269,7 @@ set!(model, age = 0)
 # ── Step 3: Load saved age field from JLD2 output ────────────────────────
 
 @info "Loading saved age field from 1-year simulation output"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_output_dir = joinpath(outputdir, "age", model_config)
 output_file = joinpath(age_output_dir, "age_1year.jld2")
@@ -285,12 +285,12 @@ final_time = age_times[final_time_index]
 age_final = age_lazy[final_time_index]
 show(age_final)  # load data into memory
 
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # ── Step 4: Set model state to match end of simulation ───────────────────
 
 @info "Setting model state to t = $(final_time / year) years"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Set clock to final time so FieldTimeSeries (velocities, η) interpolate correctly
 model.clock.time = final_time
@@ -305,7 +305,7 @@ initialize_vertical_coordinate!(model.vertical_coordinate, model, model.grid)
 update_state!(model)
 
 @info "Model state updated"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # ── Step 5: Extract components and construct intermediates ────────────────
 
@@ -342,7 +342,7 @@ total_velocities = with_advective_forcing(forcing_age, total_velocities)
 i, j, k = 224, 40, 28
 
 @info "Computing tendency budget at (i=$i, j=$j, k=$k)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # The 5 terms (signs match the return statement in hydrostatic_free_surface_tracer_tendency)
 term_advection = -div_Uc(i, j, k, grid, c_advection, total_velocities, c)
@@ -440,4 +440,4 @@ for dk in -1:1, dj in -1:1, di in -1:1
 end
 
 @info "debug_tendency_budget.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

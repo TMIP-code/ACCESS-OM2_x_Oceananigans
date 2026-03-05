@@ -26,7 +26,7 @@ Environment variables:
 """
 
 @info "Loading packages for trace history plotting"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.Grids: znodes
@@ -83,7 +83,7 @@ TRACE_PHASE = get(ENV, "TRACE_PHASE", "end")
 @info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- trace_dir        = $trace_dir"
 @info "- TRACE_PHASE      = $TRACE_PHASE"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 isdir(trace_dir) || error("Trace directory not found: $trace_dir")
 
@@ -95,7 +95,7 @@ preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 
 @info "Loading grid from $grid_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 grid = load_tripolar_grid(grid_file, CPU())
 
 ################################################################################
@@ -103,7 +103,7 @@ grid = load_tripolar_grid(grid_file, CPU())
 ################################################################################
 
 @info "Computing wet mask and cell volumes"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 Nx′, Ny′, Nz′ = size(wet3D)
@@ -116,19 +116,19 @@ vol_3D = Array(interior(vol))
 ################################################################################
 
 @info "Scanning trace directory for iteration files"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 all_files = readdir(trace_dir)
 trace_files = filter(f -> startswith(f, "age_trace_iter_") && endswith(f, ".jld2"), all_files)
 sort!(trace_files)
 
 @info "Found $(length(trace_files)) trace files"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if isempty(trace_files)
     @warn "No trace files found in $trace_dir — nothing to plot"
     @info "plot_trace_history.jl complete (no files)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     exit(0)
 end
 
@@ -167,7 +167,7 @@ for trace_file in trace_files
         max_age_years = maximum(abs, age_wet_years)
         mean_age_years = mean(age_wet_years)
         @info "Plotting iter=$iter_num phase=$phase" max_age = round(max_age_years; digits = 2) mean_age = round(mean_age_years; digits = 2)
-        flush(stdout)
+        flush(stdout); flush(stderr)
 
         # Adaptive colorrange
         cmax = max(ceil(max_age_years), 1.0)
@@ -189,7 +189,7 @@ end
 ################################################################################
 
 @info "Generating convergence summary plots"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 iters = Int[]
 max_ages = Float64[]
@@ -274,4 +274,4 @@ if length(iters_drift) >= 2
 end
 
 @info "plot_trace_history.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

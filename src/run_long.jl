@@ -43,14 +43,14 @@ checkpoint_interval = CHECKPOINT_INTERVAL_YEARS * 12 * prescribed_Δt
 @info "- NYEARS = $NYEARS"
 @info "- CHECKPOINT_INTERVAL = $CHECKPOINT_INTERVAL_YEARS years"
 @info "- stop_time = $(stop_time / year) years"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Initial condition
 ################################################################################
 
 @info "Setting initial condition: age = 0"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
 
@@ -66,14 +66,14 @@ v1D = interior(compute_volume(grid_cpu))[idx]
 inv_sumv = 1 / sum(v1D)
 
 @info "Number of wet cells: $Nidx"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Simulation
 ################################################################################
 
 @info "Creating simulation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 simulation = Simulation(
     model;
@@ -86,7 +86,7 @@ function progress_message(sim)
     mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
 
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return @info @sprintf(
         "Iteration: %04d, time: %1.3f yr, Δt: %.2e yr, max(age) = %.1e yr at (%d, %d, %d), mean(age) = %.1e yr, wall: %s\n",
         iteration(sim), time(sim) / year, sim.Δt / year, max_age, idx_max.I..., mean_age, walltime
@@ -138,7 +138,7 @@ function save_checkpoint(sim)
     checkpoint_file = joinpath(age_output_dir, "age_long_$(NYEARS)years_checkpoint_$(elapsed_years).jld2")
     jldsave(checkpoint_file; age = age_3D, wet3D, idx, elapsed_years)
     @info "Saved checkpoint to $checkpoint_file"
-    return flush(stdout)
+    return flush(stdout); flush(stderr)
 end
 
 add_callback!(simulation, save_checkpoint, TimeInterval(checkpoint_interval))
@@ -149,19 +149,19 @@ add_callback!(simulation, save_checkpoint, TimeInterval(checkpoint_interval))
 
 @info "Running $(NYEARS)-year simulation"
 @info "Output directory: $age_output_dir"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 run!(simulation)
 
 @info "$(NYEARS)-year simulation complete"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Validate age field
 ################################################################################
 
 @info "Validating age field after $(NYEARS)-year simulation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_data = Array(interior(model.tracers.age))
 elapsed_time = time(simulation)
@@ -192,7 +192,7 @@ end
 
 # Summary
 @info "Final summary:" elapsed_years = NYEARS vol_mean_age_years = final_mean_age max_age_years = final_max_age n_wet_cells = Nidx
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @info "run_long.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

@@ -16,7 +16,7 @@ julia --project src/debug_jacobian_symmetry.jl
 """
 
 @info "Loading packages"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.TurbulenceClosures
@@ -56,7 +56,7 @@ Ly = 1.0e5  # domain extent in y (m)
 Δt = 5400.0seconds
 
 @info "Building grid: Nx=$Nx, Ny=$Ny, Nz=$Nz, H=$H m"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # MutableVerticalDiscretization makes the grid a MutableGridOfSomeKind,
 # enabling _update_zstar_scaling! to work exactly as in create_matrix.jl.
@@ -83,14 +83,14 @@ grid = ImmersedBoundaryGrid(
 )
 @info "Grid built"
 @show grid
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Prescribed velocity and free-surface fields
 ################################################################################
 
 @info "Setting up prescribed fields"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 u_const = XFaceField(grid)
 v_const = YFaceField(grid)
@@ -122,7 +122,7 @@ free_surface = PrescribedFreeSurface(displacement = η_const)
 ################################################################################
 
 @info "Creating closures"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 mld_depth = -0.2 * H   # top 20 % of the column is the "mixed layer"
 κVML = 0.1              # m²/s in the mixed layer
@@ -144,7 +144,7 @@ explicit_closure = (horizontal_diffusion,)
 ################################################################################
 
 @info "Building Jacobian model"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_parameters = (; relaxation_timescale = 3Δt, source_rate = 1.0)
 
@@ -171,20 +171,20 @@ jacobian_model = HydrostaticFreeSurfaceModel(
 ################################################################################
 
 @info "Initialising z-star scaling from constant η"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 launch!(CPU(), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η_const, grid)
 fill_halo_regions!(jacobian_model.tracers.ADc)
 
 @info "Model state initialised"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Autodiff setup (mirrored from create_matrix.jl)
 ################################################################################
 
 @info "Setting up autodiff for Jacobian computation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
 autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
@@ -199,7 +199,7 @@ Nx′, Ny′, Nz′ = size(ADc0)
 N′ = Nx′ * Ny′ * Nz′
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: Nidx = $Nidx"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
 active_cells_map = get_active_cells_map(grid, Val(:interior))
@@ -246,7 +246,7 @@ function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
 end
 
 @info "Benchmarking tendency function"
-flush(stdout)
+flush(stdout); flush(stderr)
 ADcvec = ones(Nidx)
 GADcvec = ones(Nidx)
 @time mytendency!(GADcvec, ADcvec, 0.0)
@@ -315,7 +315,7 @@ end
 ################################################################################
 
 @info "Computing Jacobian"
-flush(stdout)
+flush(stdout); flush(stderr)
 @time "Compute Jacobian" jacobian!(
     mytendency_preallocated!,
     GADcvec,
@@ -334,7 +334,7 @@ display(M)
 ################################################################################
 
 @info "Checking structural symmetry of M"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 i_nz, j_nz, _ = findnz(M)
 M1 = sparse(i_nz, j_nz, true)
@@ -358,4 +358,4 @@ else
 end
 
 @info "debug_jacobian_symmetry.jl complete."
-flush(stdout)
+flush(stdout); flush(stderr)

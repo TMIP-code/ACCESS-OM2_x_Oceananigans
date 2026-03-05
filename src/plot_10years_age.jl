@@ -25,7 +25,7 @@ Environment variables:
 """
 
 @info "Loading packages for age plotting"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.Grids: znodes
@@ -84,7 +84,7 @@ end
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- Output file      = $output_filepath"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 isfile(output_filepath) || error("Output file not found: $output_filepath")
 
@@ -96,7 +96,7 @@ preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 
 @info "Loading grid from $grid_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 grid = load_tripolar_grid(grid_file, CPU())
 
 ################################################################################
@@ -104,12 +104,12 @@ grid = load_tripolar_grid(grid_file, CPU())
 ################################################################################
 
 @info "Loading age field from $output_filepath"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_fts = FieldTimeSeries(output_filepath, "age")
 n_times = length(age_fts.times)
 @info "Found $n_times output timesteps; using last one"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_data = interior(age_fts[n_times])
 
@@ -118,7 +118,7 @@ age_data = interior(age_fts[n_times])
 ################################################################################
 
 @info "Computing wet mask and cell volumes"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 Nx′, Ny′, Nz′ = size(wet3D)
@@ -134,7 +134,7 @@ age_years_3D = age_data ./ year
 label = "age_10years_$(ADVECTION_SCHEME)"
 
 @info "Generating age diagnostic plots"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 plot_age_diagnostics(
     age_years_3D, grid, wet3D, vol_3D, age_output_dir, label;
@@ -142,4 +142,4 @@ plot_age_diagnostics(
 )
 
 @info "plot_10years_age.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

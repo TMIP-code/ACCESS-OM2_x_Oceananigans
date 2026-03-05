@@ -29,14 +29,14 @@ include("setup_model.jl")
 stop_time = 10 * 12 * prescribed_Δt
 
 @info "Overriding stop_time for 10-year simulation: $(stop_time / year) years"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Initial condition
 ################################################################################
 
 @info "Setting initial condition: age = 0"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
 
@@ -45,7 +45,7 @@ set!(model, age = Returns(0.0))
 ################################################################################
 
 @info "Creating simulation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 simulation = Simulation(
     model;
@@ -58,7 +58,7 @@ function progress_message(sim)
     mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
 
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return @info @sprintf(
         "Iteration: %04d, time: %1.3f yr, Δt: %.2e yr, max(age)/time = %.1e at (%d, %d, %d), mean(age) = %.1e yr, wall time: %s\n",
         iteration(sim), time(sim) / year, sim.Δt / year, max_age / (time(sim) / year), idx_max.I..., mean_age, walltime
@@ -88,12 +88,12 @@ simulation.output_writers[:fields] = JLD2Writer(
 
 @info "Running 10-year simulation"
 @info "Output prefix: $output_prefix"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 run!(simulation)
 
 @info "10-year simulation complete"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Validate age field
@@ -102,7 +102,7 @@ flush(stdout)
 using LinearAlgebra: norm
 
 @info "Validating age field after 10-year simulation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_data = Array(interior(model.tracers.age))
 elapsed_time = time(simulation)
@@ -142,7 +142,7 @@ end
 # ── Test 4: Depth-averaged profile ───────────────────────────────────────
 z_centers = Array(znodes(grid, Center(), Center(), Center()))
 @info "Volume-weighted mean age by depth level:"
-flush(stdout)
+flush(stdout); flush(stderr)
 for k in Nz′:-1:1
     level_mask = wet3D[:, :, k]
     n_wet = count(level_mask)
@@ -159,7 +159,7 @@ for k in Nz′:-1:1
         k, z_val, level_mean / year, level_max / year, level_min / year, n_wet
     )
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # ── Test 5: Hotspot inspection ───────────────────────────────────────────
 max_idx = argmax(age_data)
@@ -172,12 +172,12 @@ for dk in -1:1, dj in -1:1, di in -1:1
         @info @sprintf("  neighbor (%+d,%+d,%+d): age = %6.2f yr", di, dj, dk, age_data[ni, nj, nk] / year)
     end
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # ── Summary ──────────────────────────────────────────────────────────────
 @info "Validation summary:" max_age_years = max_age_val / year mean_wet_age_years = mean(age_wet) / year max_surface_days = max_surface_age / day n_negative n_wet_cells = Nidx
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @info "run_10years.jl complete"
 @info "Run plot_10years_age.jl on CPU to generate age diagnostic plots"
-flush(stdout)
+flush(stdout); flush(stderr)

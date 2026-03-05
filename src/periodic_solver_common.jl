@@ -24,14 +24,14 @@ else
     trace_dir = ""
     @info "TRACE_SOLVER_HISTORY disabled (set TRACE_SOLVER_HISTORY=yes to enable)"
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Simulation (no output writers)
 ################################################################################
 
 @info "Creating simulation (no output writers)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
 
@@ -44,12 +44,12 @@ add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 ################################################################################
 
 @info "Computing wet cell mask"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: $Nidx"
 Nx′, Ny′, Nz′ = size(wet3D)
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
 age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
@@ -59,7 +59,7 @@ age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
 ################################################################################
 
 @info "Computing cell volumes for volume-weighted norm"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 grid_cpu = on_architecture(CPU(), grid)
 v1D = interior(compute_volume(grid_cpu))[idx]
@@ -109,7 +109,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
             fpath = joinpath(matrices_dir, candidate)
             if isfile(fpath)
                 @info "Loading TM age from $fpath"
-                flush(stdout)
+                flush(stdout); flush(stderr)
                 age_data = load(fpath, "age")
                 # Matrix age files store age in years → convert to seconds
                 age_init_vec .= view(age_data, idx) .* year
@@ -125,7 +125,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
         # Treat as a file path (backwards-compatible with WARM_START_FILE concept)
         if isfile(INITIAL_AGE)
             @info "Loading initial age from file: $INITIAL_AGE"
-            flush(stdout)
+            flush(stdout); flush(stderr)
             age_data = load(INITIAL_AGE, "age")
             # Detect units: if max age < 100_000, assume years; otherwise seconds
             max_val = maximum(abs, view(age_data, idx))
@@ -142,7 +142,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
     else
         @info "Starting from zero initial guess (set INITIAL_AGE=TMage or path to warm-start)"
     end
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     return age_init_vec
 end
@@ -164,7 +164,7 @@ function Φ!(age_out, age_in, p)
     call_num = g_call_count[]
     t_start = time()
     @info "Φ! call #$call_num starting" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     # Reset simulation for a fresh 1-year run
     reset!(simulation)
@@ -203,7 +203,7 @@ function Φ!(age_out, age_in, p)
 
     elapsed = time() - t_start
     @info "Φ! call #$call_num done ($(round(elapsed; digits = 1))s)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return age_out
 end
 
@@ -216,6 +216,6 @@ function G!(dage, age, p)
     Φ!(dage, age, p) # dage <- Φ(age)       = age after 1 year
     dage .-= age     # dage <- Φ(age) - age = age drift after after 1 year
     @info "G! residual" vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return dage
 end

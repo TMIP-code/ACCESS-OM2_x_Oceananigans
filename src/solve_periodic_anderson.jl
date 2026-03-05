@@ -68,7 +68,7 @@ FPAA_M = parse(Int, get(ENV, "FPAA_M", "10"))
 @info "- SMAA_CHECK_OBJ = $SMAA_CHECK_OBJ"
 @info "- SMAA_ORDERS = $SMAA_ORDERS"
 @info "- FPAA_M = $FPAA_M (FixedPoint Anderson history size)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
@@ -88,26 +88,26 @@ age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
 
 @info "Solving nonlinear problem with fixed-point acceleration ($AA_SOLVER)"
 @info "- abstol = 0.001 years (volume-weighted RMS norm)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 f! = NonlinearFunction(G!)
 nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 
 if AA_SOLVER == "SpeedMapping"
     @info "Using SpeedMappingJL (Alternating Cyclic Extrapolation)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     solver = SpeedMappingJL(; σ_min = SMAA_SIGMA_MIN, stabilize = SMAA_STABILIZE, check_obj = SMAA_CHECK_OBJ, orders = SMAA_ORDERS)
 elseif AA_SOLVER == "NLsolve"
     @info "Using NLsolveJL with Anderson acceleration (m=$NLSAA_M, beta=$NLSAA_BETA)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     solver = NLsolveJL(; method = :anderson, m = NLSAA_M, beta = NLSAA_BETA)
 elseif AA_SOLVER == "SIAMFANL"
     @info "Using SIAMFANLEquationsJL with Anderson acceleration"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     solver = SIAMFANLEquationsJL(; method = :anderson)
 elseif AA_SOLVER == "FixedPoint"
     @info "Using FixedPointAccelerationJL with Anderson acceleration (m=$FPAA_M)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     solver = FixedPointAccelerationJL(; algorithm = :Anderson, m = FPAA_M)
 end
 
@@ -123,14 +123,14 @@ end
 )
 
 @info "Fixed-point solve complete" retcode = sol.retcode total_G_calls = g_call_count[]
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Save result
 ################################################################################
 
 @info "Saving steady-state age"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_steady_3D = zeros(Float64, Nx′, Ny′, Nz′)
 age_steady_3D[idx] .= sol.u
@@ -143,7 +143,7 @@ mkpath(steady_dir)
 steady_file = joinpath(steady_dir, "age_$(AA_SOLVER).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @info "solve_periodic_anderson.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

@@ -74,7 +74,7 @@ matrices_dir = joinpath(outputdir, "matrices", model_config)
 @info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
 @info "- matrices_dir = $matrices_dir"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load pre-built transport matrix M from disk
@@ -82,10 +82,10 @@ flush(stdout)
 
 M_file = joinpath(matrices_dir, "M.jld2")
 @info "Loading transport matrix from $M_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 M = load(M_file, "M")
 @info "Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
@@ -101,7 +101,7 @@ include("periodic_solver_common.jl")
 
 if LUMP_AND_SPRAY
     @info "Computing LUMP and SPRAY matrices"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
     Mc = LUMP * M * SPRAY
     @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
@@ -112,14 +112,14 @@ else
     SPRAY = I
     Q_precond = stop_time * M
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Preconditioner setup
 ################################################################################
 
 @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if LINEAR_SOLVER == "Pardiso"
     if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned"
@@ -187,7 +187,7 @@ Pr = I
 precs = Returns((Pl, Pr))
 
 @info "Preconditioner ready"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # JVP setup
@@ -195,7 +195,7 @@ flush(stdout)
 
 if JVP_METHOD == "matrix"
     @info "Using matrix-based JVP: J ≈ stop_time * M (sparse matvec)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     # M = ∂x/∂t
     # ϕ(x(t)) = x(t + 1year) = x(t) + ∫ ∂x/∂t dt ≈ x(t) + Δt M x(t)
@@ -217,7 +217,7 @@ if JVP_METHOD == "matrix"
 elseif JVP_METHOD == "finitediff"
     @info "Using finite-difference JVP (AutoFiniteDiff)"
     @warn "This requires extra G! evaluations per GMRES iteration — much slower than matrix JVP"
-    flush(stdout)
+    flush(stdout); flush(stderr)
 
     f! = NonlinearFunction(G!)
     newton_solver = NewtonRaphson(
@@ -235,7 +235,7 @@ end
 @info "- Preconditioner: $(LUMP_AND_SPRAY ? "lump-and-spray (Bardin et al., 2014)" : "direct Q⁻¹ - I")"
 @info "- Linear solver: $LINEAR_SOLVER"
 @info "- abstol = 0.001 years (volume-weighted RMS norm)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
 nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
@@ -251,14 +251,14 @@ nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 )
 
 @info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[]
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Save result
 ################################################################################
 
 @info "Saving steady-state age"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_steady_3D = zeros(Float64, Nx′, Ny′, Nz′)
 age_steady_3D[idx] .= sol.u
@@ -271,7 +271,7 @@ mkpath(steady_dir)
 steady_file = joinpath(steady_dir, "age_newton_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @info "solve_periodic_newton.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)

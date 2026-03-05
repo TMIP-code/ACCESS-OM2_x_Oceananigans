@@ -28,7 +28,7 @@ Environment variables:
 """
 
 @info "Loading packages"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.Architectures: CPU
@@ -53,7 +53,7 @@ using TOML
 const nprocs = 12
 
 @info "Packages loaded"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Configuration
@@ -111,19 +111,19 @@ mkpath(matrix_plots_dir)
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
 @info "- matrices_dir      = $matrices_dir"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load grid
 ################################################################################
 
 @info "Loading grid"
-flush(stdout)
+flush(stdout); flush(stderr)
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, CPU())
 @info "Grid loaded: $(size(grid))"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load transport matrix M
@@ -131,30 +131,30 @@ flush(stdout)
 
 M_file = joinpath(matrices_dir, "M.jld2")
 @info "Loading transport matrix from $M_file"
-flush(stdout)
+flush(stdout); flush(stderr)
 M = load(M_file, "M")
 @info "Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Wet mask and cell volumes
 ################################################################################
 
 @info "Computing wet cell mask and cell volumes"
-flush(stdout)
+flush(stdout); flush(stderr)
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: $Nidx"
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
 
 v1D = interior(compute_volume(grid))[idx]
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Matrix processing
 ################################################################################
 
 @info "Applying matrix processing: $MATRIX_PROCESSING"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if MATRIX_PROCESSING == "symfill"
     # Fill sparsity structure to be structurally symmetric by adding zero-valued
@@ -177,7 +177,7 @@ elseif MATRIX_PROCESSING == "symdrop"
 else
     @info "No matrix processing applied (raw)"
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # LUMP/SPRAY coarsening (if requested)
@@ -185,7 +185,7 @@ flush(stdout)
 
 if LUMP_AND_SPRAY
     @info "Computing LUMP and SPRAY matrices"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
     @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP)))"
     @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY)))"
@@ -198,7 +198,7 @@ if LUMP_AND_SPRAY
 else
     @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no)"
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Linear solver setup
@@ -220,7 +220,7 @@ elseif LINEAR_SOLVER == "UMFPACK"
     @info "Using UMFPACKFactorization (serial sparse LU)"
     @show solver = UMFPACKFactorization(; reuse_symbolic = true)
 end
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Solve for steady-state age
@@ -231,7 +231,7 @@ Nwet = size(wet3D)
 if LUMP_AND_SPRAY
     # ── Coarsened linear solve ──
     @info "Solving coarsened linear system (Mc \\ -1)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     init_prob = LinearProblem(Mc, -ones(size(Mc, 1)))
     init_prob = init(init_prob, solver, rtol = 1.0e-12)
     @time "solve coarsened age" age_vec = SPRAY * solve!(init_prob).u / year
@@ -244,7 +244,7 @@ if LUMP_AND_SPRAY
 else
     # ── Full linear solve ──
     @info "Solving full linear system (M \\ -1)"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     init_prob = LinearProblem(M, -ones(size(M, 1)))
     init_prob = init(init_prob, solver, rtol = 1.0e-12)
     @time "solve full age" age_vec = solve!(init_prob).u / year
@@ -268,7 +268,7 @@ jldsave(output_file; age = age_3D, wet3D, idx)
 ################################################################################
 
 @info "Plotting age diagnostic figures"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 vol_3D = zeros(Float64, Nwet)
 vol_3D[idx] .= v1D
@@ -279,4 +279,4 @@ plot_age_diagnostics(
 )
 
 @info "solve_matrix_age.jl complete. Outputs in $(matrices_dir)"
-flush(stdout)
+flush(stdout); flush(stderr)

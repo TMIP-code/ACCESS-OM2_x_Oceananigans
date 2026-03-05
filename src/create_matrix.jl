@@ -26,7 +26,7 @@ Environment variables:
 """
 
 @info "Loading packages and functions"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 
@@ -35,7 +35,7 @@ using Oceananigans
 arch = CPU()
 arch_str = "CPU"
 @info "Using $arch architecture"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
@@ -110,7 +110,7 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- model_config     = $model_config"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 matrices_dir = joinpath(outputdir, "matrices", model_config)
@@ -119,27 +119,27 @@ mkpath(matrices_dir)
 mkpath(matrix_plots_dir)
 @show outputdir
 @show matrices_dir
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load grid
 ################################################################################
 
 @info "Reconstructing grid (loading data from JLD2)"
-flush(stdout)
+flush(stdout); flush(stderr)
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load time-averaged (constant) velocity fields
 ################################################################################
 
 @info "Loading time-averaged (constant) velocity and η fields"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if VELOCITY_SOURCE == "cgridtransports"
     u_constant_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_constant.jld2")
@@ -157,7 +157,7 @@ elseif VELOCITY_SOURCE == "bgridvelocities"
     """
 end
 η_constant_file = joinpath(preprocessed_inputs_dir, "eta_constant.jld2")
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Re-use the same boundary conditions as create_velocities.jl
 ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = FPivotZipperBoundaryCondition(-1))
@@ -179,7 +179,7 @@ fill_halo_regions!(η_constant)
 @show η_constant
 
 @info "Constant velocities and η loaded"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Prescribed velocities and free surface
@@ -190,14 +190,14 @@ if W_FORMULATION == "wprescribed"
         joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2") :
         joinpath(preprocessed_inputs_dir, "w_constant.jld2")
     @info "Using prescribed w field from: $w_constant_file"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     w_constant = CenterField(grid)
     set!(w_constant, load(w_constant_file, "w"))
     fill_halo_regions!(w_constant)
     velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, w = w_constant)
 elseif W_FORMULATION == "wdiagnosed"
     @info "Prescribing u, v (constant); diagnosing w via continuity"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, formulation = DiagnosticVerticalVelocity())
 end
 free_surface = PrescribedFreeSurface(displacement = η_constant)
@@ -207,7 +207,7 @@ free_surface = PrescribedFreeSurface(displacement = η_constant)
 ################################################################################
 
 @info "Creating closures"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 resolution_str = split(parentmodel, "-")[end]
 experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
@@ -231,14 +231,14 @@ horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
 explicit_closure = (horizontal_diffusion, explicit_vertical_diffusion)
 
 @info "Closures created"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Jacobian model
 ################################################################################
 
 @info "Building Jacobian model"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_parameters = (;
     relaxation_timescale = 3Δt,
@@ -269,20 +269,20 @@ jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
 ################################################################################
 
 @info "Initialising model state (zstar scaling from constant η)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 launch!(CPU(), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η_constant, grid)
 fill_halo_regions!(jacobian_model.tracers.ADc)
 
 @info "Model state initialised"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Autodiff setup
 ################################################################################
 
 @info "Setting up autodiff for Jacobian computation"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @warn "Adding newton_div method to allow sparsity tracer to pass through WENO"
 autodifftypes = Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual, ForwardDiff.Dual}
@@ -297,7 +297,7 @@ Nx′, Ny′, Nz′ = size(ADc0)
 N′ = Nx′ * Ny′ * Nz′
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: Nidx = $Nidx"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 kernel_parameters = KernelParameters(1:Nx′, 1:Ny′, 1:Nz′)
 active_cells_map = get_active_cells_map(grid, Val(:interior))
@@ -348,7 +348,7 @@ ADc_buf = CenterField(grid)
 GADc_buf = CenterField(grid)
 
 @info "Benchmarking tendency function"
-flush(stdout)
+flush(stdout); flush(stderr)
 ADcvec = ones(Nidx)
 GADcvec = similar(ADcvec)
 mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
@@ -356,7 +356,7 @@ mytendency!(GADcvec, ADcvec, ADc_buf, GADc_buf)
 
 # Step 1: Detect sparsity pattern (expensive tracing pass)
 @info "Detecting sparsity pattern..."
-flush(stdout)
+flush(stdout); flush(stderr)
 @time "Detect sparsity" S = jacobian_sparsity_with_contexts(
     mytendency!, GADcvec, TracerSparsityDetector(; gradient_pattern_type = Set{UInt}), ADcvec,
     Cache(ADc_buf), Cache(GADc_buf),
@@ -365,7 +365,7 @@ flush(stdout)
 # Step 2: Symmetrize sparsity pattern (S[i,j] ↔ S[j,i])
 S_sym = S .| S'
 @info "Sparsity: nnz(S) = $(nnz(S)), nnz(S_sym) = $(nnz(S_sym))"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 # Step 3: Prepare Jacobian with known (symmetric) sparsity pattern
 sparse_forward_backend = AutoSparse(
@@ -375,14 +375,14 @@ sparse_forward_backend = AutoSparse(
 )
 
 @info "Preparing Jacobian..."
-flush(stdout)
+flush(stdout); flush(stderr)
 @time "Prepare Jacobian" jac_prep = prepare_jacobian(
     mytendency!, GADcvec, sparse_forward_backend, ADcvec,
     Cache(ADc_buf), Cache(GADc_buf),
 )
 S_final = sparsity_pattern(jac_prep)
 @info "Sparsity pattern: $(size(S_final, 1))×$(size(S_final, 2)), nnz=$(nnz(S_final)), $(maximum(column_colors(jac_prep))) colors"
-flush(stdout)
+flush(stdout); flush(stderr)
 jac_buffer = similar(S_final, eltype(ADcvec))
 
 ################################################################################
@@ -392,7 +392,7 @@ jac_buffer = similar(S_final, eltype(ADcvec))
 ################################################################################
 
 @info "Computing Jacobian (single pass — time-averaged constant fields)"
-flush(stdout)
+flush(stdout); flush(stderr)
 @time "Compute Jacobian" jacobian!(
     mytendency!, GADcvec, jac_buffer, jac_prep,
     sparse_forward_backend, ADcvec,
@@ -401,12 +401,12 @@ flush(stdout)
 
 M = copy(jac_buffer)  # units: 1/s
 @info "Jacobian M ($(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M)), density=$(@sprintf("%.2e", nnz(M) / length(M))))"
-flush(stdout)
+flush(stdout); flush(stderr)
 @info "Sparsity pattern of M:"
 display(M)
 
 @info "Saving Jacobian to $(matrices_dir)"
-flush(stdout)
+flush(stdout); flush(stderr)
 jldsave(joinpath(matrices_dir, "M.jld2"); M)
 
 fig = Figure()
@@ -426,4 +426,4 @@ save(joinpath(matrix_plots_dir, "M_spy.png"), fig)
 
 @info "create_matrix.jl complete. Outputs in $(matrices_dir)"
 @info "(Run solve_matrix_age.jl to solve for steady-state age using the saved matrix)"
-flush(stdout)
+flush(stdout); flush(stderr)

@@ -557,7 +557,7 @@ function progress_message(sim)
     mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
 
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return @info @sprintf(
         "  sim iter: %04d, time: %1.3f yr, Δt: %.2e yr, max(age) = %.1e yr at (%d, %d, %d), mean(age) = %.1e yr, wall: %s\n",
         iteration(sim), time(sim) / year, sim.Δt / year, max_age, idx_max.I..., mean_age, walltime
@@ -726,6 +726,6 @@ function plot_age_diagnostics(
     end
 
     @info "Age diagnostic plots saved to $output_dir"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     return nothing
 end

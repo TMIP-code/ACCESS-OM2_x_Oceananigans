@@ -19,7 +19,7 @@ Environment variables:
 """
 
 @info "Loading packages and functions"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans
 
@@ -35,7 +35,7 @@ else
     arch_str = "CPU"
 end
 @info "Using $arch architecture"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
@@ -110,23 +110,23 @@ mkpath(outputdir)
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 
 @info "Reconstructing grid (loading data from JLD2)"
-flush(stdout)
+flush(stdout); flush(stderr)
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Load velocities from disk
 ################################################################################
 
 @info "Loading velocities from disk"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if VELOCITY_SOURCE == "cgridtransports"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_periodic.jld2")
     v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_periodic.jld2")
     w_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_periodic.jld2")
@@ -136,7 +136,7 @@ if VELOCITY_SOURCE == "cgridtransports"
     - $(w_file)
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     u_file = joinpath(preprocessed_inputs_dir, "u_interpolated_periodic.jld2")
     v_file = joinpath(preprocessed_inputs_dir, "v_interpolated_periodic.jld2")
     w_file = joinpath(preprocessed_inputs_dir, "w_periodic.jld2")
@@ -157,7 +157,7 @@ u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_ind
 v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
 @show v_ts
 @info "Loading sea surface height from MOM output"
-flush(stdout)
+flush(stdout); flush(stderr)
 η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
 η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
 @show η_ts
@@ -166,7 +166,7 @@ prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
 @info "Velocities loaded (InMemory backend with $N_in_mem timesteps in memory)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 if W_FORMULATION == "wprescribed"
     @info "Using prescribed w field from: $(w_file)"
@@ -175,16 +175,16 @@ if W_FORMULATION == "wprescribed"
     @show w_ts
 
     @info "Prescribing u, v, and w"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, w = w_ts)
 elseif W_FORMULATION == "wdiagnosed"
     @info "Prescribing u and v; diagnosing w via continuity"
-    flush(stdout)
+    flush(stdout); flush(stderr)
     velocities = PrescribedVelocityFields(u = u_ts, v = v_ts, formulation = DiagnosticVerticalVelocity())
 end
 
 @info "Using prescribed sea surface height from MOM output"
-flush(stdout)
+flush(stdout); flush(stderr)
 free_surface = PrescribedFreeSurface(displacement = η_ts)
 
 ################################################################################
@@ -192,7 +192,7 @@ free_surface = PrescribedFreeSurface(displacement = η_ts)
 ################################################################################
 
 @info "Creating closures"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 resolution_str = split(parentmodel, "-")[end]
 experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
@@ -223,14 +223,14 @@ closure = (
 )
 
 @info "Closures created"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 ################################################################################
 # Model
 ################################################################################
 
 @info "Building model"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 age_parameters = (;
     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
@@ -266,7 +266,7 @@ model = HydrostaticFreeSurfaceModel(
 stop_time = 12 * prescribed_Δt
 
 @info "Model built (stop_time = $(stop_time / year) years)"
-flush(stdout)
+flush(stdout); flush(stderr)
 
 @info "setup_model.jl complete"
-flush(stdout)
+flush(stdout); flush(stderr)
