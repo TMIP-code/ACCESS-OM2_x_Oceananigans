@@ -78,6 +78,76 @@ end
 vol_norm = make_vol_norm(v1D, year)
 
 ################################################################################
+# Initial age loading (INITIAL_AGE env var)
+################################################################################
+
+"""
+    load_initial_age(idx, Nidx, outputdir, model_config; year)
+
+Load the initial age vector based on the INITIAL_AGE environment variable.
+
+Returns a Vector{Float64} of length `Nidx` (wet cells) in **seconds**.
+
+- `INITIAL_AGE="0"` (default): zeros
+- `INITIAL_AGE="TMage"`: load transport-matrix-computed steady-state age
+  (tries ParU, UMFPACK, then generic full files in the matrices directory)
+"""
+function load_initial_age(idx, Nidx, outputdir, model_config; year)
+    INITIAL_AGE = get(ENV, "INITIAL_AGE", "0")
+    age_init_vec = zeros(Nidx)
+
+    if INITIAL_AGE == "TMage"
+        matrices_dir = joinpath(outputdir, "matrices", model_config)
+        # Try candidate files in priority order
+        candidates = [
+            "steady_age_full_ParU_LSprec.jld2",
+            "steady_age_full_UMFPACK_LSprec.jld2",
+            "steady_age_full.jld2",
+        ]
+        loaded = false
+        for candidate in candidates
+            fpath = joinpath(matrices_dir, candidate)
+            if isfile(fpath)
+                @info "Loading TM age from $fpath"
+                flush(stdout)
+                age_data = load(fpath, "age")
+                # Matrix age files store age in years → convert to seconds
+                age_init_vec .= view(age_data, idx) .* year
+                @info "TM age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
+                loaded = true
+                break
+            end
+        end
+        if !loaded
+            @warn "INITIAL_AGE=TMage but no matrix age file found in $matrices_dir — starting from zeros"
+        end
+    elseif INITIAL_AGE != "0"
+        # Treat as a file path (backwards-compatible with WARM_START_FILE concept)
+        if isfile(INITIAL_AGE)
+            @info "Loading initial age from file: $INITIAL_AGE"
+            flush(stdout)
+            age_data = load(INITIAL_AGE, "age")
+            # Detect units: if max age < 100_000, assume years; otherwise seconds
+            max_val = maximum(abs, view(age_data, idx))
+            if max_val < 100_000
+                @info "Detected age in years — converting to seconds"
+                age_init_vec .= view(age_data, idx) .* year
+            else
+                age_init_vec .= view(age_data, idx)
+            end
+            @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
+        else
+            @warn "INITIAL_AGE file not found: $INITIAL_AGE — starting from zeros"
+        end
+    else
+        @info "Starting from zero initial guess (set INITIAL_AGE=TMage or path to warm-start)"
+    end
+    flush(stdout)
+
+    return age_init_vec
+end
+
+################################################################################
 # Forward map Φ! and residual G!
 ################################################################################
 

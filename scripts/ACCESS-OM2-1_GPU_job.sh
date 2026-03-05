@@ -27,9 +27,10 @@ case "$NONLINEAR_SOLVER" in
     1year)    SCRIPT="src/run_1year.jl" ;;
     10years)  SCRIPT="src/run_10years.jl" ;;
     100years) SCRIPT="src/run_100years.jl" ;;
+    long)     SCRIPT="src/run_long.jl" ;;
     newton)   SCRIPT="src/solve_periodic_newton.jl" ;;
     anderson) SCRIPT="src/solve_periodic_anderson.jl" ;;
-    *)        echo "Unknown NONLINEAR_SOLVER=$NONLINEAR_SOLVER (must be: 1year, 10years, 100years, newton, anderson)"; exit 1 ;;
+    *)        echo "Unknown NONLINEAR_SOLVER=$NONLINEAR_SOLVER (must be: 1year, 10years, 100years, long, newton, anderson)"; exit 1 ;;
 esac
 echo "SCRIPT=$SCRIPT"
 
@@ -41,6 +42,8 @@ echo "SCRIPT=$SCRIPT"
 [ -n "${TRACE_SOLVER_HISTORY:-}" ] && export TRACE_SOLVER_HISTORY && echo "TRACE_SOLVER_HISTORY=$TRACE_SOLVER_HISTORY"
 [ -n "${LINEAR_SOLVER:-}" ] && export LINEAR_SOLVER && echo "LINEAR_SOLVER=$LINEAR_SOLVER"
 [ -n "${LUMP_AND_SPRAY:-}" ] && export LUMP_AND_SPRAY && echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
+[ -n "${INITIAL_AGE:-}" ] && export INITIAL_AGE && echo "INITIAL_AGE=$INITIAL_AGE"
+[ -n "${NYEARS:-}" ] && export NYEARS && echo "NYEARS=$NYEARS"
 
 echo "Loading CUDA module"
 module load cuda/12.9.0

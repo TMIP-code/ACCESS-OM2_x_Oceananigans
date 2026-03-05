@@ -237,7 +237,7 @@ end
 @info "- abstol = 0.001 years (volume-weighted RMS norm)"
 flush(stdout)
 
-age_init_vec = zeros(Nidx)
+age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
 nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
 
 @time sol = solve(

@@ -77,28 +77,10 @@ flush(stdout)
 include("periodic_solver_common.jl")
 
 ################################################################################
-# Warm-start from previous solution (optional)
+# Initial age (INITIAL_AGE env var — see periodic_solver_common.jl)
 ################################################################################
 
-age_init_vec = zeros(Nidx)
-
-WARM_START_FILE = get(ENV, "WARM_START_FILE", "")
-if !isempty(WARM_START_FILE)
-    if isfile(WARM_START_FILE)
-        @info "Loading warm-start initial guess from $WARM_START_FILE"
-        flush(stdout)
-        warm_data = jldopen(WARM_START_FILE)
-        age_warm = warm_data["age"]
-        close(warm_data)
-        age_init_vec .= view(age_warm, idx)
-        @info "Warm-start loaded" norm_years = norm(age_init_vec) / year max_years = maximum(abs, age_init_vec) / year
-    else
-        @warn "WARM_START_FILE not found: $WARM_START_FILE — starting from zeros"
-    end
-else
-    @info "Starting from zero initial guess (set WARM_START_FILE to warm-start)"
-end
-flush(stdout)
+age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
 
 ################################################################################
 # Nonlinear solve: fixed-point acceleration
