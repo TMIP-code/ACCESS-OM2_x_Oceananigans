@@ -51,22 +51,22 @@ submit() {
     fi
 }
 
-# Pardiso — all MATRIX_PROCESSING variants
-for las in no yes; do
-    for mp in raw symfill dropzeros symdrop; do
-        submit Pardiso "$las" "$mp"
-    done
-done
+# # Pardiso — all MATRIX_PROCESSING variants
+# for las in no yes; do
+#     for mp in raw symfill dropzeros symdrop; do
+#         submit Pardiso "$las" "$mp"
+#     done
+# done
 
-# ParU — raw only
-for las in no yes; do
-    submit ParU "$las" raw
-done
+# # ParU — raw only
+# for las in no yes; do
+#     submit ParU "$las" raw
+# done
 
-# UMFPACK — raw only
-for las in no yes; do
-    submit UMFPACK "$las" raw
-done
+# # UMFPACK — raw only
+# for las in no yes; do
+#     submit UMFPACK "$las" raw
+# done
 
 # CUDSS (GPU) — raw only
 for las in no yes; do

@@ -29,7 +29,17 @@ module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
 # Point CUDSS.jl to the JLL artifact since Gadi's system CUDA lacks libcudss
-export JULIA_CUDSS_LIBRARY_PATH=$(julia --project -e 'using CUDSS_jll; print(dirname(CUDSS_jll.libcudss))')
+CUDSS_LIB=$(find "${JULIA_DEPOT_PATH:-$HOME/.julia}/artifacts" -name "libcudss.so" -print -quit 2>/dev/null)
+if [ -z "$CUDSS_LIB" ]; then
+    # Fallback: search in gdata depot
+    CUDSS_LIB=$(find /g/data/y99/bp3051/.julia/artifacts -name "libcudss.so" -print -quit 2>/dev/null)
+fi
+if [ -z "$CUDSS_LIB" ]; then
+    echo "ERROR: Could not find libcudss.so in Julia artifacts" >&2
+    exit 1
+fi
+export JULIA_CUDSS_LIBRARY_PATH=$(dirname "$CUDSS_LIB")
+export LD_LIBRARY_PATH="${JULIA_CUDSS_LIBRARY_PATH}:${LD_LIBRARY_PATH:-}"
 echo "JULIA_CUDSS_LIBRARY_PATH=$JULIA_CUDSS_LIBRARY_PATH"
 
 # Determine coarse tag for log file naming
