@@ -28,6 +28,10 @@ echo "Loading CUDA module"
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
+# Point CUDSS.jl to the JLL artifact since Gadi's system CUDA lacks libcudss
+export JULIA_CUDSS_LIBRARY_PATH=$(julia --project -e 'using CUDSS_jll; print(dirname(CUDSS_jll.libcudss))')
+echo "JULIA_CUDSS_LIBRARY_PATH=$JULIA_CUDSS_LIBRARY_PATH"
+
 # Determine coarse tag for log file naming
 if [ "$LUMP_AND_SPRAY" = "yes" ]; then
     COARSE_TAG="coarse"
