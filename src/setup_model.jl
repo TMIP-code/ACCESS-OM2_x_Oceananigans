@@ -245,8 +245,19 @@ age_dynamics = Forcing(
     discrete_form = true,
 )
 
+# Linear age tracer: same as age but without the constant source term.
+# Used for exact JVP computation (the Jacobian of the forward map is the linear part).
+@inline linage_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.linage[i, j, k] / params.relaxation_timescale, 0.0)
+
+linage_dynamics = Forcing(
+    linage_source_sink,
+    parameters = age_parameters,
+    discrete_form = true,
+)
+
 forcing = (
     age = age_dynamics,
+    linage = linage_dynamics,
 )
 
 tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
@@ -258,7 +269,7 @@ model = HydrostaticFreeSurfaceModel(
     tracer_advection,
     velocities = velocities,
     free_surface = free_surface,
-    tracers = (; age = CenterField(grid)),
+    tracers = (; age = CenterField(grid), linage = CenterField(grid)),
     closure = closure,
     forcing = forcing,
 )

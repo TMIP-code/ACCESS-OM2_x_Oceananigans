@@ -18,7 +18,8 @@ include("src/solve_periodic_newton.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
-  JVP_METHOD     – matrix | finitediff  (default: matrix)
+  JVP_METHOD     – exact | matrix | finitediff  (default: exact)
+                   exact:      exact JVP via linear tracer linΦ! (1 simulation per JVP)
                    matrix:     approximate JVP using transport matrix M (fast, sparse matvec)
                    finitediff: finite-difference JVP via AutoFiniteDiff (slow, extra G! evals)
   LINEAR_SOLVER  – Pardiso | ParU | UMFPACK  (default: Pardiso)
@@ -50,8 +51,8 @@ const nprocs = 12
 # Configuration
 ################################################################################
 
-JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
-(JVP_METHOD ∈ ("matrix", "finitediff")) || error("JVP_METHOD must be one of: matrix, finitediff (got: $JVP_METHOD)")
+JVP_METHOD = get(ENV, "JVP_METHOD", "exact")
+(JVP_METHOD ∈ ("exact", "matrix", "finitediff")) || error("JVP_METHOD must be one of: exact, matrix, finitediff (got: $JVP_METHOD)")
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
@@ -146,24 +147,24 @@ end
 
 # P = S Q⁻¹ L - I  (Bardin et al., 2014)
 # When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
-if !@isdefined(Preconditioner)
-    struct Preconditioner
+if !@isdefined(TMPreconditioner)
+    struct TMPreconditioner
         prob
     end
 end
 
 Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
 Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
-Pl = Preconditioner(Plprob)
+Pl = TMPreconditioner(Plprob)
 
-Base.eltype(::Preconditioner) = Float64
-function LinearAlgebra.ldiv!(Pl::Preconditioner, x::AbstractVector)
+Base.eltype(::TMPreconditioner) = Float64
+function LinearAlgebra.ldiv!(Pl::TMPreconditioner, x::AbstractVector)
     Pl.prob.b = LUMP * x
     solve!(Pl.prob)
     x .= SPRAY * Pl.prob.u .- x
     return x
 end
-function LinearAlgebra.ldiv!(y::AbstractVector, Pl::Preconditioner, x::AbstractVector)
+function LinearAlgebra.ldiv!(y::AbstractVector, Pl::TMPreconditioner, x::AbstractVector)
     mul!(Pl.prob.b, LUMP, x)
     solve!(Pl.prob)
     mul!(y, SPRAY, Pl.prob.u)
@@ -203,6 +204,15 @@ if JVP_METHOD == "matrix"
         linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
     )
 
+elseif JVP_METHOD == "exact"
+    @info "Using exact JVP via linear tracer (linΦ!)"
+    flush(stdout); flush(stderr)
+
+    f! = NonlinearFunction(G!; jvp = jvp!)
+    newton_solver = NewtonRaphson(
+        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
+    )
+
 elseif JVP_METHOD == "finitediff"
     @info "Using finite-difference JVP (AutoFiniteDiff)"
     @warn "This requires extra G! evaluations per GMRES iteration — much slower than matrix JVP"
@@ -227,19 +237,19 @@ end
 flush(stdout); flush(stderr)
 
 age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
-nonlinearprob = NonlinearProblem(f!, age_init_vec, [])
+nonlinearprob = NonlinearProblem(f!, age_init_vec)
 
 @time sol = solve(
     nonlinearprob,
     newton_solver;
-    internalnorm = vol_norm,
+    # internalnorm = vol_norm,
     show_trace = Val(true),
     reltol = Inf,
-    abstol = 0.001,
+    abstol = 0.0001year,
     verbose = true,
 )
 
-@info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[]
+@info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[] total_jvp_calls = jvp_call_count[]
 flush(stdout); flush(stderr)
 
 ################################################################################

@@ -35,6 +35,7 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
+set!(model, linage = Returns(0.0))
 
 simulation = Simulation(model; Δt, stop_time)
 
@@ -55,6 +56,10 @@ flush(stdout); flush(stderr)
 age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
 age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
 
+# TODO: linage may be able to reuse age3D_cpu/age3D_gpu buffers
+linage3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
+linage3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
+
 ################################################################################
 # Cell volumes and volume-weighted norm
 ################################################################################
@@ -73,7 +78,7 @@ Return a volume-weighted RMS norm function in units of years:
 """
 function make_vol_norm(v1D, year)
     inv_sumv = 1 / sum(v1D)
-    return x -> sqrt(dot(v1D, x .^ 2) * inv_sumv) / year
+    return x -> sqrt(dot(x, Diagonal(v1D), x) * inv_sumv) / year
 end
 
 vol_norm = make_vol_norm(v1D, year)
@@ -154,14 +159,15 @@ end
 ################################################################################
 
 g_call_count = Ref(0)
+jvp_call_count = Ref(0)
 
 """
-    Φ!(age_out, age_in, p)
+    Φ!(age_out, age_in)
 
 1-year forward map: runs the simulation for 1 year starting from `age_in`
 (wet-cell vector) and writes the final age into `age_out` (wet-cell vector).
 """
-function Φ!(age_out, age_in, p)
+function Φ!(age_out, age_in)
     g_call_count[] += 1
     call_num = g_call_count[]
     t_start = time()
@@ -215,9 +221,65 @@ end
 1-year drift residual: G(x) = Φ(x) − x.
 """
 function G!(dage, age, p)
-    Φ!(dage, age, p) # dage <- Φ(age)       = age after 1 year
-    dage .-= age     # dage <- Φ(age) - age = age drift after after 1 year
+    Φ!(dage, age) # dage <- Φ(age)       = age after 1 year
+    dage .-= age  # dage <- Φ(age) - age = age drift after after 1 year
     @info "G! residual" vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
     flush(stdout); flush(stderr)
     return dage
+end
+
+################################################################################
+# Linear forward map linΦ! and exact JVP
+################################################################################
+
+"""
+    linΦ!(linage_out, linage_in)
+
+Linear 1-year forward map: same as Φ! but operates on the `linage` tracer,
+which has no constant source term. This computes the Jacobian of Φ applied to
+`linage_in`, i.e. J_Φ · v.
+"""
+function linΦ!(linage_out, linage_in)
+    jvp_call_count[] += 1
+    call_num = jvp_call_count[]
+    t_start = time()
+    @info "linΦ! call #$call_num starting" norm_linage_years = norm(linage_in) / year max_linage_years = maximum(abs, linage_in) / year
+    flush(stdout); flush(stderr)
+
+    # Reset simulation for a fresh 1-year run
+    reset!(simulation)
+    simulation.stop_time = stop_time
+
+    # CPU vec → CPU 3D → GPU 3D
+    fill!(linage3D_cpu, 0)
+    linage3D_cpu[idx] .= linage_in
+    copyto!(linage3D_gpu, linage3D_cpu)
+
+    # Set initial condition
+    set!(model, linage = linage3D_gpu)
+
+    # Run 1-year simulation
+    run!(simulation)
+
+    # GPU field → CPU 3D → CPU vec
+    copyto!(linage3D_cpu, interior(model.tracers.linage))
+    linage_out .= view(linage3D_cpu, idx)
+
+    elapsed = time() - t_start
+    @info "linΦ! call #$call_num done ($(round(elapsed; digits = 1))s)"
+    flush(stdout); flush(stderr)
+    return linage_out
+end
+
+"""
+    jvp!(dlinage, linage, age, p)
+
+Exact Jacobian-vector product: J_G · v = linΦ(v) − v.
+
+`age` and `p` are unused but present for the NonlinearSolve JVP signature.
+"""
+function jvp!(dlinage, linage, age, p)
+    linΦ!(dlinage, linage)
+    dlinage .-= linage
+    return dlinage
 end
