@@ -15,11 +15,12 @@ using Printf: @sprintf
 ################################################################################
 
 TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
+trace_job_id = get(ENV, "PBS_JOBID", "interactive")
 
 if TRACE_SOLVER_HISTORY
-    trace_dir = joinpath(outputdir, "periodic", model_config, "trace")
+    trace_dir = solver_output_dir  # defined by caller before include
     mkpath(trace_dir)
-    @info "TRACE_SOLVER_HISTORY enabled — saving iterates to $trace_dir"
+    @info "TRACE_SOLVER_HISTORY enabled — saving iterates to $trace_dir (job_id=$trace_job_id)"
 else
     trace_dir = ""
     @info "TRACE_SOLVER_HISTORY disabled (set TRACE_SOLVER_HISTORY=yes to enable)"
@@ -180,7 +181,7 @@ function Φ!(age_out, age_in, p)
 
     if TRACE_SOLVER_HISTORY
         iter_str = @sprintf("%04d", call_num)
-        trace_prefix = joinpath(trace_dir, "age_trace_iter_$(iter_str)")
+        trace_prefix = joinpath(trace_dir, "age_trace_iter_$(iter_str)_$(trace_job_id)")
         simulation.output_writers[:trace] = JLD2Writer(
             model, Dict("age" => model.tracers.age);
             schedule = TimeInterval(stop_time),

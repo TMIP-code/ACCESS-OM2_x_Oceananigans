@@ -68,6 +68,13 @@ SMAA_ORDERS = parse.(Int, collect(get(ENV, "SMAA_ORDERS", "332")))
 flush(stdout); flush(stderr)
 
 ################################################################################
+# Solver output directory (used by periodic_solver_common.jl for trace files)
+################################################################################
+
+solver_output_dir = joinpath(outputdir, "periodic", model_config, "AA")
+mkpath(solver_output_dir)
+
+################################################################################
 # Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
 ################################################################################
 
@@ -229,8 +236,7 @@ age_steady_3D[idx] .= sol_vec
 vol_mean = sum(sol_vec .* v1D) / sum(v1D) / year
 @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
-steady_dir = joinpath(outputdir, "periodic", model_config, "AA")
-mkpath(steady_dir)
+steady_dir = solver_output_dir
 steady_file = joinpath(steady_dir, "age_$(AA_SOLVER).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"

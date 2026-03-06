@@ -18,7 +18,10 @@ for velocity_source in "${velocity_sources[@]}"; do
         echo "  W_FORMULATION=${w_formulation}"
         echo "  TIMESTEPPER=${timestepper}"
         echo "  ENABLE_PLOTTING=true"
-        qsub -v PARENT_MODEL=ACCESS-OM2-1,VELOCITY_SOURCE="${velocity_source}",W_FORMULATION="${w_formulation}",TIMESTEPPER="${timestepper}",ENABLE_PLOTTING=true scripts/ACCESS-OM2-1_GPU_job.sh
+        extra_vars=""
+        [ -n "${TRACE_SOLVER_HISTORY:-}" ] && extra_vars="${extra_vars},TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY}"
+        [ -n "${NONLINEAR_SOLVER:-}" ] && extra_vars="${extra_vars},NONLINEAR_SOLVER=${NONLINEAR_SOLVER}"
+        qsub -v PARENT_MODEL=ACCESS-OM2-1,VELOCITY_SOURCE="${velocity_source}",W_FORMULATION="${w_formulation}",TIMESTEPPER="${timestepper}",ENABLE_PLOTTING=true${extra_vars} scripts/ACCESS-OM2-1_GPU_job.sh
         count=$((count + 1))
         done
     done

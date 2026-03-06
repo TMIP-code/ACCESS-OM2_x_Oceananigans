@@ -68,9 +68,13 @@ end
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
-trace_dir = joinpath(outputdir, "periodic", model_config, "trace")
+NONLINEAR_SOLVER = get(ENV, "NONLINEAR_SOLVER", "anderson")
+solver_subdir = NONLINEAR_SOLVER == "newton" ? "NK" : "AA"
+trace_dir = joinpath(outputdir, "periodic", model_config, solver_subdir)
 trace_plots_dir = joinpath(trace_dir, "plots")
 mkpath(trace_plots_dir)
+
+TRACE_JOB_ID = get(ENV, "TRACE_JOB_ID", "")
 
 TRACE_PHASE = get(ENV, "TRACE_PHASE", "end")
 (TRACE_PHASE ∈ ("start", "end", "both")) || error("TRACE_PHASE must be start, end, or both (got: $TRACE_PHASE)")
@@ -81,7 +85,9 @@ TRACE_PHASE = get(ENV, "TRACE_PHASE", "end")
 @info "- W_FORMULATION    = $W_FORMULATION"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
+@info "- NONLINEAR_SOLVER = $NONLINEAR_SOLVER"
 @info "- trace_dir        = $trace_dir"
+@info "- TRACE_JOB_ID     = $(isempty(TRACE_JOB_ID) ? "(all jobs)" : TRACE_JOB_ID)"
 @info "- TRACE_PHASE      = $TRACE_PHASE"
 flush(stdout); flush(stderr)
 
@@ -120,6 +126,9 @@ flush(stdout); flush(stderr)
 
 all_files = readdir(trace_dir)
 trace_files = filter(f -> startswith(f, "age_trace_iter_") && endswith(f, ".jld2"), all_files)
+if !isempty(TRACE_JOB_ID)
+    trace_files = filter(f -> occursin(TRACE_JOB_ID, f), trace_files)
+end
 sort!(trace_files)
 
 @info "Found $(length(trace_files)) trace files"
@@ -146,7 +155,7 @@ for trace_file in trace_files
     n_times = length(age_fts.times)
 
     # Extract iteration number from filename (e.g., age_trace_iter_0001.jld2 → 1)
-    m = match(r"age_trace_iter_(\d+)\.jld2", trace_file)
+    m = match(r"age_trace_iter_(\d+).*\.jld2", trace_file)
     iter_num = m === nothing ? 0 : parse(Int, m.captures[1])
 
     for phase in phases_to_plot
@@ -197,7 +206,7 @@ mean_ages = Float64[]
 
 for trace_file in trace_files
     filepath = joinpath(trace_dir, trace_file)
-    m = match(r"age_trace_iter_(\d+)\.jld2", trace_file)
+    m = match(r"age_trace_iter_(\d+).*\.jld2", trace_file)
     m === nothing && continue
     iter_num = parse(Int, m.captures[1])
 
@@ -238,7 +247,7 @@ mean_drifts = Float64[]
 
 for trace_file in trace_files
     filepath = joinpath(trace_dir, trace_file)
-    m = match(r"age_trace_iter_(\d+)\.jld2", trace_file)
+    m = match(r"age_trace_iter_(\d+).*\.jld2", trace_file)
     m === nothing && continue
 
     age_fts = FieldTimeSeries(filepath, "age")

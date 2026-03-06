@@ -88,6 +88,13 @@ M = load(M_file, "M")
 flush(stdout); flush(stderr)
 
 ################################################################################
+# Solver output directory (used by periodic_solver_common.jl for trace files)
+################################################################################
+
+solver_output_dir = joinpath(outputdir, "periodic", model_config, "NK")
+mkpath(solver_output_dir)
+
+################################################################################
 # Common solver infrastructure (simulation, wet mask, buffers, Φ!, G!)
 ################################################################################
 
@@ -269,8 +276,7 @@ age_steady_3D[idx] .= sol.u
 vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
 @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
-steady_dir = joinpath(outputdir, "periodic", model_config, "NK")
-mkpath(steady_dir)
+steady_dir = solver_output_dir
 steady_file = joinpath(steady_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
 jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
