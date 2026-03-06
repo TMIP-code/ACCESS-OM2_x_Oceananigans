@@ -98,7 +98,8 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
     age_init_vec = zeros(Nidx)
 
     if INITIAL_AGE == "TMage"
-        matrices_dir = joinpath(outputdir, "TM", model_config)
+        TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+        matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)
         # Try candidate files in priority order
         candidates = [
             "steady_age_full_$(solver)_$(mp).jld2"

@@ -28,6 +28,8 @@ Environment variables (in addition to setup_model.jl):
   LUMP_AND_SPRAY – yes | no  (default: no)
                    yes: lump-and-spray coarsening (Bardin et al., 2014)
                    no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
+  TM_SOURCE      – const | avg24 | avg12a | avg12b  (default: const)
+                   Subdirectory under TM/{model_config}/ to load M from.
 """
 
 include("setup_model.jl")
@@ -54,24 +56,18 @@ JVP_METHOD = get(ENV, "JVP_METHOD", "matrix")
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
-# Pardiso matrix type for the preconditioner (applies whenever LINEAR_SOLVER=Pardiso):
-#   nonsym      → REAL_NONSYM (mtype=11): safe fallback, treats matrix as fully nonsymmetric
-#   sym_cleaned → REAL_SYM    (mtype=1):  structurally symmetric. Despite its name, REAL_SYM in
-#                 MKL Pardiso means the matrix is structurally symmetric (not numerically), so
-#                 Pardiso expects the full matrix but exploits the symmetric sparsity for
-#                 reordering. To be safe we dropzeros! and strip non-symmetric entries first.
-PRECONDITIONER_MATRIX_TYPE = get(ENV, "PRECONDITIONER_MATRIX_TYPE", "nonsym")
-(PRECONDITIONER_MATRIX_TYPE ∈ ("nonsym", "sym_cleaned")) || error("PRECONDITIONER_MATRIX_TYPE must be one of: nonsym, sym_cleaned (got: $PRECONDITIONER_MATRIX_TYPE)")
-
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+
+TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+(TM_SOURCE ∈ ("const", "avg24", "avg12a", "avg12b")) || error("TM_SOURCE must be one of: const, avg24, avg12a, avg12b (got: $TM_SOURCE)")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 
 @info "Newton-GMRES periodic solver configuration"
 @info "- JVP_METHOD  = $JVP_METHOD"
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
-@info "- PRECONDITIONER_MATRIX_TYPE = $PRECONDITIONER_MATRIX_TYPE"
+@info "- TM_SOURCE = $TM_SOURCE"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout); flush(stderr)
@@ -80,7 +76,7 @@ flush(stdout); flush(stderr)
 # Load pre-built transport matrix M from disk
 ################################################################################
 
-M_file = joinpath(matrices_dir, "M.jld2")
+M_file = joinpath(matrices_dir, TM_SOURCE, "M.jld2")
 @info "Loading transport matrix from $M_file"
 flush(stdout); flush(stderr)
 M = load(M_file, "M")
@@ -131,31 +127,15 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 
 if LINEAR_SOLVER == "Pardiso"
-    if PRECONDITIONER_MATRIX_TYPE == "sym_cleaned"
-        # Clean the sparsity structure so it is guaranteed structurally symmetric:
-        # 1. Drop explicit zeros (entries stored in CSC but numerically zero)
-        # 2. Remove any remaining non-zero entries that lack a symmetric counterpart
-        # This is safe because Q_precond is used only as a preconditioner.
-        dropzeros!(Q_precond)
-        Q_t = copy(Q_precond')
-        Q_sym = Q_precond .* (Q_t .!= 0)
-        nnz_before = nnz(Q_precond)
-        Q_precond = Q_sym
-        dropzeros!(Q_precond)
-        nnz_after = nnz(Q_precond)
-        @info "Sparsity cleaning: nnz $nnz_before → $nnz_after (removed $(nnz_before - nnz_after) non-symmetric entries)"
-
-        if Pardiso.isstructurallysymmetric(Q_precond)
-            matrix_type = Pardiso.REAL_SYM
-            @info "Q_precond is structurally symmetric after cleaning; using Pardiso REAL_SYM (mtype=1)"
-        else
-            @warn "Q_precond still not structurally symmetric after cleaning; falling back to REAL_NONSYM"
-            matrix_type = Pardiso.REAL_NONSYM
-        end
-    else  # "nonsym" (default, safe fallback)
-        matrix_type = Pardiso.REAL_NONSYM
-        @info "Using Pardiso REAL_NONSYM (mtype=11)"
+    if !Pardiso.isstructurallysymmetric(Q_precond)
+        error(
+            "Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))). " *
+                "The transport matrix M should have symmetric sparsity from matrix_setup.jl. " *
+                "Check that no operation (dropzeros, scalar multiply, etc.) broke the pattern."
+        )
     end
+    matrix_type = Pardiso.REAL_SYM
+    @info "Using Pardiso REAL_SYM (mtype=1)"
     @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
 elseif LINEAR_SOLVER == "ParU"
     @info "Using ParUFactorization (parallel sparse LU)"

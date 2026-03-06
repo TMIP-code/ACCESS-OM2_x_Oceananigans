@@ -18,7 +18,7 @@ DELAY=1  # seconds between submissions
 
 # Forward optional env vars to all jobs
 EXTRA_VARS=""
-for var in VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME TIMESTEPPER CHECK_BOUNDS; do
+for var in VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME TIMESTEPPER CHECK_BOUNDS TM_SOURCE; do
     val="${!var:-}"
     [ -n "$val" ] && EXTRA_VARS="${EXTRA_VARS},${var}=${val}"
 done

@@ -91,10 +91,15 @@ MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
+
+TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+(TM_SOURCE ∈ ("const", "avg24", "avg12a", "avg12b")) || error("TM_SOURCE must be one of: const, avg24, avg12a, avg12b (got: $TM_SOURCE)")
+
 output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
-matrix_plots_dir = joinpath(matrices_dir, "plots")
+M_dir = joinpath(matrices_dir, TM_SOURCE)
+matrix_plots_dir = joinpath(M_dir, "plots")
 mkpath(matrix_plots_dir)
 
 @info "Run configuration"
@@ -106,9 +111,10 @@ mkpath(matrix_plots_dir)
 @info "- LINEAR_SOLVER     = $LINEAR_SOLVER (GPU LU via CUDSS)"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
+@info "- TM_SOURCE         = $TM_SOURCE"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
-@info "- matrices_dir      = $matrices_dir"
+@info "- M_dir             = $M_dir"
 flush(stdout); flush(stderr)
 
 # Print GPU info
@@ -132,7 +138,7 @@ flush(stdout); flush(stderr)
 # Load transport matrix M
 ################################################################################
 
-M_file = joinpath(matrices_dir, "M.jld2")
+M_file = joinpath(M_dir, "M.jld2")
 @info "Loading transport matrix from $M_file"
 flush(stdout); flush(stderr)
 M = load(M_file, "M")
@@ -250,7 +256,7 @@ tag_label = LUMP_AND_SPRAY ? "coarsened" : "full"
 fig, ax, plt = hist(age_vec)
 save(joinpath(matrix_plots_dir, "$(output_tag)_histogram.png"), fig)
 
-output_file = joinpath(matrices_dir, "$(output_tag).jld2")
+output_file = joinpath(M_dir, "$(output_tag).jld2")
 jldsave(output_file; age = age_3D, wet3D, idx)
 @info "Saved steady age to $output_file"
 
@@ -269,5 +275,5 @@ plot_age_diagnostics(
     age_3D, grid, wet3D, vol_3D, matrix_plots_dir, output_tag
 )
 
-@info "solve_matrix_age_gpu.jl complete. Outputs in $(matrices_dir)"
+@info "solve_matrix_age_gpu.jl complete. Outputs in $(M_dir)"
 flush(stdout); flush(stderr)

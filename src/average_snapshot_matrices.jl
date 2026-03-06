@@ -234,5 +234,5 @@ end
 flush(stdout); flush(stderr)
 
 @info "average_snapshot_matrices.jl complete"
-@info "Run solve_matrix_age.jl with MATRIX_SUBDIR=avg24 (etc.) to solve age from each"
+@info "Run solve_matrix_age.jl with TM_SOURCE=avg24 (etc.) to solve age from each"
 flush(stdout); flush(stderr)

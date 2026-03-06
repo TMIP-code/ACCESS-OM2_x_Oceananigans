@@ -25,8 +25,9 @@ Environment variables:
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
   LUMP_AND_SPRAY    – yes | no  (default: no)
   MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
-  MATRIX_SUBDIR     – subdirectory under TM/{model_config}/ to load M from (default: "")
-                      e.g., MATRIX_SUBDIR=avg24 loads from TM/{MC}/avg24/M.jld2
+  TM_SOURCE         – const | avg24 | avg12a | avg12b  (default: const)
+                      Subdirectory under TM/{model_config}/ to load M from.
+                      e.g., TM_SOURCE=avg24 loads from TM/{MC}/avg24/M.jld2
 """
 
 @info "Loading packages"
@@ -96,12 +97,12 @@ MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
 
-MATRIX_SUBDIR = get(ENV, "MATRIX_SUBDIR", "")
+TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+(TM_SOURCE ∈ ("const", "avg24", "avg12a", "avg12b")) || error("TM_SOURCE must be one of: const, avg24, avg12a, avg12b (got: $TM_SOURCE)")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
-M_dir = isempty(MATRIX_SUBDIR) ? matrices_dir : joinpath(matrices_dir, MATRIX_SUBDIR)
-subdir_tag = isempty(MATRIX_SUBDIR) ? "" : "$(MATRIX_SUBDIR)_"
-output_tag = "steady_age_$(subdir_tag)$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+M_dir = joinpath(matrices_dir, TM_SOURCE)
+output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 matrix_plots_dir = joinpath(M_dir, "plots")
 mkpath(matrix_plots_dir)
 
@@ -114,7 +115,7 @@ mkpath(matrix_plots_dir)
 @info "- LINEAR_SOLVER     = $LINEAR_SOLVER"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
-@info "- MATRIX_SUBDIR     = $(isempty(MATRIX_SUBDIR) ? "(none)" : MATRIX_SUBDIR)"
+@info "- TM_SOURCE         = $TM_SOURCE"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
 @info "- M_dir             = $M_dir"

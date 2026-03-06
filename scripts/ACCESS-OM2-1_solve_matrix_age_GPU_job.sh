@@ -22,6 +22,7 @@ source scripts/env_defaults.sh
 # Export solver-specific env vars if set
 [ -n "${LUMP_AND_SPRAY:-}" ] && export LUMP_AND_SPRAY && echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
 [ -n "${MATRIX_PROCESSING:-}" ] && export MATRIX_PROCESSING && echo "MATRIX_PROCESSING=$MATRIX_PROCESSING"
+[ -n "${TM_SOURCE:-}" ] && export TM_SOURCE && echo "TM_SOURCE=$TM_SOURCE"
 
 # Load CUDA module
 echo "Loading CUDA module"
@@ -53,8 +54,8 @@ run_log_dir=logs/julia/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
-echo "Solving matrix age on GPU (CUDSS) for MODEL_CONFIG=$MODEL_CONFIG, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, MATRIX_PROCESSING=$MATRIX_PROCESSING"
-log_file="$run_log_dir/solve_${MODEL_CONFIG}_${COARSE_TAG}_CUDSS_${MATRIX_PROCESSING}_${job_id}.log"
+echo "Solving matrix age on GPU (CUDSS) for MODEL_CONFIG=$MODEL_CONFIG, TM_SOURCE=$TM_SOURCE, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, MATRIX_PROCESSING=$MATRIX_PROCESSING"
+log_file="$run_log_dir/solve_${MODEL_CONFIG}_${TM_SOURCE}_${COARSE_TAG}_CUDSS_${MATRIX_PROCESSING}_${job_id}.log"
 julia $JULIA_BOUNDS_FLAG --project src/solve_matrix_age_gpu.jl &> "$log_file"
 echo "Done solving matrix age on GPU"
 echo "logged output in $log_file"

@@ -30,6 +30,9 @@ using OrderedCollections: OrderedDict
 @info "Loading TMage for linearization point"
 flush(stdout); flush(stderr)
 
+TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+tm_source_dir = joinpath(matrices_dir, TM_SOURCE)
+
 TMage_vec = zeros(Nidx)
 candidates = [
     "steady_age_full_$(solver)_$(mp).jld2"
@@ -38,7 +41,7 @@ candidates = [
 ]
 loaded_TMage = false
 for candidate in candidates
-    fpath = joinpath(matrices_dir, candidate)
+    fpath = joinpath(tm_source_dir, candidate)
     if isfile(fpath)
         @info "Loading TMage from $fpath"
         flush(stdout); flush(stderr)
@@ -51,7 +54,7 @@ for candidate in candidates
     end
 end
 if !loaded_TMage
-    @warn "No TMage file found in $matrices_dir — using 1000yr fill instead"
+    @warn "No TMage file found in $tm_source_dir — using 1000yr fill instead"
     TMage_vec .= 1000year
 end
 
