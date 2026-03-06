@@ -6,6 +6,10 @@ computes three averages (avg12a, avg12b, avg24), compares them pairwise and
 against the constant-field matrix M, and saves each average as `M.jld2` in
 subdirectories of the TM output directory.
 
+Matrices are loaded one at a time for memory efficiency. Sparsity pattern
+identity is asserted (colptr, rowval) and accumulation operates only on
+.nzval to prevent dropzeros from breaking the pattern.
+
 Usage — interactive:
 ```
 qsub -I -P y99 -l mem=47GB -q normal -l walltime=01:00:00 -l ncpus=12 \\
@@ -24,10 +28,11 @@ flush(stdout); flush(stderr)
 
 using SparseArrays
 using LinearAlgebra
-using Statistics
 using JLD2
 using Printf
 using TOML
+
+import Pardiso
 
 using Oceananigans.Units: second, seconds, day, days
 year = years = 365.25days
@@ -72,10 +77,10 @@ snapshot_matrices_dir = joinpath(matrices_dir, "snapshots")
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Load snapshot matrices
+# Find snapshot files and load times only
 ################################################################################
 
-@info "Loading snapshot matrices from $snapshot_matrices_dir"
+@info "Finding snapshot matrices in $snapshot_matrices_dir"
 flush(stdout); flush(stderr)
 
 # Find all snapshot files
@@ -91,15 +96,11 @@ n_snapshots = length(snapshot_files)
 n_snapshots > 0 || error("No snapshot matrices found in $snapshot_matrices_dir")
 flush(stdout); flush(stderr)
 
-# Load all matrices and times
-matrices = Vector{SparseMatrixCSC{Float64, Int}}(undef, n_snapshots)
+# Load only times (not full matrices) to save memory
 snap_times = Vector{Float64}(undef, n_snapshots)
-
 for (i, f) in enumerate(snapshot_files)
-    data = load(f)
-    matrices[i] = data["M"]
-    snap_times[i] = data["t"]
-    @info "  Loaded snapshot $(@sprintf("%02d", i)): t = $(@sprintf("%.4f", snap_times[i] / year)) yr, nnz = $(nnz(matrices[i]))"
+    snap_times[i] = load(f, "t")
+    @info "  snapshot $(@sprintf("%02d", i)): t = $(@sprintf("%.4f", snap_times[i] / year)) yr"
 end
 flush(stdout); flush(stderr)
 
@@ -141,97 +142,107 @@ end
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Compute averaged matrices
+# Sparsity-safe averaging function
 ################################################################################
 
-@info "Computing averaged matrices"
-flush(stdout); flush(stderr)
+"""
+    average_snapshot_matrices(snapshot_files, indices, label) -> SparseMatrixCSC
 
-function average_matrices(mats)
-    M_avg = copy(mats[1])
-    for i in 2:length(mats)
-        M_avg .+= mats[i]
+Average the snapshot matrices at `indices` from `snapshot_files`, loading one at
+a time. Asserts all matrices share the same sparsity pattern (colptr, rowval).
+Operates only on .nzval to avoid dropzeros.
+"""
+function average_snapshot_matrices(snapshot_files, indices, label)
+    # Load the first matrix to establish the sparsity pattern
+    M_avg = load(snapshot_files[indices[1]], "M")
+    @info "  [$label] Loaded reference snapshot $(indices[1]): nnz=$(nnz(M_avg))"
+    flush(stdout); flush(stderr)
+
+    for k in 2:length(indices)
+        i = indices[k]
+        Mi = load(snapshot_files[i], "M")
+        # Assert identical sparsity pattern
+        Mi.colptr == M_avg.colptr || error(
+            "[$label] Sparsity pattern mismatch at snapshot $i: colptr differs from reference"
+        )
+        Mi.rowval == M_avg.rowval || error(
+            "[$label] Sparsity pattern mismatch at snapshot $i: rowval differs from reference"
+        )
+        M_avg.nzval .+= Mi.nzval
+        @info "  [$label] Accumulated snapshot $i"
+        flush(stdout); flush(stderr)
     end
-    M_avg ./= length(mats)
+
+    M_avg.nzval ./= length(indices)
+    @info "  [$label] Averaged $(length(indices)) matrices, nnz=$(nnz(M_avg))"
+    flush(stdout); flush(stderr)
     return M_avg
 end
 
-M_avg12a = average_matrices(matrices[start_of_month_idx])
-@info "M_avg12a: averaged $(length(start_of_month_idx)) start-of-month matrices, nnz=$(nnz(M_avg12a))"
-
-M_avg12b = average_matrices(matrices[mid_month_idx])
-@info "M_avg12b: averaged $(length(mid_month_idx)) mid-month matrices, nnz=$(nnz(M_avg12b))"
-
-M_avg24 = average_matrices(matrices)
-@info "M_avg24: averaged $n_snapshots matrices, nnz=$(nnz(M_avg24))"
-flush(stdout); flush(stderr)
-
 ################################################################################
-# Load constant-field matrix for comparison
+# Load constant-field matrix for comparison (optional)
 ################################################################################
 
-M_constant_file = joinpath(matrices_dir, "M.jld2")
-if isfile(M_constant_file)
+M_constant_file = joinpath(matrices_dir, "const", "M.jld2")
+has_constant = isfile(M_constant_file)
+if has_constant
     @info "Loading constant-field matrix from $M_constant_file"
+    flush(stdout); flush(stderr)
     M_constant = load(M_constant_file, "M")
     @info "M_constant: nnz=$(nnz(M_constant))"
-    has_constant = true
 else
     @warn "Constant-field matrix not found at $M_constant_file — skipping comparison"
-    has_constant = false
 end
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Compare matrices
+# Compute, check, compare, and save each average
 ################################################################################
 
 @info "="^72
-@info "Matrix comparisons"
+@info "Computing and saving averaged matrices"
 @info "="^72
 flush(stdout); flush(stderr)
 
-function compare_matrices(M1, M2, label1, label2)
-    diff = M1 - M2
-    nz_diff = nonzeros(diff)
-    max_abs_diff = length(nz_diff) > 0 ? maximum(abs, nz_diff) : 0.0
-    frob_diff = norm(nz_diff)
-    frob_M1 = norm(nonzeros(M1))
-    rel_diff = frob_M1 > 0 ? frob_diff / frob_M1 : NaN
-    @info "$label1 vs $label2:" max_abs_diff frob_diff rel_diff nnz_diff = nnz(diff)
-    flush(stdout)
-    return flush(stderr)
-end
-
-# Compare averaged matrices to each other
-compare_matrices(M_avg12a, M_avg12b, "M_avg12a", "M_avg12b")
-compare_matrices(M_avg12a, M_avg24, "M_avg12a", "M_avg24")
-compare_matrices(M_avg12b, M_avg24, "M_avg12b", "M_avg24")
-
-# Compare to constant-field matrix
-if has_constant
-    compare_matrices(M_avg12a, M_constant, "M_avg12a", "M_constant")
-    compare_matrices(M_avg12b, M_constant, "M_avg12b", "M_constant")
-    compare_matrices(M_avg24, M_constant, "M_avg24", "M_constant")
-end
-
-################################################################################
-# Save averaged matrices
-################################################################################
-
-@info "="^72
-@info "Saving averaged matrices"
-@info "="^72
-flush(stdout); flush(stderr)
-
-for (label, M) in [("avg12a", M_avg12a), ("avg12b", M_avg12b), ("avg24", M_avg24)]
+for (label, indices) in [
+        ("avg24", collect(1:n_snapshots)),
+        ("avg12a", start_of_month_idx),
+        ("avg12b", mid_month_idx),
+    ]
     out_dir = joinpath(matrices_dir, label)
     mkpath(out_dir)
     outfile = joinpath(out_dir, "M.jld2")
+
+    # Remove existing file so a failed run doesn't leave stale data
+    isfile(outfile) && rm(outfile)
+
+    @info "Computing $label average..."
+    flush(stdout); flush(stderr)
+    M = average_snapshot_matrices(snapshot_files, indices, label)
+
+    # Assert structural symmetry
+    if !Pardiso.isstructurallysymmetric(M)
+        error("[$label] Averaged matrix is NOT structurally symmetric (nnz=$(nnz(M)))")
+    end
+    @info "  [$label] Structural symmetry check passed"
+    flush(stdout); flush(stderr)
+
+    # Compare to constant-field matrix if available and same sparsity
+    if has_constant && M_constant.colptr == M.colptr && M_constant.rowval == M.rowval
+        diff_nzval = M.nzval .- M_constant.nzval
+        max_abs_diff = maximum(abs, diff_nzval)
+        frob_rel = norm(diff_nzval) / norm(M_constant.nzval)
+        @info "  [$label] vs M_constant:" max_abs_diff frob_rel
+        flush(stdout); flush(stderr)
+    elseif has_constant
+        @warn "  [$label] Sparsity pattern differs from M_constant — skipping comparison"
+        flush(stdout); flush(stderr)
+    end
+
     jldsave(outfile; M)
     @info "Saved $outfile (nnz=$(nnz(M)))"
+    flush(stdout); flush(stderr)
 end
-flush(stdout); flush(stderr)
 
 @info "average_snapshot_matrices.jl complete"
 @info "Run solve_matrix_age.jl with TM_SOURCE=avg24 (etc.) to solve age from each"
