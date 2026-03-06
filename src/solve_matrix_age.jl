@@ -25,6 +25,8 @@ Environment variables:
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
   LUMP_AND_SPRAY    – yes | no  (default: no)
   MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
+  MATRIX_SUBDIR     – subdirectory under TM/{model_config}/ to load M from (default: "")
+                      e.g., MATRIX_SUBDIR=avg24 loads from TM/{MC}/avg24/M.jld2
 """
 
 @info "Loading packages"
@@ -93,10 +95,14 @@ MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
-output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+
+MATRIX_SUBDIR = get(ENV, "MATRIX_SUBDIR", "")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
-matrix_plots_dir = joinpath(matrices_dir, "plots")
+M_dir = isempty(MATRIX_SUBDIR) ? matrices_dir : joinpath(matrices_dir, MATRIX_SUBDIR)
+subdir_tag = isempty(MATRIX_SUBDIR) ? "" : "$(MATRIX_SUBDIR)_"
+output_tag = "steady_age_$(subdir_tag)$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+matrix_plots_dir = joinpath(M_dir, "plots")
 mkpath(matrix_plots_dir)
 
 @info "Run configuration"
@@ -108,9 +114,10 @@ mkpath(matrix_plots_dir)
 @info "- LINEAR_SOLVER     = $LINEAR_SOLVER"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
+@info "- MATRIX_SUBDIR     = $(isempty(MATRIX_SUBDIR) ? "(none)" : MATRIX_SUBDIR)"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
-@info "- matrices_dir      = $matrices_dir"
+@info "- M_dir             = $M_dir"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -129,7 +136,7 @@ flush(stdout); flush(stderr)
 # Load transport matrix M
 ################################################################################
 
-M_file = joinpath(matrices_dir, "M.jld2")
+M_file = joinpath(M_dir, "M.jld2")
 @info "Loading transport matrix from $M_file"
 flush(stdout); flush(stderr)
 M = load(M_file, "M")
@@ -271,7 +278,7 @@ end
 fig, ax, plt = hist(age_vec)
 save(joinpath(matrix_plots_dir, "$(output_tag)_histogram.png"), fig)
 
-output_file = joinpath(matrices_dir, "$(output_tag).jld2")
+output_file = joinpath(M_dir, "$(output_tag).jld2")
 jldsave(output_file; age = age_3D, wet3D, idx)
 @info "Saved steady age to $output_file"
 
