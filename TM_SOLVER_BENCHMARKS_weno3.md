@@ -13,16 +13,16 @@ Latest run per (Size, Solver, MatrixProcessing) configuration.
 
 | Solver | Status | 1st solve | 1st mem | 1st GPU mem | 2nd solve | 2nd mem | 2nd GPU mem | CPUs | GPUs | SU | Job ID |
 |--------|--------|-----------|---------|-------------|-----------|---------|-------------|------|------|----|--------|
-| Pardiso | FAIL |  |  |  |  |  |  | 0 |  | 0.00 | 162378305 |
-| UMFPACK | FAIL |  |  |  |  |  |  | 0 |  | 0.00 | 162378317 |
-| ParU | FAIL |  |  |  |  |  |  | 0 |  | 0.00 | 162378315 |
-| CUDSS | FAIL |  |  |  |  |  |  | 12 | 1 | 1.80 | 162378320 |
+| CUDSS | OK | 45s | 123 MiB | 21 MiB | 511ms | 34 MiB | 21 MiB | 12 | 1 | 5.12 | 162384922 |
+| ParU | OK | 37min | 462 GiB |  | 7.7s | 62 MiB |  | 48 |  | 62.91 | 162378315 |
+| Pardiso | FAIL |  |  |  |  |  |  | 48 |  | 76.24 | 162378305 |
+| UMFPACK | FAIL |  |  |  |  |  |  | 48 |  | 97.47 | 162378317 |
 
 ## coarse / raw
 
 | Solver | Status | 1st solve | 1st mem | 1st GPU mem | 2nd solve | 2nd mem | 2nd GPU mem | CPUs | GPUs | SU | Job ID |
 |--------|--------|-----------|---------|-------------|-----------|---------|-------------|------|------|----|--------|
-| CUDSS | OK | 11s | 124 MiB | 5.4 MiB | 428ms | 34 MiB | 5.4 MiB | 12 | 1 | 1.98 | 162378324 |
+| CUDSS | OK | 8.4s | 124 MiB | 5.4 MiB | 421ms | 34 MiB | 5.4 MiB | 12 | 1 | 4.45 | 162384923 |
 | Pardiso | OK | 15s | 184 MiB |  | 414ms | 46 MiB |  | 48 |  | 4.72 | 162378309 |
 | UMFPACK | OK | 4.2min | 24 GiB |  | 1.9s |  |  | 48 |  | 11.25 | 162378318 |
 | ParU | FAIL |  |  |  |  |  |  | 48 |  | 3.28 | 162378316 |
@@ -31,7 +31,7 @@ Latest run per (Size, Solver, MatrixProcessing) configuration.
 
 | Solver | Status | 1st solve | 1st mem | 1st GPU mem | 2nd solve | 2nd mem | 2nd GPU mem | CPUs | GPUs | SU | Job ID |
 |--------|--------|-----------|---------|-------------|-----------|---------|-------------|------|------|----|--------|
-| Pardiso | FAIL |  |  |  |  |  |  | 0 |  | 0.00 | 162378306 |
+| Pardiso | FAIL |  |  |  |  |  |  | 48 |  | 55.68 | 162378306 |
 
 ## coarse / symfill
 
@@ -63,4 +63,4 @@ Latest run per (Size, Solver, MatrixProcessing) configuration.
 |--------|--------|-----------|---------|-------------|-----------|---------|-------------|------|------|----|--------|
 | Pardiso | OK | 14s | 175 MiB |  | 2.1s | 42 MiB |  | 48 |  | 5.28 | 162378314 |
 
-**Total: 14 cases (6 successful), 68.21 SU**
+**Total: 14 cases (8 successful), 366.30 SU**
