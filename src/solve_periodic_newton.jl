@@ -127,13 +127,12 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 
 if LINEAR_SOLVER == "Pardiso"
-    if !Pardiso.isstructurallysymmetric(Q_precond)
-        error(
-            "Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))). " *
-                "The transport matrix M should have symmetric sparsity from matrix_setup.jl. " *
-                "Check that no operation (dropzeros, scalar multiply, etc.) broke the pattern."
-        )
-    end
+    error_msg = """
+        Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
+        The transport matrix M should have symmetric sparsity from matrix_setup.jl.
+        Check that no operation (dropzeros, scalar multiply, etc.) broke the pattern.
+    """
+    Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
     matrix_type = Pardiso.REAL_SYM
     @info "Using Pardiso REAL_SYM (mtype=1)"
     @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)

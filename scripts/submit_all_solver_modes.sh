@@ -43,23 +43,23 @@ count=0
 # echo "[$count] Submitted anderson/SpeedMapping. Waiting ${DELAY}s..."
 # sleep $DELAY
 
-# Anderson — NLsolve
-qsub -N OM2-1_AA_NLs -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=NLsolve${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
-count=$((count + 1))
-echo "[$count] Submitted anderson/NLsolve. Waiting ${DELAY}s..."
-sleep $DELAY
+# # Anderson — NLsolve
+# qsub -N OM2-1_AA_NLs -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=NLsolve${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted anderson/NLsolve. Waiting ${DELAY}s..."
+# sleep $DELAY
 
-# Anderson — SIAMFANL
-qsub -N OM2-1_AA_SIA -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SIAMFANL${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
-count=$((count + 1))
-echo "[$count] Submitted anderson/SIAMFANL. Waiting ${DELAY}s..."
-sleep $DELAY
+# # Anderson — SIAMFANL
+# qsub -N OM2-1_AA_SIA -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=SIAMFANL${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted anderson/SIAMFANL. Waiting ${DELAY}s..."
+# sleep $DELAY
 
-# Anderson — FixedPoint
-qsub -N OM2-1_AA_FP -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=FixedPoint${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
-count=$((count + 1))
-echo "[$count] Submitted anderson/FixedPoint. Waiting ${DELAY}s..."
-sleep $DELAY
+# # Anderson — FixedPoint
+# qsub -N OM2-1_AA_FP -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=FixedPoint${EXTRA_VARS},INITIAL_AGE=TMage scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted anderson/FixedPoint. Waiting ${DELAY}s..."
+# sleep $DELAY
 
 # # Picard — plain fixed-point iteration (10 steps, compare with 10-year run)
 # qsub -N OM2-1_AA_Pi -l walltime=06:00:00 -v NONLINEAR_SOLVER=anderson,AA_SOLVER=Picard${EXTRA_VARS:+,$EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
@@ -67,11 +67,17 @@ sleep $DELAY
 # echo "[$count] Submitted anderson/Picard. Waiting ${DELAY}s..."
 # sleep $DELAY
 
-# # Newton — Pardiso, no lump-and-spray (default), finitediff JVP
-# qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
-# count=$((count + 1))
-# echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
-# sleep $DELAY
+# Newton — Pardiso, no lump-and-spray (default), finitediff JVP
+qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
+sleep $DELAY
+
+# Newton — Pardiso, no lump-and-spray (default), matrix JVP
+qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=matrix,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+count=$((count + 1))
+echo "[$count] Submitted newton/matrix/Pardiso/prec. Waiting ${DELAY}s..."
+sleep $DELAY
 
 # # Newton — Pardiso, lump-and-spray, finitediff JVP
 # qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
