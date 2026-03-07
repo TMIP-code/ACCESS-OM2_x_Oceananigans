@@ -60,25 +60,31 @@ end
 
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
-plots_dir = joinpath(preprocessed_inputs_dir, "plots")
-bgrid_u_plot_dir = joinpath(plots_dir, "u")
-bgrid_v_plot_dir = joinpath(plots_dir, "v")
-u_interpolated_plot_dir = joinpath(plots_dir, "u_interpolated")
-v_interpolated_plot_dir = joinpath(plots_dir, "v_interpolated")
-w_plot_dir = joinpath(plots_dir, "w")
-η_plot_dir = joinpath(plots_dir, "eta")
-u_mt_plot_dir = joinpath(plots_dir, "u_from_mass_transport")
-v_mt_plot_dir = joinpath(plots_dir, "v_from_mass_transport")
-w_mt_plot_dir = joinpath(plots_dir, "w_from_mass_transport")
-mkpath(bgrid_u_plot_dir)
-mkpath(bgrid_v_plot_dir)
-mkpath(u_interpolated_plot_dir)
-mkpath(v_interpolated_plot_dir)
-mkpath(w_plot_dir)
-mkpath(η_plot_dir)
-mkpath(u_mt_plot_dir)
-mkpath(v_mt_plot_dir)
-mkpath(w_mt_plot_dir)
+
+make_plots = lowercase(get(ENV, "MAKE_PLOTS", "no")) ∈ ("yes", "true", "1")
+@info "Plotting enabled: $make_plots"
+
+if make_plots
+    plots_dir = joinpath(preprocessed_inputs_dir, "plots")
+    bgrid_u_plot_dir = joinpath(plots_dir, "u")
+    bgrid_v_plot_dir = joinpath(plots_dir, "v")
+    u_interpolated_plot_dir = joinpath(plots_dir, "u_interpolated")
+    v_interpolated_plot_dir = joinpath(plots_dir, "v_interpolated")
+    w_plot_dir = joinpath(plots_dir, "w")
+    η_plot_dir = joinpath(plots_dir, "eta")
+    u_mt_plot_dir = joinpath(plots_dir, "u_from_mass_transport")
+    v_mt_plot_dir = joinpath(plots_dir, "v_from_mass_transport")
+    w_mt_plot_dir = joinpath(plots_dir, "w_from_mass_transport")
+    mkpath(bgrid_u_plot_dir)
+    mkpath(bgrid_v_plot_dir)
+    mkpath(u_interpolated_plot_dir)
+    mkpath(v_interpolated_plot_dir)
+    mkpath(w_plot_dir)
+    mkpath(η_plot_dir)
+    mkpath(u_mt_plot_dir)
+    mkpath(v_mt_plot_dir)
+    mkpath(w_mt_plot_dir)
+end
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
 
@@ -90,7 +96,7 @@ include("shared_functions.jl")
 
 @info "Loading and reconstructing grid from JLD2 data"
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
-grid = load_tripolar_grid(grid_file)
+grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
@@ -376,7 +382,8 @@ for month in 1:12
 
     # ── η (set first so _update_zstar_scaling! runs before the dht check) ────
     println("- η")
-    η_data = replace(readcubedata(η_ds.eta_t[month = At(month)]).data, NaN => 0.0)
+    η_data = readcubedata(η_ds.eta_t[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, η_data, η_data)
     set!(η, η_data)
     mask_immersed_field!(η, 0.0)
     fill_halo_regions!(η)
@@ -390,9 +397,10 @@ for month in 1:12
     # filter(!isnan, ratio) selects only wet cells (Δrᶜᶜᶜ is non-zero for immersed
     # cells in PartialCellBottom grids, so Δzᶜᶜᶜ_data .> 0 would be incorrect).
     println("- dht consistency check")
-    dht_data = replace(readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data, NaN => 0.0)
+    dht_data = readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, dht_data, dht_data)
     size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny - 1), $Nz)")
-    dht_data = dht_data[:, :, Nz:-1:1]
+    dht_data = @view dht_data[:, :, Nz:-1:1]
 
     set!(dht_diag, dht_data)
     mask_immersed_field!(dht_diag, NaN)
@@ -406,8 +414,10 @@ for month in 1:12
     # ── u and v ──────────────────────────────────────────────────────────────
     println("- u and v:")
     println("  - loading from MOM B grid")
-    u_data = replace(readcubedata(u_ds.u[month = At(month)]).data, NaN => 0.0)
-    v_data = replace(readcubedata(v_ds.v[month = At(month)]).data, NaN => 0.0)
+    u_data = readcubedata(u_ds.u[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, u_data, u_data)
+    v_data = readcubedata(v_ds.v[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, v_data, v_data)
     println("  - index shift to Oceananigans B grid")
     fill_Bgrid_velocity_from_MOM_output!(u_Bgrid, v_Bgrid, grid, u_data, v_data)
     println("  - Interpolate to Oceananigans C grid")
@@ -424,8 +434,10 @@ for month in 1:12
 
     # ── u, v, w from mass transports ────────────────────────────────────────
     println("- u, v, w from mass transports")
-    tx_data = replace(readcubedata(tx_ds.tx_trans[month = At(month)]).data, NaN => 0.0)
-    ty_data = replace(readcubedata(ty_ds.ty_trans[month = At(month)]).data, NaN => 0.0)
+    tx_data = readcubedata(tx_ds.tx_trans[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, tx_data, tx_data)
+    ty_data = readcubedata(ty_ds.ty_trans[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, ty_data, ty_data)
     fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
     mask_immersed_field!(tx, 0.0)
     mask_immersed_field!(ty, 0.0)
@@ -455,7 +467,8 @@ for month in 1:12
     # ── w ────────────────────────────────────────────────────────────────────
     println("- w")
     println("  - loading from MOM wt output")
-    w_data = replace(readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data, NaN => 0.0)
+    w_data = readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data
+    map!(x -> isnan(x) ? zero(x) : x, w_data, w_data)
     println("  - to Oceananigans C grid")
     fill_w_from_MOM_output!(w, grid, w_data)
     println("  - Masking immersed w")
@@ -465,53 +478,53 @@ for month in 1:12
     println("  - Set FieldTimeSeries for w")
     set!(w_periodic_ts, w, month)
 
-    println("  - Plot B grid u and v")
-    # Visualization (for k=25 only, as in original)
-    for k in 25:25
-        local u_k_dir = joinpath(bgrid_u_plot_dir, "k$(k)")
-        local v_k_dir = joinpath(bgrid_v_plot_dir, "k$(k)")
-        mkpath(u_k_dir)
-        mkpath(v_k_dir)
-        save_field_k_plot(u_Bgrid, k, "B-grid u[k=$k, month=$month]", joinpath(u_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(v_Bgrid, k, "B-grid v[k=$k, month=$month]", joinpath(v_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
+    if make_plots
+        println("  - Plot B grid u and v")
+        for k in 25:25
+            local u_k_dir = joinpath(bgrid_u_plot_dir, "k$(k)")
+            local v_k_dir = joinpath(bgrid_v_plot_dir, "k$(k)")
+            mkpath(u_k_dir)
+            mkpath(v_k_dir)
+            save_field_k_plot(u_Bgrid, k, "B-grid u[k=$k, month=$month]", joinpath(u_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(v_Bgrid, k, "B-grid v[k=$k, month=$month]", joinpath(v_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
+        end
+
+        println("  - Plot C grid u and v")
+        for k in 25:25
+            local ui_k_dir = joinpath(u_interpolated_plot_dir, "k$(k)")
+            local vi_k_dir = joinpath(v_interpolated_plot_dir, "k$(k)")
+            local umt_k_dir = joinpath(u_mt_plot_dir, "k$(k)")
+            local vmt_k_dir = joinpath(v_mt_plot_dir, "k$(k)")
+            local w_k_dir = joinpath(w_plot_dir, "k$(k)")
+            local wmt_k_dir = joinpath(w_mt_plot_dir, "k$(k)")
+            mkpath(ui_k_dir)
+            mkpath(vi_k_dir)
+            mkpath(umt_k_dir)
+            mkpath(vmt_k_dir)
+            mkpath(w_k_dir)
+            mkpath(wmt_k_dir)
+
+            save_field_k_plot(u, k, "C-grid u[k=$k, month=$month]", joinpath(ui_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(v, k, "C-grid v[k=$k, month=$month]", joinpath(vi_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(u_mt, k, "C-grid u from mass transports[k=$k, month=$month]", joinpath(umt_k_dir, "u_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(v_mt, k, "C-grid v from mass transports[k=$k, month=$month]", joinpath(vmt_k_dir, "v_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(w, k + 1, "C-grid w[k=$k, month=$month]", joinpath(w_k_dir, "w_$(k)_month$(month)_$(arch_str).png"))
+            save_field_k_plot(w_mt, k + 1, "C-grid w from mass transports[k=$k, month=$month]", joinpath(wmt_k_dir, "w_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
+        end
+
+        println("- Plot η")
+        plottable_η = view(make_plottable_array(η), :, :, 1)
+        save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(η_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
     end
-
-    println("  - Plot C grid u and v")
-    # Visualization
-    for k in 25:25
-        local ui_k_dir = joinpath(u_interpolated_plot_dir, "k$(k)")
-        local vi_k_dir = joinpath(v_interpolated_plot_dir, "k$(k)")
-        local umt_k_dir = joinpath(u_mt_plot_dir, "k$(k)")
-        local vmt_k_dir = joinpath(v_mt_plot_dir, "k$(k)")
-        local w_k_dir = joinpath(w_plot_dir, "k$(k)")
-        local wmt_k_dir = joinpath(w_mt_plot_dir, "k$(k)")
-        mkpath(ui_k_dir)
-        mkpath(vi_k_dir)
-        mkpath(umt_k_dir)
-        mkpath(vmt_k_dir)
-        mkpath(w_k_dir)
-        mkpath(wmt_k_dir)
-
-        save_field_k_plot(u, k, "C-grid u[k=$k, month=$month]", joinpath(ui_k_dir, "u_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(v, k, "C-grid v[k=$k, month=$month]", joinpath(vi_k_dir, "v_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(u_mt, k, "C-grid u from mass transports[k=$k, month=$month]", joinpath(umt_k_dir, "u_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(v_mt, k, "C-grid v from mass transports[k=$k, month=$month]", joinpath(vmt_k_dir, "v_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(w, k + 1, "C-grid w[k=$k, month=$month]", joinpath(w_k_dir, "w_$(k)_month$(month)_$(arch_str).png"))
-        save_field_k_plot(w_mt, k + 1, "C-grid w from mass transports[k=$k, month=$month]", joinpath(wmt_k_dir, "w_from_mass_transport_$(k)_month$(month)_$(arch_str).png"))
-    end
-
-    println("- Plot η")
-    plottable_η = view(make_plottable_array(η), :, :, 1)
-    save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(η_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
 
     println("- Accumulate into time-average")
-    u_acc .+= u / 12
-    v_acc .+= v / 12
-    w_acc .+= w / 12
-    u_mt_acc .+= u_mt / 12
-    v_mt_acc .+= v_mt / 12
-    w_mt_acc .+= w_mt / 12
-    η_acc .+= η / 12
+    u_acc .+= u
+    v_acc .+= v
+    w_acc .+= w
+    u_mt_acc .+= u_mt
+    v_mt_acc .+= v_mt
+    w_mt_acc .+= w_mt
+    η_acc .+= η
 
 end
 println("Done!")
@@ -536,6 +549,15 @@ println("Done!")
 
 @show η_periodic_ts
 @info "saved to $(η_periodic_file)"
+
+@info "Computing time-averaged (constant) fields"
+u_acc ./= 12
+v_acc ./= 12
+w_acc ./= 12
+u_mt_acc ./= 12
+v_mt_acc ./= 12
+w_mt_acc ./= 12
+η_acc ./= 12
 
 @info "Filling halo regions for time-averaged (constant) fields"
 fill_halo_regions!(u_acc)

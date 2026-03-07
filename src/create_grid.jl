@@ -6,6 +6,7 @@ Usage:
 """
 
 @info "Loading packages and functions"
+flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.TurbulenceClosures
@@ -17,25 +18,51 @@ using DimensionalData
 using NCDatasets
 using NetCDF
 using JLD2
+using YAML
 
 # Set up architecture (CPU for grid creation)
 arch = CPU()
 @info "Using $arch architecture"
+flush(stdout); flush(stderr)
 
 # Configuration
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
+parentmodel = get(ENV, "PARENT_MODEL", "ACCESS-OM2-1")
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
 
 include("shared_functions.jl")
+
+# Load parent simulation config (default based on parentmodel)
+default_parentsimulation = Dict(
+    "ACCESS-OM2-1" => "1deg_jra55_iaf_omip2_cycle6",
+    "ACCESS-OM2-025" => "025deg_jra55_iaf_omip2_cycle6",
+)[parentmodel]
+parentsimulation = get(ENV, "PARENT_SIMULATION", default_parentsimulation)
+@show parentsimulation
+configs = YAML.load_file("ACCESS-OM2_configs.yaml")
+@show config_path = configs[parentsimulation]
+config = YAML.load_file(config_path)
+
+# Find ocean submodel input directories
+# (some configs list multiple input dirs for the ocean submodel)
+ocean_submodel = only(filter(s -> s["name"] == "ocean", config["submodels"]))
+ocean_input_dirs = ocean_submodel["input"] isa AbstractVector ? ocean_submodel["input"] : [ocean_submodel["input"]]
+
+# Helper to find a file across the ocean input directories
+function find_in_inputs(filename, dirs)
+    for d in dirs
+        f = joinpath(d, filename)
+        isfile(f) && return f
+    end
+    error("$filename not found in input directories: $dirs")
+end
 
 ################################################################################
 # Grid Creation
 ################################################################################
 
 @info "Horizontal supergrid"
+flush(stdout); flush(stderr)
 
 resolution_str = split(parentmodel, "-")[end]
 supergridfile = joinpath("/g/data/xp65/public/apps/access_moppy_data/grids", "mom$(resolution_str)deg.nc")
@@ -43,6 +70,7 @@ supergrid_ds = open_dataset(supergridfile)
 
 # Unpack supergrid data
 println("Reading supergrid data into memory...")
+flush(stdout); flush(stderr)
 MOMsupergrid = (;
     x = readcubedata(supergrid_ds.x).data,
     y = readcubedata(supergrid_ds.y).data,
@@ -58,13 +86,15 @@ MOMsupergrid = (;
 )
 
 println("Reading vertical grid data into memory...")
-@show MOM_input_vgrid_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/ocean_vgrid.nc"
+@show MOM_input_vgrid_file = find_in_inputs("ocean_vgrid.nc", ocean_input_dirs)
+flush(stdout); flush(stderr)
 z_ds = open_dataset(MOM_input_vgrid_file)
 zeta = -reverse(vec(z_ds["zeta"].data[1:2:end]))
 z = MutableVerticalDiscretization(zeta) # from surface to bottom
 Nz = length(zeta) - 1
 
 println("Building Horizontal grid...")
+flush(stdout); flush(stderr)
 underlying_grid = tripolargrid_from_supergrid(
     arch;
     MOMsupergrid...,
@@ -75,17 +105,18 @@ underlying_grid = tripolargrid_from_supergrid(
 )
 
 @info "Vertical grid"
+flush(stdout); flush(stderr)
 
-parentmodel_ik11path = parentmodel == "ACCESS-OM2-1" ? "access-om2" : "access-om2-$(resolution_str)"
-@show MOM_input_topo_file = "/g/data/ik11/inputs/access-om2/input_20201102/mom_$(resolution_str)deg/topog.nc"
+@show MOM_input_topo_file = find_in_inputs("topog.nc", ocean_input_dirs)
+flush(stdout); flush(stderr)
 bottom_ds = open_dataset(MOM_input_topo_file)
 bottom = -readcubedata(bottom_ds["depth"]).data
 bottom = replace(bottom, 9999.0 => 0.0)
 
 # Check topography
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-@show MOM_output_grid_inputdir = "/g/data/ik11/outputs/$(parentmodel_ik11path)/$experiment/output305/ocean/"
-MOM_output_grid_ds = open_dataset(joinpath(MOM_output_grid_inputdir, "ocean_grid.nc"))
+@show MOM_output_grid_file = joinpath(dirname(config_path), "ocean", "ocean_grid.nc")
+flush(stdout); flush(stderr)
+MOM_output_grid_ds = open_dataset(MOM_output_grid_file)
 ht = readcubedata(MOM_output_grid_ds.ht).data
 ht = replace(ht, missing => 0.0)
 kmt = readcubedata(MOM_output_grid_ds.kmt).data
@@ -98,6 +129,7 @@ for idx in eachindex(kbottom)
     @assert zeta[k] ≤ bottom[idx] < zeta[k + 1]
 end
 @info "z coordinate/grid checks passed."
+flush(stdout); flush(stderr)
 
 # Then immerge the grid cells with partial cells at the bottom
 bottom = on_architecture(arch, bottom)
@@ -116,6 +148,7 @@ grid = ImmersedBoundaryGrid(
 # TODO: Maybe someone can write a NetCDF writer/reader for OrthogonalSphericalShellGrid
 
 @info "Saving grid to JLD2"
+flush(stdout); flush(stderr)
 
 code_to_reconstruct_the_grid = """
     using Oceananigans
@@ -202,3 +235,4 @@ save(
 )
 
 @info "Grid saved to $grid_file"
+flush(stdout); flush(stderr)

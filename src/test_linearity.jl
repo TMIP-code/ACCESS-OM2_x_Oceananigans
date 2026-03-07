@@ -156,15 +156,15 @@ for (v_label, v) in test_vectors
 
     ref_result = M_ref * v
     ref_norm = norm(ref_result)
-    vol_rms_ref = sqrt(dot(v1D, ref_result .^ 2) * inv_sumv)
+    vol_rms_ref = sqrt(dot(ref_result, Diagonal(v1D), ref_result) * inv_sumv)
 
     for (m_label, M) in M_dict
         result = M * v
         diff = result .- ref_result
         max_abs_diff = maximum(abs, diff)
-        rms_diff = sqrt(dot(v1D, diff .^ 2) * inv_sumv)
+        rms_diff = sqrt(dot(diff, Diagonal(v1D), diff) * inv_sumv)
         rel_diff = ref_norm > 0 ? norm(diff) / ref_norm : NaN
-        @info "  M($m_label) * $v_label:" max_abs_diff rms_diff rel_diff vol_rms_result = sqrt(dot(v1D, result .^ 2) * inv_sumv)
+        @info "  M($m_label) * $v_label:" max_abs_diff rms_diff rel_diff vol_rms_result = sqrt(dot(result, Diagonal(v1D), result) * inv_sumv)
         flush(stdout); flush(stderr)
     end
 end

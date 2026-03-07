@@ -67,16 +67,28 @@ count=0
 # echo "[$count] Submitted anderson/Picard. Waiting ${DELAY}s..."
 # sleep $DELAY
 
-# Newton — Pardiso, no lump-and-spray (default), finitediff JVP
-qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
-count=$((count + 1))
-echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
-sleep $DELAY
+# # Newton — Pardiso, no lump-and-spray (default), finitediff JVP
+# qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=finitediff,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted newton/finitediff/Pardiso/prec. Waiting ${DELAY}s..."
+# sleep $DELAY
 
-# Newton — Pardiso, no lump-and-spray (default), matrix JVP
-qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=matrix,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# # Newton — Pardiso, no lump-and-spray (default), matrix JVP
+# qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=matrix,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted newton/matrix/Pardiso/prec. Waiting ${DELAY}s..."
+# sleep $DELAY
+
+# # Newton — Pardiso, no lump-and-spray (default), exact JVP
+# qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=exact,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=no,INITIAL_AGE=0${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
+# count=$((count + 1))
+# echo "[$count] Submitted newton/exact/Pardiso/prec. Waiting ${DELAY}s..."
+# sleep $DELAY
+
+# Newton — Pardiso, lump-and-spray, exact JVP
+qsub -N OM2-1_NK_Pa -v NONLINEAR_SOLVER=newton,JVP_METHOD=exact,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes,INITIAL_AGE=0${EXTRA_VARS} scripts/ACCESS-OM2-1_GPU_job.sh
 count=$((count + 1))
-echo "[$count] Submitted newton/matrix/Pardiso/prec. Waiting ${DELAY}s..."
+echo "[$count] Submitted newton/exact/Pardiso/LSprec. Waiting ${DELAY}s..."
 sleep $DELAY
 
 # # Newton — Pardiso, lump-and-spray, finitediff JVP
