@@ -146,10 +146,10 @@ end
 isfile(snapshot_file) || error("Snapshot file not found: $snapshot_file")
 flush(stdout); flush(stderr)
 
-u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = InMemory(1))
-v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = InMemory(1))
-w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = InMemory(1))
-η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = InMemory(1))
+u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = InMemory(2))
+v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = InMemory(2))
+w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = InMemory(2))
+η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = InMemory(2))
 
 snapshot_times = u_fts.times
 n_snapshots = length(snapshot_times)
