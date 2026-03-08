@@ -171,6 +171,7 @@ qstat -f <job_id>        # detailed status for one job
 - `scripts/ACCESS-OM2-{1,025}_solve_matrix_age_job.sh` — solve age from matrix, CPU (Pardiso/ParU/UMFPACK)
 - `scripts/ACCESS-OM2-{1,025}_solve_matrix_age_GPU_job.sh` — solve age from matrix, GPU (CUDSS)
 - `scripts/ACCESS-OM2-{1,025}_plot_*_job.sh` — CPU plot jobs (auto-submitted after GPU runs)
+- `scripts/check_snapshot_matrices_job.sh` — regression test: check snapshot matrices for both parent models (CPU, normal, 12 CPU, 47 GB)
 
 ## Configuration environment variables
 

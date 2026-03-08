@@ -109,11 +109,10 @@ qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_run_1year.s
 
 ## Tests
 
-Julia test scripts live in `test/`. To run a regression test comparing newly-built snapshot matrices against archived reference matrices:
+Julia test scripts live in `test/`. To run the regression test comparing newly-built snapshot matrices against archived reference matrices, submit a PBS job (these load large matrices and must run on a compute node, not the login node):
 
 ```bash
-julia --project test/check_snapshot_matrices.jl              # defaults to ACCESS-OM2-1
-julia --project test/check_snapshot_matrices.jl ACCESS-OM2-025
+qsub scripts/check_snapshot_matrices_job.sh
 ```
 
 ## Preprocessed outputs layout
