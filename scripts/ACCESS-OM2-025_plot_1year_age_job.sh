@@ -22,7 +22,7 @@ source scripts/env_defaults.sh
 # ulimit -s unlimited
 
 echo "Running plot_1year_age.jl on CPU"
-log_dir=logs/julia/plot/standardrun
+log_dir=logs/julia/$PARENT_MODEL/plot/standardrun
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_1year_age.jl &> "$log_dir/${MODEL_CONFIG}_1year_${job_id}.log"

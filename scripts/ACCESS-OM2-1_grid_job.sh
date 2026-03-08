@@ -23,10 +23,10 @@ cd $repo_root
 
 job_id="${PBS_JOBID:-interactive}"
 
-log_dir=logs/julia/preprocess
+log_dir=logs/julia/$PARENT_MODEL/preprocess
 mkdir -p "$log_dir"
 
 echo "Creating grid for PARENT_MODEL=$PARENT_MODEL"
-julia --project src/create_grid.jl &> "$log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
+julia --project src/create_grid.jl &> "$log_dir/create_grid_${job_id}.log"
 echo "Done creating grid for PARENT_MODEL=$PARENT_MODEL"
-echo "logged output in $log_dir/create_grid_${PARENT_MODEL}_${job_id}.log"
+echo "logged output in $log_dir/create_grid_${job_id}.log"

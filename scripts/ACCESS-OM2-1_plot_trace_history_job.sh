@@ -19,7 +19,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 echo "Running plot_trace_history.jl on CPU"
-log_dir=logs/julia/plot/periodic
+log_dir=logs/julia/$PARENT_MODEL/plot/periodic
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_trace_history.jl &> "$log_dir/trace_history_${MODEL_CONFIG}_${job_id}.log"

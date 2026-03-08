@@ -19,8 +19,8 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 echo "Creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"
-run_log_dir=logs/julia/preprocess
+run_log_dir=logs/julia/$PARENT_MODEL/preprocess
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
-julia --project src/create_velocities.jl &> "$run_log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
+julia --project src/create_velocities.jl &> "$run_log_dir/create_velocities_${job_id}.log"
 echo "Done creating velocities on CPU for PARENT_MODEL=$PARENT_MODEL"

@@ -57,21 +57,21 @@ job_id="${PBS_JOBID:-interactive}"
 # Route log to run-type subdirectory and strip redundant prefixes from filename
 case "$NONLINEAR_SOLVER" in
     1year|10years|100years)
-        run_log_dir=logs/julia/standardrun
+        run_log_dir=logs/julia/$PARENT_MODEL/standardrun
         log_file="$run_log_dir/${MODEL_CONFIG}_${NONLINEAR_SOLVER}_${job_id}.log"
         ;;
     long)
-        run_log_dir=logs/julia/standardrun
+        run_log_dir=logs/julia/$PARENT_MODEL/standardrun
         log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS:-3000}years_${job_id}.log"
         ;;
     newton)
         lumpspray_tag="prec"
         [ "${LUMP_AND_SPRAY:-no}" = "yes" ] && lumpspray_tag="LSprec"
-        run_log_dir=logs/julia/periodic/NK
+        run_log_dir=logs/julia/$PARENT_MODEL/periodic/NK
         log_file="$run_log_dir/${MODEL_CONFIG}_${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}_${job_id}.log"
         ;;
     anderson)
-        run_log_dir=logs/julia/periodic/AA
+        run_log_dir=logs/julia/$PARENT_MODEL/periodic/AA
         log_file="$run_log_dir/${MODEL_CONFIG}_${AA_SOLVER:-SpeedMapping}_${job_id}.log"
         ;;
 esac

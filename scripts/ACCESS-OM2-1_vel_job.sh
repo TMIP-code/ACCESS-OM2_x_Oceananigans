@@ -27,10 +27,10 @@ fi
 
 job_id="${PBS_JOBID:-interactive}"
 
-log_dir=logs/julia/preprocess
+log_dir=logs/julia/$PARENT_MODEL/preprocess
 mkdir -p "$log_dir"
 
 echo "Running create_velocities.jl for PARENT_MODEL=$PARENT_MODEL"
-julia --project src/create_velocities.jl &> "$log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
+julia --project src/create_velocities.jl &> "$log_dir/create_velocities_${job_id}.log"
 echo "Done preprocessing velocities for PARENT_MODEL=$PARENT_MODEL"
-echo "logged output in $log_dir/create_velocities_${PARENT_MODEL}_${job_id}.log"
+echo "logged output in $log_dir/create_velocities_${job_id}.log"

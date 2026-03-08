@@ -20,7 +20,7 @@ source scripts/env_defaults.sh
 
 # ulimit -s unlimited
 
-run_log_dir=logs/julia/TM
+run_log_dir=logs/julia/$PARENT_MODEL/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 

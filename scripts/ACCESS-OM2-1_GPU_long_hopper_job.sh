@@ -28,7 +28,7 @@ module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
 echo "Running run_long.jl for PARENT_MODEL=$PARENT_MODEL, NYEARS=$NYEARS"
-run_log_dir=logs/julia/standardrun
+run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
