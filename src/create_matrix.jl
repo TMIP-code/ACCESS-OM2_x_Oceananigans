@@ -47,9 +47,9 @@ flush(stdout); flush(stderr)
 @info "Sparsity pattern of M:"
 display(M)
 
-@info "Saving Jacobian to $(matrices_dir)"
+@info "Saving Jacobian to $(const_dir)"
 flush(stdout); flush(stderr)
-jldsave(joinpath(matrices_dir, "M.jld2"); M)
+jldsave(joinpath(const_dir, "M.jld2"); M)
 
 fig = Figure()
 ax = Axis(fig[1, 1])
@@ -63,9 +63,9 @@ plt = spy!(
 )
 ylims!(ax, size(M, 2) + 0.5, 0.5)
 Colorbar(fig[1, 2], plt)
-save(joinpath(matrix_plots_dir, "M_spy.png"), fig)
+save(joinpath(const_plots_dir, "M_spy.png"), fig)
 
 
-@info "create_matrix.jl complete. Outputs in $(matrices_dir)"
+@info "create_matrix.jl complete. Outputs in $(const_dir)"
 @info "(Run solve_matrix_age.jl to solve for steady-state age using the saved matrix)"
 flush(stdout); flush(stderr)

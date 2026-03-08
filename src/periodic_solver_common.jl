@@ -35,7 +35,6 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
-set!(model, linage = Returns(0.0))
 
 simulation = Simulation(model; Δt, stop_time)
 
@@ -55,10 +54,6 @@ flush(stdout); flush(stderr)
 
 age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
 age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
-
-# TODO: linage may be able to reuse age3D_cpu/age3D_gpu buffers
-linage3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
-linage3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
 
 ################################################################################
 # Cell volumes and volume-weighted norm
@@ -162,17 +157,23 @@ g_call_count = Ref(0)
 jvp_call_count = Ref(0)
 
 """
-    Φ!(age_out, age_in)
+    Φ!(age_out, age_in; source_rate = 1.0)
 
 1-year forward map: runs the simulation for 1 year starting from `age_in`
 (wet-cell vector) and writes the final age into `age_out` (wet-cell vector).
+
+Set `source_rate = 0.0` to run the linear forward map (no constant interior
+source), used for exact JVP computation.
 """
-function Φ!(age_out, age_in)
+function Φ!(age_out, age_in; source_rate = 1.0)
     g_call_count[] += 1
     call_num = g_call_count[]
     t_start = time()
-    @info "Φ! call #$call_num starting" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
+    @info "Φ! call #$call_num starting (source_rate=$source_rate)" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
     flush(stdout); flush(stderr)
+
+    # Toggle the source rate on GPU/CPU before running
+    copyto!(source_rate_arr, [source_rate])
 
     # Reset simulation for a fresh 1-year run
     reset!(simulation)
@@ -229,57 +230,21 @@ function G!(dage, age, p)
 end
 
 ################################################################################
-# Linear forward map linΦ! and exact JVP
+# Exact JVP via source_rate toggle
 ################################################################################
 
 """
-    linΦ!(linage_out, linage_in)
+    jvp!(Jv, v, age, p)
 
-Linear 1-year forward map: same as Φ! but operates on the `linage` tracer,
-which has no constant source term. This computes the Jacobian of Φ applied to
-`linage_in`, i.e. J_Φ · v.
-"""
-function linΦ!(linage_out, linage_in)
-    jvp_call_count[] += 1
-    call_num = jvp_call_count[]
-    t_start = time()
-    @info "linΦ! call #$call_num starting" norm_linage_years = norm(linage_in) / year max_linage_years = maximum(abs, linage_in) / year
-    flush(stdout); flush(stderr)
+Exact Jacobian-vector product: J_G · v = Φ(v; source_rate=0) − v.
 
-    # Reset simulation for a fresh 1-year run
-    reset!(simulation)
-    simulation.stop_time = stop_time
-
-    # CPU vec → CPU 3D → GPU 3D
-    fill!(linage3D_cpu, 0)
-    linage3D_cpu[idx] .= linage_in
-    copyto!(linage3D_gpu, linage3D_cpu)
-
-    # Set initial condition
-    set!(model, linage = linage3D_gpu)
-
-    # Run 1-year simulation
-    run!(simulation)
-
-    # GPU field → CPU 3D → CPU vec
-    copyto!(linage3D_cpu, interior(model.tracers.linage))
-    linage_out .= view(linage3D_cpu, idx)
-
-    elapsed = time() - t_start
-    @info "linΦ! call #$call_num done ($(round(elapsed; digits = 1))s)"
-    flush(stdout); flush(stderr)
-    return linage_out
-end
-
-"""
-    jvp!(dlinage, linage, age, p)
-
-Exact Jacobian-vector product: J_G · v = linΦ(v) − v.
+Runs the linear forward map (source_rate=0.0, no constant interior source)
+to compute the Jacobian of Φ applied to `v`.
 
 `age` and `p` are unused but present for the NonlinearSolve JVP signature.
 """
-function jvp!(dlinage, linage, age, p)
-    linΦ!(dlinage, linage)
-    dlinage .-= linage
-    return dlinage
+function jvp!(Jv, v, age, p)
+    Φ!(Jv, v; source_rate = 0.0)
+    Jv .-= v
+    return Jv
 end

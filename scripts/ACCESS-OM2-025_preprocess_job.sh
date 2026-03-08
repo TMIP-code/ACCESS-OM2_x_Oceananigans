@@ -2,10 +2,10 @@
 
 #PBS -N OM2-025_preproc
 #PBS -P y99
-#PBS -l mem=190GB
+#PBS -l mem=95GB
 #PBS -q express
 #PBS -l walltime=02:00:00
-#PBS -l ncpus=48
+#PBS -l ncpus=24
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o logs/PBS/

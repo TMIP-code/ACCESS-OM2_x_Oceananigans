@@ -101,8 +101,12 @@ flush(stdout); flush(stderr)
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 matrices_dir = joinpath(outputdir, "TM", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
+const_dir = joinpath(matrices_dir, "const")
+const_plots_dir = joinpath(const_dir, "plots")
 mkpath(matrices_dir)
 mkpath(matrix_plots_dir)
+mkpath(const_dir)
+mkpath(const_plots_dir)
 @show outputdir
 @show matrices_dir
 flush(stdout); flush(stderr)

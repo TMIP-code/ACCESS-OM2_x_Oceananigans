@@ -5,9 +5,67 @@ use transport matrices to solve for periodic state using a Newon–Krylov solver
 
 🚧 This is exploratory WIP and may be abandonned any time!
 
-##
+## Pipeline
 
+The full pipeline is managed by driver scripts that submit chained PBS jobs with `afterok` dependencies. Run from the login node:
 
+```bash
+# Run the full ACCESS-OM2-1 pipeline (11 jobs)
+bash scripts/ACCESS-OM2-1_driver.sh
+
+# Run the full ACCESS-OM2-025 pipeline
+bash scripts/ACCESS-OM2-025_driver.sh
+```
+
+### Dependency DAG
+
+```
+grid
+ └── vel
+      ├── 1year
+      │    └── snapM+avgM (TM_SOURCE=avg24)
+      │         ├── TMage(avg24) ── Pardiso(CPU) + CUDSS(GPU)
+      │         └── NK(avg24)
+      └── constM (TM_SOURCE=const)
+           ├── TMage(const) ── Pardiso(CPU) + CUDSS(GPU)
+           └── NK(const)
+```
+
+### Skipping steps with `JOB_CHAIN`
+
+Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in the string are skipped (their outputs are assumed to already exist):
+
+```bash
+# Default (full chain)
+JOB_CHAIN=grid-vel-1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
+
+# Skip grid (already built), start from velocities
+JOB_CHAIN=vel-1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
+
+# Only run Newton-GMRES solves (matrices must already exist)
+JOB_CHAIN=NK bash scripts/ACCESS-OM2-1_driver.sh
+
+# Only build matrices (grid and velocities must already exist)
+JOB_CHAIN=1year-TM bash scripts/ACCESS-OM2-1_driver.sh
+
+# Only solve matrix age (matrices must already exist)
+JOB_CHAIN=TMage bash scripts/ACCESS-OM2-1_driver.sh
+
+# Rebuild matrices and run all solvers
+JOB_CHAIN=1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
+```
+
+### GPU preprocessing with `PREPROCESS_ARCH`
+
+Velocity creation can run on GPU for faster processing (grid creation always runs on CPU):
+
+```bash
+# Run velocities on GPU
+PREPROCESS_ARCH=GPU bash scripts/ACCESS-OM2-1_driver.sh
+
+# Combine with JOB_CHAIN
+PREPROCESS_ARCH=GPU JOB_CHAIN=vel bash scripts/ACCESS-OM2-1_driver.sh
+```
 
 ## Project setup notes
 

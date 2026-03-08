@@ -105,6 +105,19 @@ Nx, Ny, Nz = size(grid)
 # Functions + kernels for creating velocities
 ################################################################################
 
+@kernel function set_kreversed_kernel!(field, data, Nz)
+    i, j, k = @index(Global, NTuple)
+    @inbounds field[i, j, k] = data[i, j, Nz + 1 - k]
+end
+
+function set_kreversed!(field, data)
+    arch = architecture(field)
+    Nx, Ny, Nz = size(data)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    launch!(arch, field.grid, kp, set_kreversed_kernel!, field, on_architecture(arch, data), Nz)
+    return nothing
+end
+
 @kernel function compute_Bgrid_velocity_from_MOM_output!(
         u, v, Nx, Nz,     # (Face, Face) u and v fields on Oceananigans
         u_data, v_data    # B-grid u and v from MOM
@@ -400,9 +413,7 @@ for month in 1:12
     dht_data = readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, dht_data, dht_data)
     size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny - 1), $Nz)")
-    dht_data = @view dht_data[:, :, Nz:-1:1]
-
-    set!(dht_diag, dht_data)
+    set_kreversed!(dht_diag, dht_data)
     mask_immersed_field!(dht_diag, NaN)
 
     compute!(Δzstar)                   # Δr * σⁿ with current σ after _update_zstar_scaling!

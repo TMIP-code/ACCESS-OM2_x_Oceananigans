@@ -232,12 +232,16 @@ flush(stdout); flush(stderr)
 @info "Building model"
 flush(stdout); flush(stderr)
 
+# Mutable 1-element array for source_rate, living on the compute architecture (GPU/CPU).
+# Toggled between 1.0 (age forward map Φ!) and 0.0 (linear JVP) between simulation runs.
+source_rate_arr = on_architecture(arch, [1.0])
+
 age_parameters = (;
     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
-    source_rate = 1.0,          # Source for the age (1 second / second)
+    source_rate = source_rate_arr,
 )
 
-@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate)
+@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate[1])
 
 age_dynamics = Forcing(
     age_source_sink,
@@ -245,19 +249,8 @@ age_dynamics = Forcing(
     discrete_form = true,
 )
 
-# Linear age tracer: same as age but without the constant source term.
-# Used for exact JVP computation (the Jacobian of the forward map is the linear part).
-@inline linage_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.linage[i, j, k] / params.relaxation_timescale, 0.0)
-
-linage_dynamics = Forcing(
-    linage_source_sink,
-    parameters = age_parameters,
-    discrete_form = true,
-)
-
 forcing = (
     age = age_dynamics,
-    linage = linage_dynamics,
 )
 
 tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
@@ -269,7 +262,7 @@ model = HydrostaticFreeSurfaceModel(
     tracer_advection,
     velocities = velocities,
     free_surface = free_surface,
-    tracers = (; age = CenterField(grid), linage = CenterField(grid)),
+    tracers = (; age = CenterField(grid)),
     closure = closure,
     forcing = forcing,
 )
