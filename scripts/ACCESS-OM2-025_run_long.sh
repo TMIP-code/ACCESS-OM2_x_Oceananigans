@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N OM2-1_sim_long
+#PBS -N OM2-025_long
 #PBS -P y99
 #PBS -l mem=256GB
 #PBS -q gpuhopper
@@ -27,11 +27,12 @@ echo "Loading CUDA module"
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 
-echo "Running run_long.jl for PARENT_MODEL=$PARENT_MODEL, NYEARS=$NYEARS"
+job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"
-job_id="${PBS_JOBID:-interactive}"
 log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
+
+echo "Running src/run_long.jl for PARENT_MODEL=$PARENT_MODEL (NYEARS=$NYEARS)"
 echo "logging output in $log_file"
 julia $JULIA_BOUNDS_FLAG --project src/run_long.jl &> "$log_file"
-echo "Done running run_long.jl"
+echo "Done running src/run_long.jl for PARENT_MODEL=$PARENT_MODEL"

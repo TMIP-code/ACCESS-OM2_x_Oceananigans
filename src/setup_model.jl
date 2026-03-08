@@ -3,8 +3,8 @@ Shared model setup for ACCESS-OM2 offline age simulations.
 
 This file is `include()`d by:
   - `run_1year.jl`              — standalone 1-year simulation
-  - `solve_periodic_newton.jl`  — Newton-GMRES periodic solver
-  - `solve_periodic_anderson.jl` — Anderson/SpeedMapping periodic solver
+  - `solve_periodic_NK.jl`      — Newton-GMRES periodic solver
+  - `solve_periodic_AA.jl`      — Anderson/SpeedMapping periodic solver
 
 It sets up: architecture, configuration, grid, velocities, closures, and model.
 It does NOT create a Simulation or set initial conditions — each downstream

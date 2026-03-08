@@ -90,7 +90,7 @@ The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `cgridtransports_wdi
 
 ### Solver-specific variables
 
-These configure the fixed-point acceleration solvers in `solve_periodic_anderson.jl`:
+These configure the fixed-point acceleration solvers in `solve_periodic_AA.jl` (archived):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -104,7 +104,7 @@ These configure the fixed-point acceleration solvers in `solve_periodic_anderson
 Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts. Override at submission time:
 
 ```bash
-qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_GPU_job.sh
+qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_run_1year.sh
 ```
 
 ## Preprocessed outputs layout

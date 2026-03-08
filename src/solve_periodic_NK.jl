@@ -14,7 +14,7 @@ cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 module load cuda/12.9.0
 export JULIA_CUDA_USE_COMPAT=false
 julia --project
-include("src/solve_periodic_newton.jl")
+include("src/solve_periodic_NK.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
@@ -271,5 +271,5 @@ jldsave(steady_file; age = age_steady_3D, wet3D, idx)
 @info "Saved steady-state age to $steady_file"
 flush(stdout); flush(stderr)
 
-@info "solve_periodic_newton.jl complete"
+@info "solve_periodic_NK.jl complete"
 flush(stdout); flush(stderr)
