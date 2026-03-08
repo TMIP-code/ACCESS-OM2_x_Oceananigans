@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N OM2-025_TM
+#PBS -N OM2-025_TMavg
 #PBS -P y99
 #PBS -l mem=190GB
 #PBS -q normal
@@ -22,14 +22,8 @@ run_log_dir=logs/julia/$PARENT_MODEL/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 
-echo "Building snapshot matrices for MODEL_CONFIG=$MODEL_CONFIG"
+echo "Building snapshot matrices and averages for MODEL_CONFIG=$MODEL_CONFIG"
 log_file="$run_log_dir/snapshot_matrices_${MODEL_CONFIG}_${job_id}.log"
 julia $JULIA_BOUNDS_FLAG --project src/create_snapshot_matrices.jl &> "$log_file"
-echo "Done building snapshot matrices"
-echo "logged output in $log_file"
-
-echo "Averaging snapshot matrices for MODEL_CONFIG=$MODEL_CONFIG"
-log_file="$run_log_dir/average_matrices_${MODEL_CONFIG}_${job_id}.log"
-julia $JULIA_BOUNDS_FLAG --project src/average_snapshot_matrices.jl &> "$log_file"
-echo "Done averaging snapshot matrices"
+echo "Done building snapshot matrices and averages"
 echo "logged output in $log_file"

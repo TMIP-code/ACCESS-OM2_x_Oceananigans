@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N OM2-1_TM_GPU_solve
+#PBS -N OM2-1_TMageGPU
 #PBS -P y99
 #PBS -l mem=96GB
 #PBS -q gpuvolta

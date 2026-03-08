@@ -44,6 +44,7 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── submit_all_solve_matrix_age.sh     # Submit all solver × coarsening combos
 │   ├── pkg_instantiate_project_CPU.sh
 │   └── pkg_instantiate_project_GPU.sh
+├── test/                                     # Julia test scripts
 ├── archive/scripts/                       # Archived/obsolete PBS scripts
 ├── preprocessed_inputs/{parentmodel}/  # symlink → /scratch/y99/TMIP/…/preprocessed_inputs/
 │   ├── {parentmodel}_grid.jld2
@@ -150,7 +151,10 @@ qstat -f <job_id>        # detailed status for one job
 | `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
 | `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/create_matrix.jl` | Build transport matrix from constant fields | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
+| `src/create_snapshot_matrices.jl` | Build snapshot Jacobians + inline averages from 1-year velocity snapshots | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
+| `src/average_snapshot_matrices.jl` | Re-average snapshot matrices from saved files (standalone) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/solve_matrix_age.jl` | Solve steady-state age from saved matrix M (CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, LINEAR_SOLVER, LUMP_AND_SPRAY |
+| `test/check_snapshot_matrices.jl` | Regression test: compare snapshot/averaged matrices against archive | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 
 ## PBS scripts
 - `scripts/env_defaults.sh` — common env var defaults (sourced by all job scripts); includes GPU_QUEUE (default: gpuhopper)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N OM2-1_TM_build
+#PBS -N OM2-1_TMconst
 #PBS -P y99
 #PBS -l mem=190GB
 #PBS -q normal

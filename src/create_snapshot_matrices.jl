@@ -46,6 +46,7 @@ using Oceananigans.Grids: znode, get_active_cells_map
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using Oceananigans.Fields: immersed_boundary_condition
+using Oceananigans.OutputReaders: OnDisk
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
 month = months = year / 12
@@ -54,6 +55,7 @@ using Adapt: adapt
 using Statistics
 using LinearAlgebra
 using SparseArrays
+import Pardiso
 using YAXArrays
 using DimensionalData
 using NCDatasets
@@ -144,10 +146,10 @@ end
 isfile(snapshot_file) || error("Snapshot file not found: $snapshot_file")
 flush(stdout); flush(stderr)
 
-u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid)
-v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid)
-w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid)
-η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid)
+u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = OnDisk())
+v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = OnDisk())
+w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = OnDisk())
+η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = OnDisk())
 
 snapshot_times = u_fts.times
 n_snapshots = length(snapshot_times)
@@ -385,6 +387,39 @@ S_final = sparsity_pattern(jac_prep)
 flush(stdout); flush(stderr)
 jac_buffer = similar(S_final, eltype(ADcvec))
 
+# Free sparsity intermediates no longer needed (pattern is captured in jac_prep)
+S = nothing
+S_sym = nothing
+GC.gc()
+@info "Freed sparsity detection intermediates"
+flush(stdout); flush(stderr)
+
+################################################################################
+# Classify snapshots for inline averaging (start-of-month vs mid-month)
+################################################################################
+
+@info "Classifying snapshots for inline averaging"
+flush(stdout); flush(stderr)
+
+is_start_of_month = falses(n_usable)
+for i_snap in 1:n_usable
+    i_fts = i_snap + t0_offset
+    t_months = snapshot_times[i_fts] / month
+    dist_to_int = abs(t_months - round(t_months))
+    dist_to_half = abs(t_months - (floor(t_months) + 0.5))
+    is_start_of_month[i_snap] = dist_to_int < dist_to_half
+end
+n_start = count(is_start_of_month)
+n_mid = n_usable - n_start
+@info "  Start-of-month: $n_start, mid-month: $n_mid"
+flush(stdout); flush(stderr)
+
+# Allocate nzval accumulators (reuse sparsity pattern from jac_buffer)
+nnz_count = nnz(jac_buffer)
+nzval_avg24 = zeros(Float64, nnz_count)
+nzval_avg12a = zeros(Float64, nnz_count)   # start-of-month
+nzval_avg12b = zeros(Float64, nnz_count)   # mid-month
+
 ################################################################################
 # Compute Jacobian at each snapshot
 ################################################################################
@@ -422,18 +457,58 @@ for i_snap in 1:n_usable
         Cache(ADc_buf), Cache(GADc_buf),
     )
 
-    M_i = copy(jac_buffer)
-    @info "  M(snapshot $snap_label): nnz=$(nnz(M_i)), max|M|=$(maximum(abs, nonzeros(M_i)))"
+    @info "  M(snapshot $snap_label): nnz=$(nnz(jac_buffer)), max|M|=$(maximum(abs, nonzeros(jac_buffer)))"
 
-    # Save snapshot matrix
+    # Accumulate into averages (all share the same sparsity pattern)
+    nzval_avg24 .+= jac_buffer.nzval
+    if is_start_of_month[i_snap]
+        nzval_avg12a .+= jac_buffer.nzval
+    else
+        nzval_avg12b .+= jac_buffer.nzval
+    end
+
+    # Save snapshot matrix directly (no copy — JLD2 serializes immediately)
     outfile = joinpath(snapshot_matrices_dir, "M_snapshot_$(snap_label).jld2")
-    jldsave(outfile; M = M_i, t = t_snap)
+    jldsave(outfile; M = jac_buffer, t = t_snap)
     @info "  Saved $outfile"
+    flush(stdout); flush(stderr)
+end
+
+################################################################################
+# Finalise and save averaged matrices
+################################################################################
+
+@info "="^72
+@info "Finalising averaged matrices"
+@info "="^72
+flush(stdout); flush(stderr)
+
+nzval_avg24 ./= n_usable
+nzval_avg12a ./= n_start
+nzval_avg12b ./= n_mid
+
+for (label, nzval) in [("avg24", nzval_avg24), ("avg12a", nzval_avg12a), ("avg12b", nzval_avg12b)]
+    M_avg = SparseMatrixCSC(
+        size(jac_buffer, 1), size(jac_buffer, 2),
+        jac_buffer.colptr, jac_buffer.rowval, copy(nzval),
+    )
+
+    if !Pardiso.isstructurallysymmetric(M_avg)
+        error("[$label] Averaged matrix is NOT structurally symmetric (nnz=$(nnz(M_avg)))")
+    end
+    @info "  [$label] Structural symmetry check passed"
+
+    out_dir = joinpath(matrices_dir, label)
+    mkpath(out_dir)
+    outfile = joinpath(out_dir, "M.jld2")
+    isfile(outfile) && rm(outfile)
+    jldsave(outfile; M = M_avg)
+    @info "  Saved $outfile (nnz=$(nnz(M_avg)))"
     flush(stdout); flush(stderr)
 end
 
 @info "="^72
 @info "create_snapshot_matrices.jl complete"
 @info "Saved $n_usable snapshot matrices to $snapshot_matrices_dir"
-@info "Run average_snapshot_matrices.jl to compute averaged matrices"
+@info "Saved averaged matrices (avg24, avg12a, avg12b) to $matrices_dir"
 flush(stdout); flush(stderr)

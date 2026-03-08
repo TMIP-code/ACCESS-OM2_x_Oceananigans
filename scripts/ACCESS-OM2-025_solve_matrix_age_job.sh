@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#PBS -N OM2-025_TM_solve
+#PBS -N OM2-025_TMageCPU
 #PBS -P y99
 #PBS -l mem=190GB
 #PBS -q normal

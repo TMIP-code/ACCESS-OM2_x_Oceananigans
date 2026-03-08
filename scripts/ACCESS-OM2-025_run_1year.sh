@@ -4,7 +4,7 @@
 #PBS -P y99
 #PBS -l mem=256GB
 #PBS -q gpuhopper
-#PBS -l walltime=48:00:00
+#PBS -l walltime=02:00:00
 #PBS -l ngpus=1
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
