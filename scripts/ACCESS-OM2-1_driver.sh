@@ -7,7 +7,8 @@ set -euo pipefail
 # Usage:
 #   bash scripts/ACCESS-OM2-1_driver.sh                                      # full pipeline (default)
 #   JOB_CHAIN=grid-vel-1year-10years-100years-TM-TMage-NK bash scripts/...   # with 10yr+100yr
-#   GPU_QUEUE=gpuvolta bash scripts/ACCESS-OM2-1_driver.sh                   # on Volta GPUs
+#   GPU_RESOURCES=gpuvolta bash scripts/ACCESS-OM2-1_driver.sh                # on Volta GPUs
+#   GPU_RESOURCES=gpuvolta2 bash scripts/ACCESS-OM2-1_driver.sh               # 2×Volta GPUs
 #   JOB_CHAIN=TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh               # restart from TM
 #   PREPROCESS_ARCH=GPU bash scripts/ACCESS-OM2-1_driver.sh                  # velocities on GPU
 #
@@ -27,11 +28,12 @@ JOB_CHAIN=${JOB_CHAIN:-grid-vel-1year-TM-TMage-NK}
 PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
 
 # GPU queue configuration
-GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
-case "$GPU_QUEUE" in
-    gpuvolta)  GPU_MEM=96GB ;;
-    gpuhopper) GPU_MEM=256GB ;;
-    *)         echo "Unknown GPU_QUEUE=$GPU_QUEUE (must be: gpuvolta, gpuhopper)"; exit 1 ;;
+GPU_RESOURCES=${GPU_RESOURCES:-gpuhopper}
+case "$GPU_RESOURCES" in
+    gpuvolta)  GPU_MEM=96GB;  GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuvolta ;;
+    gpuvolta2) GPU_MEM=192GB; GPU_NGPUS=2; GPU_NCPUS=24; GPU_QUEUE=gpuvolta ;;
+    gpuhopper) GPU_MEM=256GB; GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuhopper ;;
+    *)         echo "Unknown GPU_RESOURCES=$GPU_RESOURCES (must be: gpuvolta, gpuvolta2, gpuhopper)"; exit 1 ;;
 esac
 
 # Solver configuration (shared by TMage and NK)
@@ -43,7 +45,7 @@ INITIAL_AGE=0
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "JOB_CHAIN=$JOB_CHAIN"
 echo "PREPROCESS_ARCH=$PREPROCESS_ARCH"
-echo "GPU_QUEUE=$GPU_QUEUE (mem=$GPU_MEM)"
+echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, INITIAL_AGE=$INITIAL_AGE"
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
@@ -69,7 +71,7 @@ if has_step vel; then
     dep_flag=(); [ -n "$LAST_DEP" ] && dep_flag=(-W "depend=afterok:${LAST_DEP}")
     gpu_flags=()
     if [ "$PREPROCESS_ARCH" = "GPU" ]; then
-        gpu_flags=(-q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=$GPU_MEM)
+        gpu_flags=(-q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM)
     fi
     VEL_JOB=$(qsub "${dep_flag[@]}" "${gpu_flags[@]}" scripts/${PREFIX}_vel_job.sh)
     echo "[$STEP] Velocities: $VEL_JOB${LAST_DEP:+ (afterok $LAST_DEP)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
@@ -83,7 +85,7 @@ if has_step 1year; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
     TEST_JOB=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         scripts/${PREFIX}_run_1year.sh)
     echo "[$STEP] 1-year test: $TEST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -93,7 +95,7 @@ if has_step 10years; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
     TENYEAR_JOB=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         scripts/${PREFIX}_run_10years.sh)
     echo "[$STEP] 10-year run: $TENYEAR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -103,7 +105,7 @@ if has_step 100years; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
     HUNDREDYEAR_JOB=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         scripts/${PREFIX}_run_100years.sh)
     echo "[$STEP] 100-year run: $HUNDREDYEAR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -113,7 +115,7 @@ if has_step long; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
     LONG_JOB=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         -v NYEARS=${NYEARS:-3000} \
         scripts/${PREFIX}_run_long.sh)
     echo "[$STEP] Long run: $LONG_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
@@ -148,7 +150,7 @@ if has_step TMage; then
 
     STEP=$((STEP + 1))
     TMAGE_CONST_GPU=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         -v TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
         scripts/${PREFIX}_solve_matrix_age_GPU_job.sh)
     echo "[$STEP] TMage const/CUDSS: $TMAGE_CONST_GPU${CONSTM_JOB:+ (afterok $CONSTM_JOB)}"
@@ -163,7 +165,7 @@ if has_step TMage; then
 
     STEP=$((STEP + 1))
     TMAGE_AVG_GPU=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         -v TM_SOURCE=avg24,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
         scripts/${PREFIX}_solve_matrix_age_GPU_job.sh)
     echo "[$STEP] TMage avg24/CUDSS: $TMAGE_AVG_GPU${AVGM_JOB:+ (afterok $AVGM_JOB)}"
@@ -175,7 +177,7 @@ if has_step NK; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${CONSTM_JOB:-}" ] && dep_flag=(-W "depend=afterok:${CONSTM_JOB}")
     NK_CONST=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         -v TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
         scripts/${PREFIX}_solve_periodic_NK.sh)
     echo "[$STEP] NK const: $NK_CONST${CONSTM_JOB:+ (afterok $CONSTM_JOB)}"
@@ -184,7 +186,7 @@ if has_step NK; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${AVGM_JOB:-}" ] && dep_flag=(-W "depend=afterok:${AVGM_JOB}")
     NK_AVG=$(qsub "${dep_flag[@]}" \
-        -q $GPU_QUEUE -l mem=$GPU_MEM \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
         -v TM_SOURCE=avg24,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
         scripts/${PREFIX}_solve_periodic_NK.sh)
     echo "[$STEP] NK avg24: $NK_AVG${AVGM_JOB:+ (afterok $AVGM_JOB)}"
@@ -195,7 +197,7 @@ fi
 #     STEP=$((STEP + 1))
 #     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
 #     AA_JOB=$(qsub "${dep_flag[@]}" \
-#         -q $GPU_QUEUE -l mem=$GPU_MEM \
+#         -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
 #         -v INITIAL_AGE=TMage \
 #         scripts/${PREFIX}_solve_periodic_AA.sh)
 #     echo "[$STEP] AA: $AA_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
