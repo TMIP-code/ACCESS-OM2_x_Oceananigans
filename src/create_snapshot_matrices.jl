@@ -46,7 +46,7 @@ using Oceananigans.Grids: znode, get_active_cells_map
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using Oceananigans.Fields: immersed_boundary_condition
-using Oceananigans.OutputReaders: OnDisk
+using Oceananigans.OutputReaders: InMemory
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
 month = months = year / 12
@@ -146,10 +146,10 @@ end
 isfile(snapshot_file) || error("Snapshot file not found: $snapshot_file")
 flush(stdout); flush(stderr)
 
-u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = OnDisk())
-v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = OnDisk())
-w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = OnDisk())
-η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = OnDisk())
+u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = InMemory(1))
+v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = InMemory(1))
+w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = InMemory(1))
+η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = InMemory(1))
 
 snapshot_times = u_fts.times
 n_snapshots = length(snapshot_times)
