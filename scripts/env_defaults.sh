@@ -63,4 +63,7 @@ load_gpu_modules() {
     export JULIA_CUDA_MEMORY_POOL=none
     export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
     export UCX_WARN_UNUSED_ENV_VARS=n
+    # Detect number of GPUs available to this job
+    export NGPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+    echo "NGPUS=$NGPUS"
 }

@@ -23,19 +23,7 @@ flush(stdout); flush(stderr)
 
 using Oceananigans
 
-# GPU / CPU detection
-if contains(ENV["HOSTNAME"], "gpu")
-    using CUDA
-    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
-    @show CUDA.versioninfo()
-    arch = GPU()
-    arch_str = "GPU"
-else
-    arch = CPU()
-    arch_str = "CPU"
-end
-@info "Using $arch architecture"
-flush(stdout); flush(stderr)
+include("select_architecture.jl")
 
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels

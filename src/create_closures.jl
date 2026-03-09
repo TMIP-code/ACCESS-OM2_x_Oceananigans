@@ -21,16 +21,7 @@ using NCDatasets
 using NetCDF
 using JLD2
 
-# Set up architecture
-if contains(ENV["HOSTNAME"], "gpu")
-    using CUDA
-    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
-    @show CUDA.versioninfo()
-    arch = GPU()
-else
-    arch = CPU()
-end
-@info "Using $arch architecture"
+include("select_architecture.jl")
 
 # Configuration
 parentmodel = "ACCESS-OM2-1"

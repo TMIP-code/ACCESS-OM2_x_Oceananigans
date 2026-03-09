@@ -45,7 +45,7 @@ using KernelAbstractions: @kernel, @index
 import Pardiso
 import ParU_jll
 using LinearSolve: ParUFactorization, UMFPACKFactorization
-const nprocs = 12
+const nprocs = parse(Int, get(ENV, "NCPUS", "12"))
 
 ################################################################################
 # Configuration
