@@ -27,9 +27,7 @@ source scripts/env_defaults.sh
 [ -n "${LUMP_AND_SPRAY:-}" ] && export LUMP_AND_SPRAY && echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
 [ -n "${INITIAL_AGE:-}" ] && export INITIAL_AGE && echo "INITIAL_AGE=$INITIAL_AGE"
 
-echo "Loading CUDA module"
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
+load_gpu_modules
 
 lumpspray_tag="prec"
 [ "${LUMP_AND_SPRAY:-no}" = "yes" ] && lumpspray_tag="LSprec"

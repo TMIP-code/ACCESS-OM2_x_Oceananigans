@@ -16,10 +16,8 @@
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 
-module load cuda/12.9.0
-module load openmpi/5.0.8
-export JULIA_CUDA_USE_COMPAT=false
-export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
+source scripts/env_defaults.sh
+load_gpu_modules
 
 echo "Precompiling packages on GPU with MPI support"
 julia --project -e 'using Pkg; Pkg.instantiate()'

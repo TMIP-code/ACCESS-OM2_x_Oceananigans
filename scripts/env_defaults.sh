@@ -51,3 +51,16 @@ if [ "$CHECK_BOUNDS" = "yes" ]; then
     JULIA_BOUNDS_FLAG="--check-bounds=yes"
     echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
 fi
+
+# GPU module loading — call from GPU scripts instead of inline module loads
+load_gpu_modules() {
+    echo "Loading GPU modules"
+    module load cuda/12.9.0
+    module load openmpi/5.0.8
+    export JULIA_CUDA_USE_COMPAT=false
+    export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
+    export JULIA_NUM_THREADS=1
+    export JULIA_CUDA_MEMORY_POOL=none
+    export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
+    export UCX_WARN_UNUSED_ENV_VARS=n
+}

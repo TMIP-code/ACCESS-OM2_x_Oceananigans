@@ -18,11 +18,9 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-# Load CUDA module if running on a GPU node
+# Load GPU modules if running on a GPU node
 if [[ "$HOSTNAME" == *gpu* ]]; then
-    echo "Loading CUDA module (GPU node detected)"
-    module load cuda/12.9.0
-    export JULIA_CUDA_USE_COMPAT=false
+    load_gpu_modules
 fi
 
 job_id="${PBS_JOBID:-interactive}"

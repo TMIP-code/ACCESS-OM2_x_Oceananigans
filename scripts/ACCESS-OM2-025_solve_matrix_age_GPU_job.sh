@@ -24,10 +24,7 @@ source scripts/env_defaults.sh
 [ -n "${MATRIX_PROCESSING:-}" ] && export MATRIX_PROCESSING && echo "MATRIX_PROCESSING=$MATRIX_PROCESSING"
 [ -n "${TM_SOURCE:-}" ] && export TM_SOURCE && echo "TM_SOURCE=$TM_SOURCE"
 
-# Load CUDA module
-echo "Loading CUDA module"
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
+load_gpu_modules
 
 # Point CUDSS.jl to the JLL artifact since Gadi's system CUDA lacks libcudss
 CUDSS_LIB=$(find "${JULIA_DEPOT_PATH:-$HOME/.julia}/artifacts" -name "libcudss.so" -print -quit 2>/dev/null)

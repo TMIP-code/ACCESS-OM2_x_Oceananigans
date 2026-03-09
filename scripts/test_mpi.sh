@@ -16,14 +16,8 @@
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 
-module load cuda/12.9.0
-module load openmpi/5.0.8
-export JULIA_CUDA_USE_COMPAT=false
-export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
-export JULIA_NUM_THREADS=1
-export JULIA_CUDA_MEMORY_POOL=none
-export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
-export UCX_WARN_UNUSED_ENV_VARS=n
+source scripts/env_defaults.sh
+load_gpu_modules
 
 echo "Running MPI test on 4 GPUs"
 mpirun -n 4 julia --project src/test_mpi.jl

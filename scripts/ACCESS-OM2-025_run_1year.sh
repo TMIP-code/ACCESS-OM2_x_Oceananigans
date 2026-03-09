@@ -19,9 +19,7 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-echo "Loading CUDA module"
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
+load_gpu_modules
 
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun

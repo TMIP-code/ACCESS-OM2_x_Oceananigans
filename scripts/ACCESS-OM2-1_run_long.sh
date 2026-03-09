@@ -23,9 +23,7 @@ NYEARS=${NYEARS:-3000}
 export NYEARS
 echo "NYEARS=$NYEARS"
 
-echo "Loading CUDA module"
-module load cuda/12.9.0
-export JULIA_CUDA_USE_COMPAT=false
+load_gpu_modules
 
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun
