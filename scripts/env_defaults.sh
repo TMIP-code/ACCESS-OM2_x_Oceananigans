@@ -7,12 +7,13 @@ W_FORMULATION=${W_FORMULATION:-wdiagnosed}
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
 TIMESTEPPER=${TIMESTEPPER:-AB2}
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}
-AA_M=${AA_M:-40}
-NLSAA_BETA=${NLSAA_BETA:-1.0}
-SMAA_SIGMA_MIN=${SMAA_SIGMA_MIN:-0.0}
-SMAA_STABILIZE=${SMAA_STABILIZE:-no}
-SMAA_CHECK_OBJ=${SMAA_CHECK_OBJ:-no}
-SMAA_ORDERS=${SMAA_ORDERS:-332}
+# AA solver variables — no longer needed, will be removed in the near future.
+# AA_M=${AA_M:-40}
+# NLSAA_BETA=${NLSAA_BETA:-1.0}
+# SMAA_SIGMA_MIN=${SMAA_SIGMA_MIN:-0.0}
+# SMAA_STABILIZE=${SMAA_STABILIZE:-no}
+# SMAA_CHECK_OBJ=${SMAA_CHECK_OBJ:-no}
+# SMAA_ORDERS=${SMAA_ORDERS:-332}
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}
@@ -21,7 +22,7 @@ TM_SOURCE=${TM_SOURCE:-avg24}
 GPU_RESOURCES=${GPU_RESOURCES:-gpuhopper}
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME TIMESTEPPER TRACE_SOLVER_HISTORY
-export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
+# export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE GPU_RESOURCES
 
 echo "PARENT_MODEL=$PARENT_MODEL"
@@ -30,12 +31,12 @@ echo "W_FORMULATION=$W_FORMULATION"
 echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"
 echo "TIMESTEPPER=$TIMESTEPPER"
 echo "TRACE_SOLVER_HISTORY=$TRACE_SOLVER_HISTORY"
-echo "AA_M=$AA_M"
-echo "NLSAA_BETA=$NLSAA_BETA"
-echo "SMAA_SIGMA_MIN=$SMAA_SIGMA_MIN"
-echo "SMAA_STABILIZE=$SMAA_STABILIZE"
-echo "SMAA_CHECK_OBJ=$SMAA_CHECK_OBJ"
-echo "SMAA_ORDERS=$SMAA_ORDERS"
+# echo "AA_M=$AA_M"
+# echo "NLSAA_BETA=$NLSAA_BETA"
+# echo "SMAA_SIGMA_MIN=$SMAA_SIGMA_MIN"
+# echo "SMAA_STABILIZE=$SMAA_STABILIZE"
+# echo "SMAA_CHECK_OBJ=$SMAA_CHECK_OBJ"
+# echo "SMAA_ORDERS=$SMAA_ORDERS"
 echo "LINEAR_SOLVER=$LINEAR_SOLVER"
 echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
 echo "MATRIX_PROCESSING=$MATRIX_PROCESSING"
@@ -52,18 +53,30 @@ if [ "$CHECK_BOUNDS" = "yes" ]; then
     echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
 fi
 
-# GPU module loading — call from GPU scripts instead of inline module loads
-load_gpu_modules() {
-    echo "Loading GPU modules"
-    module load cuda/12.9.0
-    module load openmpi/5.0.8
-    export JULIA_CUDA_USE_COMPAT=false
+# Module loading and environment — required for all jobs.
+# MPItrampoline delegates to system OpenMPI via mpiwrapper;
+# openmpi module must be loaded so libmpiwrapper.so can find libmpi.
+echo "Loading modules (cuda, openmpi)"
+module load cuda/12.9.0
+module load openmpi/5.0.8
+export JULIA_CUDA_USE_COMPAT=false
+# Prepend JLL Libmount artifact to LD_LIBRARY_PATH so Glib_jll's libgio-2.0.so
+# finds the JLL's libmount.so.1 (MOUNT_2_40) instead of the system one (RHEL 8
+# only has up to MOUNT_2_37). Required for Makie/OceananigansMakieExt.
+LIBMOUNT_DIR=$(dirname "$(find "${JULIA_DEPOT_PATH:-$HOME/.julia}/artifacts" -name "libmount.so.1" -print -quit 2>/dev/null)" 2>/dev/null)
+if [ -n "$LIBMOUNT_DIR" ]; then
+    export LD_LIBRARY_PATH="${LIBMOUNT_DIR}:/apps/openmpi/5.0.8/lib"
+    echo "LIBMOUNT_DIR=$LIBMOUNT_DIR (prepended to LD_LIBRARY_PATH)"
+else
     export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
-    export JULIA_NUM_THREADS=1
-    export JULIA_CUDA_MEMORY_POOL=none
-    export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
-    export UCX_WARN_UNUSED_ENV_VARS=n
-    # Detect number of GPUs available to this job
-    export NGPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
-    echo "NGPUS=$NGPUS"
-}
+    echo "Warning: Libmount_jll artifact not found, Makie may fail to precompile"
+fi
+export JULIA_NUM_THREADS=1
+export JULIA_CUDA_MEMORY_POOL=none
+export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
+export UCX_WARN_UNUSED_ENV_VARS=n
+# MPItrampoline: point to mpiwrapper built against system OpenMPI
+export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
+# Detect number of GPUs available to this job (0 on CPU-only nodes)
+export NGPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
+echo "NGPUS=$NGPUS"

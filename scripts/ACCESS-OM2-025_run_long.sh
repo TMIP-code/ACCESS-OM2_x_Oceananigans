@@ -23,8 +23,6 @@ NYEARS=${NYEARS:-3000}
 export NYEARS
 echo "NYEARS=$NYEARS"
 
-load_gpu_modules
-
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"

@@ -17,7 +17,6 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 
 source scripts/env_defaults.sh
-load_gpu_modules
 
 echo "Running MPI test on 4 GPUs"
 mpirun -n 4 julia --project src/test_mpi.jl

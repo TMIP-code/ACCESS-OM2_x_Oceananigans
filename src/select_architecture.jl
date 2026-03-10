@@ -1,4 +1,4 @@
-# Architecture selection based on NGPUS env var (set by load_gpu_modules in shell).
+# Architecture selection based on NGPUS env var (set by env_defaults.sh in shell).
 # Sets: arch, arch_str, ngpus
 #
 # NGPUS > 1  → Distributed(GPU())  (multi-GPU via MPI)
@@ -14,7 +14,7 @@ if ngpus > 1
     CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
     @show CUDA.versioninfo()
     arch = Distributed(GPU())
-    arch_str = "Distributed GPU ($ngpus GPUs)"
+    arch_str = "DistributedGPU"
 elseif ngpus == 1
     using CUDA
     CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)

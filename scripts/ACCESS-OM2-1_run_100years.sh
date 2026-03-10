@@ -19,8 +19,6 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-load_gpu_modules
-
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"

@@ -3,11 +3,7 @@ local = "true"
 version = "12.9"
 
 [MPIPreferences]
-__clear__ = ["preloads_env_switch"]
+__clear__ = ["libmpi", "abi", "mpiexec", "cclibs", "preloads_env_switch"]
 _format = "1.0"
-abi = "OpenMPI"
-binary = "system"
-cclibs = []
-libmpi = "libmpi"
-mpiexec = "mpiexec"
+binary = "MPItrampoline_jll"
 preloads = []

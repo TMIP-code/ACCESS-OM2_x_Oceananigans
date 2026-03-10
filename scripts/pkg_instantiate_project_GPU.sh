@@ -17,7 +17,7 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 
 source scripts/env_defaults.sh
-load_gpu_modules
+
 echo "Instantiating packages on compute node on GPU"
 julia --project -e 'using Pkg; Pkg.instantiate()'
 echo "Done instantiating packages on compute node on GPU"

@@ -18,11 +18,6 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-# Load GPU modules if running on a GPU node
-if [[ "$HOSTNAME" == *gpu* ]]; then
-    load_gpu_modules
-fi
-
 job_id="${PBS_JOBID:-interactive}"
 
 log_dir=logs/julia/$PARENT_MODEL/preprocess

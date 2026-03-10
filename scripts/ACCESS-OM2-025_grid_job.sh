@@ -20,6 +20,7 @@ export PARENT_MODEL
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 echo "PARENT_MODEL=$PARENT_MODEL, repo_root=$repo_root"
 cd $repo_root
+source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
 

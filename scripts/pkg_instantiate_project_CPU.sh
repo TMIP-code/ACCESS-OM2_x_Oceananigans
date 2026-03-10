@@ -14,6 +14,7 @@
 
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
+source scripts/env_defaults.sh
 
 echo "Instantiating packages on compute node on CPU"
 julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
