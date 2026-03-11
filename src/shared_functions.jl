@@ -610,6 +610,28 @@ function zonalaverage(x3D, v3D, mask)
 end
 
 """
+    zonalaverage!(za, xw, w, x3D, v3D, mask3D)
+
+In-place volume-weighted zonal average using preallocated buffers.
+`mask3D` must be 3D (reshape 2D masks before calling).
+Writes result into `za` (Ny, Nz) and uses `xw`, `w` as (Nx, Ny, Nz) scratch space.
+"""
+function zonalaverage!(za, xw, w, x3D, v3D, mask3D)
+    @. xw = ifelse(isnan(x3D) | !mask3D, 0.0, x3D * v3D)
+    @. w = ifelse(isnan(x3D) | !mask3D, 0.0, v3D)
+    @views for j in axes(za, 1), k in axes(za, 2)
+        num = 0.0
+        den = 0.0
+        for i in axes(xw, 1)
+            num += xw[i, j, k]
+            den += w[i, j, k]
+        end
+        za[j, k] = den > 0 ? num / den : NaN
+    end
+    return za
+end
+
+"""
     find_nearest_depth_index(grid, target_depth)
 
 Return the k-index of the vertical level nearest to `target_depth` (m, positive downward).
@@ -694,6 +716,7 @@ function plot_age_diagnostics(
 
         cf = contourf!(ax, lat_repr, depth_vals, za; levels, colormap, nan_color = :lightgray, extendhigh = :auto, extendlow = :auto)
         translate!(cf, 0, 0, -100)
+        xlims!(ax, -90, 90)
         ylims!(ax, maximum(depth_vals), 0)
         Colorbar(fig[1, 2], cf; label = "Age (years)")
 
@@ -727,5 +750,188 @@ function plot_age_diagnostics(
 
     @info "Age diagnostic plots saved to $output_dir"
     flush(stdout); flush(stderr)
+    return nothing
+end
+
+
+################################################################################
+# Age animation helpers (zonal averages + depth slices)
+#
+# Requires CairoMakie and OceanBasins symbols in the calling script's scope,
+# as well as Oceananigans (Units, Grids, ImmersedBoundaries).
+################################################################################
+
+"""
+    animate_zonal_averages(age_fts, grid, wet3D, vol_3D, output_dir, prefix;
+                           colorrange, levels, colormap, n_frames=144, framerate=24)
+
+Animate 4 zonal-average MP4s (global, Atlantic, Pacific, Indian) from a
+`FieldTimeSeries`.  Each frame interpolates to the corresponding time, converts
+to years, and computes volume-weighted zonal averages per basin.
+"""
+function animate_zonal_averages(
+        age_fts, grid, wet3D, vol_3D, output_dir, prefix;
+        colorrange = (0, 1500),
+        levels = 0:100:1500,
+        colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
+        n_frames = 144,
+        framerate = 24,
+    )
+    mkpath(output_dir)
+
+    year = 365.25 * 86400  # seconds
+
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′, Nz′ = size(wet3D)
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z
+    lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
+
+    basins = compute_ocean_basin_masks(grid, wet3D)
+    global_mask = trues(Nx′, Ny′)
+    basin_configs = [
+        ("global", global_mask),
+        ("atlantic", basins.ATL),
+        ("pacific", basins.PAC),
+        ("indian", basins.IND),
+    ]
+
+    stop_time = age_fts.times[end]
+    frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
+
+    age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
+    xw_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
+    w_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
+    za_buf = Array{Float64}(undef, Ny′, Nz′)
+
+    # Build figure once; update observables per basin
+    age_raw = interior(age_fts[Time(frame_times[1])])
+    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+    first_mask = reshape(basin_configs[1][2], size(basin_configs[1][2], 1), size(basin_configs[1][2], 2), 1)
+    zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, first_mask)
+    za_obs = Observable(copy(za_buf))
+    title_obs = Observable("")
+
+    fig = Figure(; size = (800, 500))
+    ax = Axis(
+        fig[1, 1];
+        title = title_obs,
+        xlabel = "Latitude",
+        ylabel = "Depth (m)",
+        backgroundcolor = :lightgray,
+        xgridvisible = false,
+        ygridvisible = false,
+    )
+
+    cf = contourf!(
+        ax, lat_repr, depth_vals, za_obs;
+        levels, colormap, nan_color = :lightgray, extendhigh = :auto, extendlow = :auto
+    )
+    translate!(cf, 0, 0, -100)
+    xlims!(ax, -90, 90)
+    ylims!(ax, maximum(depth_vals), 0)
+    Colorbar(fig[1, 2], cf; label = "Age (years)")
+
+    for (basin_name, basin_mask) in basin_configs
+        @info "Animating zonal average — $basin_name"
+        flush(stdout); flush(stderr)
+
+        mask3D = reshape(basin_mask, size(basin_mask, 1), size(basin_mask, 2), 1)
+
+        # Reset to first frame for this basin
+        age_raw = interior(age_fts[Time(frame_times[1])])
+        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+        zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
+        za_obs.val .= za_buf
+        notify(za_obs)
+        title_obs[] = @sprintf("age — %s zonal avg (t = 0.0 months)", basin_name)
+
+        filepath = joinpath(output_dir, "$(prefix)_zonal_avg_$(basin_name).mp4")
+        record(fig, filepath, 1:n_frames; framerate) do i
+            age_raw = interior(age_fts[Time(frame_times[i])])
+            @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+            zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
+            za_obs.val .= za_buf
+            notify(za_obs)
+            title_obs[] = @sprintf("age — %s zonal avg (t = %.1f months)", basin_name, frame_times[i] / (year / 12))
+        end
+
+        @info "Saved $filepath"
+    end
+
+    return nothing
+end
+
+"""
+    animate_depth_slices(age_fts, grid, wet3D, output_dir, prefix;
+                         colorrange, levels, colormap, n_frames=144, framerate=24)
+
+Animate 6 depth-slice MP4s (100, 200, 500, 1000, 2000, 3000 m) from a
+`FieldTimeSeries`.  Each frame interpolates to the corresponding time and
+extracts the nearest depth level.
+"""
+function animate_depth_slices(
+        age_fts, grid, wet3D, output_dir, prefix;
+        colorrange = (0, 1500),
+        levels = 0:100:1500,
+        colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
+        n_frames = 144,
+        framerate = 24,
+    )
+    mkpath(output_dir)
+
+    year = 365.25 * 86400  # seconds
+
+    Nx′, Ny′, Nz′ = size(wet3D)
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z
+
+    target_depths = [100, 200, 500, 1000, 2000, 3000]
+    depth_k_indices = [(d, find_nearest_depth_index(grid, d)) for d in target_depths]
+
+    stop_time = age_fts.times[end]
+    frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
+
+    age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
+
+    # Build figure once; update observables per depth
+    age_raw = interior(age_fts[Time(frame_times[1])])
+    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+    slice_obs = Observable(age_buf[:, :, depth_k_indices[1][2]])
+    title_obs = Observable("")
+
+    fig = Figure(; size = (1000, 500))
+    ax = Axis(fig[1, 1]; title = title_obs)
+
+    hm = heatmap!(
+        ax, slice_obs; colorrange, colormap, nan_color = :black,
+        lowclip = colormap[1], highclip = colormap[end]
+    )
+    Colorbar(fig[1, 2], hm; label = "Age (years)")
+
+    for (depth, k) in depth_k_indices
+        @info "Animating depth slice — $(depth) m"
+        flush(stdout); flush(stderr)
+
+        actual_depth = round(depth_vals[k]; digits = 1)
+
+        # Reset to first frame for this depth
+        age_raw = interior(age_fts[Time(frame_times[1])])
+        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+        slice_obs[] = @view(age_buf[:, :, k])
+        title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = 0.0 months)", depth, k, actual_depth)
+
+        filepath = joinpath(output_dir, "$(prefix)_slice_$(depth)m.mp4")
+        record(fig, filepath, 1:n_frames; framerate) do i
+            age_raw = interior(age_fts[Time(frame_times[i])])
+            @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+            slice_obs[] = @view(age_buf[:, :, k])
+            title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = %.1f months)", depth, k, actual_depth, frame_times[i] / (year / 12))
+        end
+
+        @info "Saved $filepath"
+    end
+
     return nothing
 end

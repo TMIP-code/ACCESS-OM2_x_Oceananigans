@@ -128,56 +128,7 @@ Nx′, Ny′, Nz′ = size(wet3D)
 
 vol_3D = Array(interior(compute_volume(grid)))
 
-# Grid coordinates (reused every iteration)
-ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
-lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
-z = znodes(grid, Center(), Center(), Center())
-depth_vals = -z
-lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
-
-# Basin masks (reused every iteration)
-basins = compute_ocean_basin_masks(grid, wet3D)
-global_mask = trues(Nx′, Ny′)
-
-basin_configs = [
-    ("global", global_mask),
-    ("atlantic", basins.ATL),
-    ("pacific", basins.PAC),
-    ("indian", basins.IND),
-]
-
-# Reshape 2D basin masks to 3D once (avoids reshape per zonalaverage call)
-basin_masks_3D = [(name, reshape(m, size(m, 1), size(m, 2), 1)) for (name, m) in basin_configs]
-
-# Depth slice indices (reused every iteration)
-target_depths = [100, 200, 500, 1000, 2000, 3000]
-depth_k_indices = [(d, find_nearest_depth_index(grid, d)) for d in target_depths]
-
-################################################################################
-# Preallocate reusable buffers
-################################################################################
-
 age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)    # age in years, NaN-masked
-xw_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)     # weighted numerator
-w_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)      # weighted denominator
-
-# In-place volume-weighted zonal average using preallocated buffers
-function zonalaverage!(za, xw, w, x3D, v3D, mask3D)
-    @. xw = ifelse(isnan(x3D) | !mask3D, 0.0, x3D * v3D)
-    @. w = ifelse(isnan(x3D) | !mask3D, 0.0, v3D)
-    @views for j in axes(za, 1), k in axes(za, 2)
-        num = 0.0
-        den = 0.0
-        for i in axes(xw, 1)
-            num += xw[i, j, k]
-            den += w[i, j, k]
-        end
-        za[j, k] = den > 0 ? num / den : NaN
-    end
-    return za
-end
-
-za_buf = Array{Float64}(undef, Ny′, Nz′)  # zonal average buffer
 
 ################################################################################
 # Plot settings
@@ -233,60 +184,7 @@ label = "age_periodic_mean_$(ADVECTION_SCHEME)"
 @info "Generating averaged diagnostic plots"
 flush(stdout); flush(stderr)
 
-# ── Zonal averages (figures 1-4) ──────────────────────────────────────
-
-for (basin_name, mask3D) in basin_masks_3D
-    zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
-
-    fig = Figure(; size = (800, 500))
-    ax = Axis(
-        fig[1, 1];
-        title = "$label — $basin_name zonal average",
-        xlabel = "Latitude",
-        ylabel = "Depth (m)",
-        backgroundcolor = :lightgray,
-        xgridvisible = false,
-        ygridvisible = false,
-    )
-
-    cf = contourf!(
-        ax, lat_repr, depth_vals, za_buf;
-        levels, colormap, nan_color = :lightgray, extendhigh = :auto, extendlow = :auto
-    )
-    translate!(cf, 0, 0, -100)
-    ylims!(ax, maximum(depth_vals), 0)
-    Colorbar(fig[1, 2], cf; label = "Age (years)")
-
-    outputfile = joinpath(plot_dir, "$(label)_zonal_avg_$(basin_name).png")
-    @info "Saving $outputfile"
-    save(outputfile, fig)
-end
-
-# ── Horizontal slices (figures 5-10) ──────────────────────────────────
-
-for (depth, k) in depth_k_indices
-    actual_depth = round(depth_vals[k]; digits = 1)
-    slice = @view age_buf[:, :, k]
-
-    fig = Figure(; size = (1000, 500))
-    ax = Axis(
-        fig[1, 1];
-        title = "$label at $depth m (k=$k, z=$actual_depth m)",
-    )
-
-    hm = heatmap!(
-        ax, slice; colorrange, colormap, nan_color = :black,
-        lowclip = colormap[1], highclip = colormap[end]
-    )
-    Colorbar(fig[1, 2], hm; label = "Age (years)")
-
-    outputfile = joinpath(plot_dir, "$(label)_slice_$(depth)m.png")
-    @info "Saving $outputfile"
-    save(outputfile, fig)
-end
-
-@info "Averaged diagnostic plots complete (10 PNGs)"
-flush(stdout); flush(stderr)
+plot_age_diagnostics(age_buf, grid, wet3D, vol_3D, plot_dir, label; colorrange, levels)
 
 ################################################################################
 # Smooth animations (10 MP4 files)
@@ -295,95 +193,9 @@ flush(stdout); flush(stderr)
 @info "Generating smooth animations (144 frames @ 24 fps, 6s per video)"
 flush(stdout); flush(stderr)
 
-stop_time = age_fts.times[end]
-n_frames = 144
-frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
-
-# Preallocate slice buffer (reused across all depth slice animations)
-slice_buf = Matrix{Float64}(undef, Nx′, Ny′)
-
-# ── Zonal average animations (4 videos) ──────────────────────────────
-
-for (basin_name, mask3D) in basin_masks_3D
-    @info "Animating zonal average — $basin_name"
-    flush(stdout); flush(stderr)
-
-    # Compute first frame to initialise observable
-    age_raw = interior(age_fts[Time(frame_times[1])])
-    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-    zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
-    za_obs = Observable(copy(za_buf))
-
-    title_obs = Observable(@sprintf("age — %s zonal avg (t = 0.0 months)", basin_name))
-
-    fig = Figure(; size = (800, 500))
-    ax = Axis(
-        fig[1, 1];
-        title = title_obs,
-        xlabel = "Latitude",
-        ylabel = "Depth (m)",
-        backgroundcolor = :lightgray,
-        xgridvisible = false,
-        ygridvisible = false,
-    )
-
-    cf = contourf!(
-        ax, lat_repr, depth_vals, za_obs;
-        levels, colormap, nan_color = :lightgray, extendhigh = :auto, extendlow = :auto
-    )
-    translate!(cf, 0, 0, -100)
-    ylims!(ax, maximum(depth_vals), 0)
-    Colorbar(fig[1, 2], cf; label = "Age (years)")
-
-    filepath = joinpath(plot_dir, "age_periodic_$(ADVECTION_SCHEME)_zonal_avg_$(basin_name).mp4")
-    record(fig, filepath, 1:n_frames; framerate = 24) do i
-        age_raw = interior(age_fts[Time(frame_times[i])])
-        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-        zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
-        za_obs.val .= za_buf
-        notify(za_obs)
-        title_obs[] = @sprintf("age — %s zonal avg (t = %.1f months)", basin_name, frame_times[i] / (year / 12))
-    end
-
-    @info "Saved $filepath"
-end
-
-# ── Depth slice animations (6 videos) ────────────────────────────────
-
-for (depth, k) in depth_k_indices
-    @info "Animating depth slice — $(depth) m"
-    flush(stdout); flush(stderr)
-
-    actual_depth = round(depth_vals[k]; digits = 1)
-
-    # Compute first frame to initialise observable
-    age_raw = interior(age_fts[Time(frame_times[1])])
-    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-    slice_buf .= @view age_buf[:, :, k]
-    slice_obs = Observable(copy(slice_buf))
-
-    title_obs = Observable(@sprintf("age at %d m (k=%d, z=%.1f m, t = 0.0 months)", depth, k, actual_depth))
-
-    fig = Figure(; size = (1000, 500))
-    ax = Axis(fig[1, 1]; title = title_obs)
-
-    hm = heatmap!(
-        ax, slice_obs; colorrange, colormap, nan_color = :black,
-        lowclip = colormap[1], highclip = colormap[end]
-    )
-    Colorbar(fig[1, 2], hm; label = "Age (years)")
-
-    filepath = joinpath(plot_dir, "age_periodic_$(ADVECTION_SCHEME)_slice_$(depth)m.mp4")
-    record(fig, filepath, 1:n_frames; framerate = 24) do i
-        age_raw = interior(age_fts[Time(frame_times[i])])
-        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-        slice_obs.val .= @view(age_buf[:, :, k])
-        notify(slice_obs)
-        title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = %.1f months)", depth, k, actual_depth, frame_times[i] / (year / 12))
-    end
-
-    @info "Saved $filepath"
-end
+anim_prefix = "age_periodic_$(ADVECTION_SCHEME)"
+animate_zonal_averages(age_fts, grid, wet3D, vol_3D, plot_dir, anim_prefix; colorrange, levels, colormap)
+animate_depth_slices(age_fts, grid, wet3D, plot_dir, anim_prefix; colorrange, levels, colormap)
 
 @info "plot_periodic_1year_age.jl complete — 10 averaged PNGs + 10 animations saved to $plot_dir"
 flush(stdout); flush(stderr)
