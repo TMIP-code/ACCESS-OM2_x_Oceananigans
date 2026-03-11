@@ -7,14 +7,14 @@ use transport matrices to solve for periodic state using a Newon–Krylov solver
 
 ## Pipeline
 
-The full pipeline is managed by driver scripts that submit chained PBS jobs with `afterok` dependencies. Run from the login node:
+The full pipeline is managed by a unified `scripts/driver.sh` that submits chained PBS jobs with `afterok` dependencies. All scripts are model-agnostic — `PARENT_MODEL` selects the model. Run from the login node:
 
 ```bash
-# Run the full ACCESS-OM2-1 pipeline (11 jobs)
-bash scripts/ACCESS-OM2-1_driver.sh
+# Run the full ACCESS-OM2-1 pipeline
+JOB_CHAIN=full bash scripts/driver.sh
 
 # Run the full ACCESS-OM2-025 pipeline
-bash scripts/ACCESS-OM2-025_driver.sh
+PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
 ```
 
 ### Dependency DAG
@@ -22,37 +22,54 @@ bash scripts/ACCESS-OM2-025_driver.sh
 ```
 grid
  └── vel
-      ├── 1year
-      │    └── snapM+avgM (TM_SOURCE=avg24)
-      │         ├── TMage(avg24) ── Pardiso(CPU) + CUDSS(GPU)
+      ├── run1yr
+      │    └── TMsnapshot (TM_SOURCE=avg24)
+      │         ├── TMsolve(avg24) ── Pardiso(CPU) + CUDSS(GPU)
       │         └── NK(avg24)
-      └── constM (TM_SOURCE=const)
-           ├── TMage(const) ── Pardiso(CPU) + CUDSS(GPU)
-           └── NK(const)
+      ├── run10yr ── plot10yr
+      ├── run100yr ── plot100yr
+      ├── runlong
+      └── TMbuild (TM_SOURCE=const)
+           ├── TMsolve(const) ── Pardiso(CPU) + CUDSS(GPU)
+           └── NK(const) ── plotNK
 ```
 
-### Skipping steps with `JOB_CHAIN`
+### Selecting steps with `JOB_CHAIN`
 
-Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in the string are skipped (their outputs are assumed to already exist):
+Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in the chain are skipped (their outputs are assumed to already exist). `JOB_CHAIN` is required — the driver prints usage help if not set.
+
+**Canonical steps** (in order):
+`grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK plot1yr plot10yr plot100yr plotNK plotNKtrace`
+
+**Shortcuts:**
+| Shortcut | Expands to |
+|---|---|
+| `preprocessing` | `grid-vel` |
+| `standardruns` | `run1yr-run10yr-run100yr-runlong` |
+| `TMall` | `TMbuild-TMsnapshot-TMsolve` |
+| `plotall` | `plot1yr-plot10yr-plot100yr-plotNK` |
+| `full` | `preprocessing-run1yr-TMall-NK-plot1yr-plotNK` |
+
+**Range notation:** `A..B` expands to all steps from A to B in canonical order (e.g., `vel..NK`).
 
 ```bash
-# Default (full chain)
-JOB_CHAIN=grid-vel-1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
-
-# Skip grid (already built), start from velocities
-JOB_CHAIN=vel-1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
-
 # Only run Newton-GMRES solves (matrices must already exist)
-JOB_CHAIN=NK bash scripts/ACCESS-OM2-1_driver.sh
+JOB_CHAIN=NK bash scripts/driver.sh
 
-# Only build matrices (grid and velocities must already exist)
-JOB_CHAIN=1year-TM bash scripts/ACCESS-OM2-1_driver.sh
+# Run 1-year simulation and plot
+JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
 
-# Only solve matrix age (matrices must already exist)
-JOB_CHAIN=TMage bash scripts/ACCESS-OM2-1_driver.sh
+# Build matrices and run all solvers
+JOB_CHAIN=run1yr-TMall-NK bash scripts/driver.sh
 
-# Rebuild matrices and run all solvers
-JOB_CHAIN=1year-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh
+# Everything from vel to NK (range notation)
+JOB_CHAIN=vel..NK bash scripts/driver.sh
+
+# Run preprocessing only
+JOB_CHAIN=preprocessing bash scripts/driver.sh
+
+# ACCESS-OM2-025 with specific GPU queue
+PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts/driver.sh
 ```
 
 ### GPU preprocessing with `PREPROCESS_ARCH`
@@ -61,15 +78,34 @@ Velocity creation can run on GPU for faster processing (grid creation always run
 
 ```bash
 # Run velocities on GPU
-PREPROCESS_ARCH=GPU bash scripts/ACCESS-OM2-1_driver.sh
+PREPROCESS_ARCH=GPU JOB_CHAIN=preprocessing bash scripts/driver.sh
+```
 
-# Combine with JOB_CHAIN
-PREPROCESS_ARCH=GPU JOB_CHAIN=vel bash scripts/ACCESS-OM2-1_driver.sh
+### Model configs
+
+Model-specific settings (walltimes, PBS name prefix) live in `model_configs/`:
+- `model_configs/ACCESS-OM2-1.sh`
+- `model_configs/ACCESS-OM2-025.sh`
+
+### Script organisation
+
+```
+scripts/
+├── driver.sh                  # Unified pipeline entry point
+├── env_defaults.sh            # Common env var defaults
+├── preprocessing/             # Grid, velocities, transport matrices
+├── standard_runs/             # Age simulations (1yr, 10yr, 100yr, long)
+├── solvers/                   # Newton-Krylov + TM age solvers
+├── plotting/                  # Diagnostic plots
+├── benchmarks/                # Parameter sweep submitters
+├── maintenance/               # Package management, MPI setup, archiving
+├── debugging/                 # Test/check scripts
+└── prepreprocessing/          # CDO periodic averaging (external)
 ```
 
 ## Project setup notes
 
-Gadi compute nodes don't have access to the internet, so the project dependencies must be downloaded on the login node. But the default mutli-threaded precompilation could use too much resources and crash during `pkg> up`. Instead, run the dedicated script in `scripts/pkg_udate_project.sh`, which run `pkg> up` on the login node _without_ precompilation, then run precompilation on compute nodes on the CPU and then on the GPU.
+Gadi compute nodes don't have access to the internet, so the project dependencies must be downloaded on the login node. But the default multi-threaded precompilation could use too much resources and crash during `pkg> up`. Instead, run the dedicated script `scripts/maintenance/pkg_update_project.sh`, which runs `pkg> up` on the login node _without_ precompilation, then submits precompilation on compute nodes on the CPU and then on the GPU.
 
 ## Configuration
 
@@ -104,7 +140,7 @@ These configure the fixed-point acceleration solvers in `solve_periodic_AA.jl` (
 Shell defaults are set in `scripts/env_defaults.sh`, which is sourced by all PBS job scripts. Override at submission time:
 
 ```bash
-qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_run_1year.sh
+qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/standard_runs/run_1year.sh
 ```
 
 ## Tests
@@ -112,7 +148,7 @@ qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/ACCESS-OM2-1_run_1year.s
 Julia test scripts live in `test/`. To run the regression test comparing newly-built snapshot matrices against archived reference matrices, submit a PBS job (these load large matrices and must run on a compute node, not the login node):
 
 ```bash
-qsub scripts/check_snapshot_matrices_job.sh
+qsub scripts/debugging/check_snapshot_matrices_job.sh
 ```
 
 ## Preprocessed outputs layout
