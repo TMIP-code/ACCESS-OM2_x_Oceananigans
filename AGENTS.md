@@ -22,26 +22,31 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── plot_outputs.jl           # Plot u/v/w/η outputs from simulation (standalone, CPU-only)
 │   ├── debug_jacobian_symmetry.jl # Debug script for Jacobian structural symmetry
 │   └── shared_functions.jl      # load_tripolar_grid(), compute_wet_mask(), plot_age_diagnostics(), etc.
+├── model_configs/
+│   ├── ACCESS-OM2-1.sh              # Model-specific config (walltimes, MODEL_SHORT)
+│   └── ACCESS-OM2-025.sh            # Model-specific config (walltimes, MODEL_SHORT)
 ├── scripts/
-│   ├── env_defaults.sh                    # Common env var defaults (sourced by all job scripts)
-│   ├── ACCESS-OM2-1_driver.sh             # Pipeline driver for ACCESS-OM2-1
-│   ├── ACCESS-OM2-025_driver.sh           # Pipeline driver for ACCESS-OM2-025
-│   ├── ACCESS-OM2-{1,025}_grid_job.sh     # PBS: grid build (CPU, express)
-│   ├── ACCESS-OM2-{1,025}_vel_job.sh      # PBS: velocity preprocessing (CPU/GPU, express)
-│   ├── ACCESS-OM2-{1,025}_run_1year.sh    # PBS: 1-year GPU simulation
-│   ├── ACCESS-OM2-{1,025}_run_10years.sh  # PBS: 10-year GPU simulation
-│   ├── ACCESS-OM2-{1,025}_run_100years.sh # PBS: 100-year GPU simulation
-│   ├── ACCESS-OM2-{1,025}_run_long.sh     # PBS: long GPU simulation (NYEARS env var)
-│   ├── ACCESS-OM2-{1,025}_solve_periodic_NK.sh  # PBS: Newton-GMRES GPU solver
-│   ├── ACCESS-OM2-{1,025}_matrix_job.sh   # PBS: matrix build (CPU, normal)
-│   ├── ACCESS-OM2-{1,025}_TM_job.sh       # PBS: snapshot + average matrices (CPU, normal)
-│   ├── ACCESS-OM2-{1,025}_solve_matrix_age_job.sh     # PBS: solve age from matrix (CPU, normal)
-│   ├── ACCESS-OM2-{1,025}_solve_matrix_age_GPU_job.sh # PBS: solve age from matrix (GPU, CUDSS)
-│   ├── ACCESS-OM2-{1,025}_plot_*_job.sh   # PBS: CPU plot jobs (auto-submitted by run scripts)
-│   ├── submit_all_gpu_job_modes.sh        # Submit all config combinations for 1-year run
-│   ├── submit_all_solver_modes.sh         # Submit NK solver variants
-│   ├── submit_all_matrix_jobs.sh          # Submit matrix build for all configs
-│   ├── submit_all_solve_matrix_age.sh     # Submit all solver × coarsening combos
+│   ├── env_defaults.sh              # Common env var defaults (sourced by all job scripts)
+│   ├── driver.sh                    # Unified pipeline driver (PARENT_MODEL, JOB_CHAIN)
+│   ├── build_grid.sh               # PBS: grid build (CPU, express)
+│   ├── build_velocities.sh         # PBS: velocity preprocessing (CPU/GPU, express)
+│   ├── run_1year.sh                # PBS: 1-year GPU simulation
+│   ├── run_10years.sh              # PBS: 10-year GPU simulation
+│   ├── run_100years.sh             # PBS: 100-year GPU simulation
+│   ├── run_long.sh                 # PBS: long GPU simulation (NYEARS env var)
+│   ├── run_1year_from_periodic_sol.sh  # PBS: 1-year run from periodic solution
+│   ├── solve_periodic_NK.sh        # PBS: Newton-GMRES GPU solver
+│   ├── build_TMconst.sh            # PBS: Jacobian build from constant fields (CPU, normal)
+│   ├── build_TMavg.sh              # PBS: snapshot + average matrices (CPU, normal)
+│   ├── solve_TM_age_CPU.sh         # PBS: solve age from matrix (CPU, Pardiso/ParU/UMFPACK)
+│   ├── solve_TM_age_GPU.sh         # PBS: solve age from matrix (GPU, CUDSS)
+│   ├── plot_1year_age.sh           # PBS: plot 1-year age diagnostics (CPU)
+│   ├── plot_10years_age.sh         # PBS: plot 10-year age diagnostics (CPU)
+│   ├── plot_100years_age.sh        # PBS: plot 100-year age diagnostics (CPU)
+│   ├── plot_1year_from_periodic_sol.sh  # PBS: plot periodic solution diagnostics (CPU)
+│   ├── submit_all_solver_modes.sh  # Submit NK solver variants
+│   ├── submit_all_matrix_jobs.sh   # Submit matrix build for all configs
+│   ├── submit_all_solve_matrix_age.sh  # Submit all solver × coarsening combos
 │   ├── pkg_instantiate_project_CPU.sh
 │   └── pkg_instantiate_project_GPU.sh
 ├── test/                                     # Julia test scripts
@@ -102,20 +107,18 @@ Run it after you have finished editing files with `runic --inplace .`
 
 ## Submitting and monitoring PBS jobs
 
-Submit via the driver pipeline:
+Submit via the unified driver (JOB_CHAIN is required):
 ```bash
-bash scripts/ACCESS-OM2-1_driver.sh                                      # full default pipeline
-JOB_CHAIN=grid-vel-1year-10years-TM-TMage-NK bash scripts/ACCESS-OM2-1_driver.sh  # with 10yr
-GPU_QUEUE=gpuvolta bash scripts/ACCESS-OM2-1_driver.sh                   # on Volta GPUs
+JOB_CHAIN=full bash scripts/driver.sh                                    # full OM2-1 pipeline
+PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=preprocessing-run1yr bash scripts/driver.sh
+JOB_CHAIN=vel..NK bash scripts/driver.sh                                 # range: vel through NK
+JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh                          # single run + plot
+GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Volta GPUs
 ```
 
-Submit individual jobs:
-```bash
-qsub scripts/ACCESS-OM2-1_run_1year.sh
-qsub scripts/ACCESS-OM2-1_solve_periodic_NK.sh
-qsub -v TM_SOURCE=const,LINEAR_SOLVER=Pardiso,LUMP_AND_SPRAY=yes \
-    scripts/ACCESS-OM2-1_solve_matrix_age_job.sh
-```
+JOB_CHAIN steps: `grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK plot1yr plot10yr plot100yr plotNK`
+Shortcuts: `preprocessing` `standardruns` `TMall` `plotall` `full`
+Range notation: `A..B` (e.g., `vel..NK`)
 
 Monitor:
 ```bash
@@ -164,21 +167,41 @@ qstat -f <job_id>        # detailed status for one job
 | `test/check_snapshot_matrices.jl` | Regression test: compare snapshot/averaged matrices against archive | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 
 ## PBS scripts
-- `scripts/env_defaults.sh` — common env var defaults (sourced by all job scripts); includes GPU_QUEUE (default: gpuhopper)
-- `scripts/ACCESS-OM2-{1,025}_driver.sh` — pipeline drivers (JOB_CHAIN, GPU_QUEUE, PREPROCESS_ARCH)
-- `scripts/ACCESS-OM2-{1,025}_grid_job.sh` — grid build (CPU, express)
-- `scripts/ACCESS-OM2-{1,025}_vel_job.sh` — velocity preprocessing (CPU/GPU, express)
-- `scripts/ACCESS-OM2-{1,025}_run_1year.sh` — 1-year GPU simulation (auto-submits plot job)
-- `scripts/ACCESS-OM2-{1,025}_run_10years.sh` — 10-year GPU simulation (auto-submits plot job)
-- `scripts/ACCESS-OM2-{1,025}_run_100years.sh` — 100-year GPU simulation (auto-submits plot job)
-- `scripts/ACCESS-OM2-{1,025}_run_long.sh` — long GPU simulation (NYEARS env var)
-- `scripts/ACCESS-OM2-{1,025}_solve_periodic_NK.sh` — Newton-GMRES GPU solver
-- `scripts/ACCESS-OM2-{1,025}_matrix_job.sh` — matrix build (CPU, 48 CPU, 190 GB, normal)
-- `scripts/ACCESS-OM2-{1,025}_TM_job.sh` — snapshot + average matrices (CPU, normal)
-- `scripts/ACCESS-OM2-{1,025}_solve_matrix_age_job.sh` — solve age from matrix, CPU (Pardiso/ParU/UMFPACK)
-- `scripts/ACCESS-OM2-{1,025}_solve_matrix_age_GPU_job.sh` — solve age from matrix, GPU (CUDSS)
-- `scripts/ACCESS-OM2-{1,025}_plot_*_job.sh` — CPU plot jobs (auto-submitted after GPU runs)
-- `scripts/check_snapshot_matrices_job.sh` — regression test: check snapshot matrices for both parent models (CPU, normal, 12 CPU, 47 GB)
+
+All job scripts are model-agnostic — `PARENT_MODEL` selects the model.
+Model-specific config (walltimes, PBS name prefix) lives in `model_configs/{PARENT_MODEL}.sh`.
+The unified `scripts/driver.sh` is the single interface for submitting jobs.
+
+- `scripts/env_defaults.sh` — common env var defaults (sourced by all job scripts); sources model config
+- `scripts/driver.sh` — unified pipeline driver (PARENT_MODEL, JOB_CHAIN, GPU_RESOURCES)
+- `scripts/preprocessing/build_grid.sh` — grid build (CPU, express)
+- `scripts/preprocessing/build_velocities.sh` — velocity preprocessing (CPU/GPU, express)
+- `scripts/preprocessing/build_TMconst.sh` — Jacobian build from constant fields (CPU, 48 CPU, 192 GB, normal)
+- `scripts/preprocessing/build_TMavg.sh` — snapshot + average matrices (CPU, normal)
+- `scripts/standard_runs/run_1year.sh` — 1-year GPU simulation
+- `scripts/standard_runs/run_10years.sh` — 10-year GPU simulation
+- `scripts/standard_runs/run_100years.sh` — 100-year GPU simulation
+- `scripts/standard_runs/run_long.sh` — long GPU simulation (NYEARS env var)
+- `scripts/standard_runs/run_1year_from_periodic_sol.sh` — 1-year run from periodic solution
+- `scripts/solvers/solve_periodic_NK.sh` — Newton-GMRES GPU solver
+- `scripts/solvers/solve_TM_age_CPU.sh` — solve age from matrix, CPU (Pardiso/ParU/UMFPACK)
+- `scripts/solvers/solve_TM_age_GPU.sh` — solve age from matrix, GPU (CUDSS)
+- `scripts/plotting/plot_1year_age.sh` — plot 1-year age diagnostics (CPU)
+- `scripts/plotting/plot_10years_age.sh` — plot 10-year age diagnostics (CPU)
+- `scripts/plotting/plot_100years_age.sh` — plot 100-year age diagnostics (CPU)
+- `scripts/plotting/plot_1year_from_periodic_sol.sh` — plot periodic solution diagnostics (CPU)
+- `scripts/benchmarks/submit_all_gpu_job_modes.sh` — batch submit 1yr runs across config combos
+- `scripts/benchmarks/submit_all_matrix_jobs.sh` — batch submit matrix build jobs
+- `scripts/benchmarks/submit_all_solve_matrix_age.sh` — batch submit TM age solver combos (14 jobs)
+- `scripts/benchmarks/submit_all_solver_modes.sh` — batch submit NK solver variants
+- `scripts/maintenance/pkg_update_project.sh` — update Julia packages (login node)
+- `scripts/maintenance/pkg_instantiate_project_CPU.sh` — precompile on CPU compute node
+- `scripts/maintenance/pkg_instantiate_project_GPU.sh` — precompile on GPU compute node
+- `scripts/maintenance/setup_mpitrampoline.sh` — one-time MPI setup
+- `scripts/maintenance/archive.sh` — copy outputs to archive storage
+- `scripts/debugging/check_snapshot_matrices_job.sh` — regression test: check snapshot matrices
+- `scripts/debugging/test_mpi.sh` — MPI connectivity test
+- `scripts/prepreprocessing/` — CDO periodic averaging scripts (copied from external project)
 
 ## Configuration environment variables
 

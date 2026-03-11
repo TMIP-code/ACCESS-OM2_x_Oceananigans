@@ -80,3 +80,13 @@ export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
 # Detect number of GPUs available to this job (0 on CPU-only nodes)
 export NGPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
 echo "NGPUS=$NGPUS"
+
+# Source model-specific config (walltimes, MODEL_SHORT)
+MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
+if [ ! -f "$MODEL_CONF" ]; then
+    echo "ERROR: Model config not found: $MODEL_CONF" >&2
+    exit 1
+fi
+source "$MODEL_CONF"
+export MODEL_SHORT
+echo "MODEL_SHORT=$MODEL_SHORT"
