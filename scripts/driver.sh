@@ -9,34 +9,42 @@ set -euo pipefail
 #   PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
 #   JOB_CHAIN=vel..NK bash scripts/driver.sh                      # range notation
 #   GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
+#   TM_SOURCE=both JOB_CHAIN=NK bash scripts/driver.sh            # run both const+avg24
 #
 # Steps:
-#   grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK
-#   plot1yr plot10yr plot100yr plotNK plotNKtrace
+#   grid vel run1yr run10yr run100yr runlong
+#   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace
+#   plot1yr plot10yr plot100yr
 #
 # Shortcuts:
 #   preprocessing  = grid-vel
 #   standardruns   = run1yr-run10yr-run100yr-runlong
 #   TMall          = TMbuild-TMsnapshot-TMsolve
-#   plotall        = plot1yr-plot10yr-plot100yr-plotNK
-#   full           = preprocessing-run1yr-TMall-NK-plot1yr-plotNK
+#   plotall         = plot1yr-plot10yr-plot100yr-plotNK
+#   full           = preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr
 #
 # Range notation:
-#   A..B expands to all steps from A to B in canonical order.
-#   Example: vel..NK = vel-run1yr-run10yr-run100yr-runlong-TMbuild-TMsnapshot-TMsolve-NK
+#   A..B expands to all steps on any path from A to B in the dependency DAG.
+#   Example: run1yrNK..plotNK = run1yrNK-plotNK (not plot1yr/10yr/100yr)
+#   Example: vel..NK = vel-run1yr-TMbuild-TMsnapshot-NK (not run10yr/runlong/TMsolve)
+#
+# TM_SOURCE filtering:
+#   TM_SOURCE=const  (default) — only const branch for TMsolve/NK/run1yrNK
+#   TM_SOURCE=avg24  — only avg24 branch
+#   TM_SOURCE=both   — both branches
 #
 # Dependency DAG:
 #   grid → vel → run1yr    (afterok vel)
-#            │ → run10yr   (afterok vel, parallel with run1yr)
-#            │ → run100yr  (afterok vel, parallel with run1yr)
-#            │ → runlong   (afterok vel, parallel with run1yr)
-#            │ → TMbuild   (afterok vel)       → TMsolve(const) + NK(const)
-#            └→ run1yr → TMsnapshot            → TMsolve(avg24) + NK(avg24)
+#            │ → run10yr   (afterok vel, parallel)
+#            │ → run100yr  (afterok vel, parallel)
+#            │ → runlong   (afterok vel, parallel)
+#            │ → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
+#            └→ run1yr → TMsnapshot     → TMsolve(avg24) + NK(avg24) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
 #   plot10yr    (afterok run10yr)
 #   plot100yr   (afterok run100yr)
-#   plotNK      (afterok NK)
+#   plotNKtrace (afterok NK)
 
 PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
 export PARENT_MODEL
@@ -56,50 +64,83 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "Usage: PARENT_MODEL=... JOB_CHAIN=... bash scripts/driver.sh"
     echo ""
     echo "  PARENT_MODEL  Model to run (default: ACCESS-OM2-1)"
+    echo "  TM_SOURCE     const (default), avg24, or both"
     echo ""
     echo "  Steps:"
     echo "    grid vel run1yr run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve NK"
-    echo "    plot1yr plot10yr plot100yr plotNK plotNKtrace"
+    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace"
+    echo "    plot1yr plot10yr plot100yr"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = grid-vel"
     echo "    standardruns   = run1yr-run10yr-run100yr-runlong"
     echo "    TMall          = TMbuild-TMsnapshot-TMsolve"
-    echo "    plotall        = plot1yr-plot10yr-plot100yr-plotNK"
-    echo "    full           = preprocessing-run1yr-TMall-NK-plot1yr-plotNK"
+    echo "    plotall         = plot1yr-plot10yr-plot100yr-plotNK"
+    echo "    full           = preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr"
     echo ""
-    echo "  Range: A..B (e.g., vel..NK expands to all steps from vel to NK)"
+    echo "  Range: A..B follows the dependency DAG (e.g., run1yrNK..plotNK = run1yrNK-plotNK)"
     echo ""
     echo "  Examples:"
     echo "    JOB_CHAIN=preprocessing-run1yr-plot1yr bash scripts/driver.sh"
     echo "    PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh"
     echo "    JOB_CHAIN=vel..NK bash scripts/driver.sh"
+    echo "    TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh"
     exit 1
 fi
 
-# --- Canonical step order (for range expansion) ---
-ALL_STEPS=(grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK plot1yr plot10yr plot100yr plotNK plotNKtrace)
+# --- Topological step order (for deterministic output in range expansion) ---
+ALL_STEPS=(grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr)
 
-# --- Expand range notation (A..B) ---
+# --- Dependency DAG (step → space-separated children) ---
+declare -A DAG
+DAG[grid]="vel"
+DAG[vel]="run1yr run10yr run100yr runlong TMbuild"
+DAG[run1yr]="TMsnapshot plot1yr"
+DAG[run10yr]="plot10yr"
+DAG[run100yr]="plot100yr"
+DAG[TMbuild]="TMsolve NK"
+DAG[TMsnapshot]="TMsolve NK"
+DAG[NK]="run1yrNK plotNKtrace"
+DAG[run1yrNK]="plotNK"
+
+# --- DAG-based range expansion (A..B → steps on any path from A to B) ---
 expand_range() {
     local token="$1"
-    if [[ "$token" != *".."* ]]; then
-        echo "$token"
-        return
-    fi
-    local start="${token%..*}"
-    local end="${token#*..}"
-    local in_range=false result=""
+    [[ "$token" != *".."* ]] && { echo "$token"; return; }
+    local start="${token%..*}" end="${token#*..}"
+
+    # Forward reachability from start (BFS)
+    local -A fwd
+    local queue=("$start")
+    while [ ${#queue[@]} -gt 0 ]; do
+        local node="${queue[0]}"; queue=("${queue[@]:1}")
+        [ -n "${fwd[$node]:-}" ] && continue; fwd[$node]=1
+        for child in ${DAG[$node]:-}; do queue+=("$child"); done
+    done
+
+    # Backward reachability to end (BFS on reverse DAG)
+    local -A bwd rdag
+    for node in "${!DAG[@]}"; do
+        for child in ${DAG[$node]}; do
+            rdag[$child]="${rdag[$child]:-} $node"
+        done
+    done
+    queue=("$end")
+    while [ ${#queue[@]} -gt 0 ]; do
+        local node="${queue[0]}"; queue=("${queue[@]:1}")
+        [ -n "${bwd[$node]:-}" ] && continue; bwd[$node]=1
+        for parent in ${rdag[$node]:-}; do queue+=("$parent"); done
+    done
+
+    # Intersection in topological order
+    local result=""
     for step in "${ALL_STEPS[@]}"; do
-        [[ "$step" == "$start" ]] && in_range=true
-        if $in_range; then
+        if [ -n "${fwd[$step]:-}" ] && [ -n "${bwd[$step]:-}" ]; then
             result="${result:+$result-}$step"
         fi
-        [[ "$step" == "$end" ]] && break
     done
     if [ -z "$result" ]; then
-        echo "ERROR: Invalid range '$token' — check step names." >&2
+        echo "ERROR: No path from '$start' to '$end' in the dependency DAG." >&2
         exit 1
     fi
     echo "$result"
@@ -115,7 +156,7 @@ done
 JOB_CHAIN="$expanded"
 
 # Expand shortcuts (order matters: expand 'full' before its sub-shortcuts)
-JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-plot1yr-plotNK}"
+JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr}"
 JOB_CHAIN="${JOB_CHAIN//preprocessing/grid-vel}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
@@ -132,6 +173,11 @@ case "$GPU_RESOURCES" in
     *)         echo "Unknown GPU_RESOURCES=$GPU_RESOURCES (must be: gpuvolta, gpuvolta2, gpuhopper)"; exit 1 ;;
 esac
 
+# --- TM_SOURCE filtering (const, avg24, or both) ---
+TM_SOURCE=${TM_SOURCE:-const}
+run_const() { [[ "$TM_SOURCE" == "const" || "$TM_SOURCE" == "both" ]]; }
+run_avg24() { [[ "$TM_SOURCE" == "avg24" || "$TM_SOURCE" == "both" ]]; }
+
 # --- Solver configuration (shared by TMsolve and NK) ---
 JVP_METHOD=${JVP_METHOD:-exact}
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}
@@ -144,6 +190,7 @@ COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "JOB_CHAIN=$JOB_CHAIN"
+echo "TM_SOURCE=$TM_SOURCE"
 echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, INITIAL_AGE=$INITIAL_AGE"
 echo ""
@@ -152,7 +199,7 @@ STEP=0
 GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
-NK_CONST="" NK_AVG=""
+NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
 PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 
 # ============================================================
@@ -266,122 +313,128 @@ if has_step TMsnapshot; then
 fi
 
 # ============================================================
-# 4. Transport matrix age solving
+# 4. Transport matrix age solving (filtered by TM_SOURCE)
 # ============================================================
 
 if has_step TMsolve; then
-    # 4a. const branch — CPU (Pardiso)
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
-    TMSOLVE_CONST_CPU=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMslv_c" -l walltime=${WALLTIME_TM_SOLVE} \
-        -v ${COMMON_VARS},TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-        scripts/solvers/solve_TM_age_CPU.sh)
-    echo "[$STEP] TMsolve const/Pardiso: $TMSOLVE_CONST_CPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+    if run_const; then
+        # 4a. const branch — CPU (Pardiso)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
+        TMSOLVE_CONST_CPU=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_TMslv_c" -l walltime=${WALLTIME_TM_SOLVE} \
+            -v ${COMMON_VARS},TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/solvers/solve_TM_age_CPU.sh)
+        echo "[$STEP] TMsolve const/Pardiso: $TMSOLVE_CONST_CPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
 
-    # 4b. const branch — GPU (CUDSS)
-    STEP=$((STEP + 1))
-    TMSOLVE_CONST_GPU=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMslv_cG" -l walltime=${WALLTIME_TM_SOLVE} \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-        scripts/solvers/solve_TM_age_GPU.sh)
-    echo "[$STEP] TMsolve const/CUDSS: $TMSOLVE_CONST_GPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+        # 4b. const branch — GPU (CUDSS)
+        STEP=$((STEP + 1))
+        TMSOLVE_CONST_GPU=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_TMslv_cG" -l walltime=${WALLTIME_TM_SOLVE} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/solvers/solve_TM_age_GPU.sh)
+        echo "[$STEP] TMsolve const/CUDSS: $TMSOLVE_CONST_GPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+    fi
 
-    # 4c. avg24 branch — CPU (Pardiso)
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
-    TMSOLVE_AVG_CPU=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMslv_a" -l walltime=${WALLTIME_TM_SOLVE} \
-        -v ${COMMON_VARS},TM_SOURCE=avg24,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-        scripts/solvers/solve_TM_age_CPU.sh)
-    echo "[$STEP] TMsolve avg24/Pardiso: $TMSOLVE_AVG_CPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+    if run_avg24; then
+        # 4c. avg24 branch — CPU (Pardiso)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
+        TMSOLVE_AVG_CPU=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_TMslv_a" -l walltime=${WALLTIME_TM_SOLVE} \
+            -v ${COMMON_VARS},TM_SOURCE=avg24,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/solvers/solve_TM_age_CPU.sh)
+        echo "[$STEP] TMsolve avg24/Pardiso: $TMSOLVE_AVG_CPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
 
-    # 4d. avg24 branch — GPU (CUDSS)
-    STEP=$((STEP + 1))
-    TMSOLVE_AVG_GPU=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMslv_aG" -l walltime=${WALLTIME_TM_SOLVE} \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},TM_SOURCE=avg24,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-        scripts/solvers/solve_TM_age_GPU.sh)
-    echo "[$STEP] TMsolve avg24/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        # 4d. avg24 branch — GPU (CUDSS)
+        STEP=$((STEP + 1))
+        TMSOLVE_AVG_GPU=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_TMslv_aG" -l walltime=${WALLTIME_TM_SOLVE} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},TM_SOURCE=avg24,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/solvers/solve_TM_age_GPU.sh)
+        echo "[$STEP] TMsolve avg24/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+    fi
 fi
 
 # ============================================================
-# 5. Newton-Krylov solver
+# 5. Newton-Krylov solver (filtered by TM_SOURCE)
 # ============================================================
 
 if has_step NK; then
-    # 5a. NK from const TM (depends on: TMbuild)
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
-    NK_CONST=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_NK_c" -l walltime=${WALLTIME_NK} \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
-        scripts/solvers/solve_periodic_NK.sh)
-    echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+    if run_const; then
+        # 5a. NK from const TM (depends on: TMbuild)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
+        NK_CONST=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_NK_c" -l walltime=${WALLTIME_NK} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
+            scripts/solvers/solve_periodic_NK.sh)
+        echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+    fi
 
-    # 5b. NK from avg24 TM (depends on: TMsnapshot)
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
-    NK_AVG=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},TM_SOURCE=avg24,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
-        scripts/solvers/solve_periodic_NK.sh)
-    echo "[$STEP] NK avg24: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+    if run_avg24; then
+        # 5b. NK from avg24 TM (depends on: TMsnapshot)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
+        NK_AVG=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},TM_SOURCE=avg24,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
+            scripts/solvers/solve_periodic_NK.sh)
+        echo "[$STEP] NK avg24: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+    fi
+fi
+
+# ============================================================
+# 5b. Re-run 1yr from periodic solution (GPU, depends on NK)
+#     Filtered by TM_SOURCE
+# ============================================================
+
+if has_step run1yrNK; then
+    if run_const; then
+        # const branch (depends on NK const)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
+        RUNNK_CONST=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_run1yrNK_c" -l walltime=${WALLTIME_RUN_1YEAR} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/standard_runs/run_1year_from_periodic_sol.sh)
+        echo "[$STEP] Run NK 1yr (const): $RUNNK_CONST${NK_CONST:+ (afterok $NK_CONST)}"
+    fi
+
+    if run_avg24; then
+        # avg24 branch (depends on NK avg24)
+        STEP=$((STEP + 1))
+        dep_flag=(); [ -n "${NK_AVG:-}" ] && dep_flag=(-W "depend=afterok:${NK_AVG}")
+        RUNNK_AVG=$(qsub "${dep_flag[@]}" \
+            -N "${MODEL_SHORT}_run1yrNK_a" -l walltime=${WALLTIME_RUN_1YEAR} \
+            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            scripts/standard_runs/run_1year_from_periodic_sol.sh)
+        echo "[$STEP] Run NK 1yr (avg24): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
+    fi
 fi
 
 # ============================================================
 # 6. Plotting
 # ============================================================
 
-# 6a. plot1yr (depends on: run1yr)
-if has_step plot1yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
-    PLOT1YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot1yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_1year_age.sh)
-    echo "[$STEP] Plot 1yr: $PLOT1YR_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
-fi
-
-# 6b. plot10yr (depends on: run10yr)
-if has_step plot10yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN10YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN10YR_JOB}")
-    PLOT10YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot10yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_10years_age.sh)
-    echo "[$STEP] Plot 10yr: $PLOT10YR_JOB${RUN10YR_JOB:+ (afterok $RUN10YR_JOB)}"
-fi
-
-# 6c. plot100yr (depends on: run100yr)
-if has_step plot100yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN100YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN100YR_JOB}")
-    PLOT100YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot100yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_100years_age.sh)
-    echo "[$STEP] Plot 100yr: $PLOT100YR_JOB${RUN100YR_JOB:+ (afterok $RUN100YR_JOB)}"
-fi
-
-# 6d. plotNK (depends on: NK — uses const NK job by default)
+# 6a. plotNK (depends on: run1yrNK — needs the re-run snapshots)
 if has_step plotNK; then
     STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
+    dep_flag=(); [ -n "${RUNNK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${RUNNK_CONST}")
     PLOTNK_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_plotNK" -l walltime=${WALLTIME_PLOT_NK} \
         -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
         scripts/plotting/plot_1year_from_periodic_sol.sh)
-    echo "[$STEP] Plot NK: $PLOTNK_JOB${NK_CONST:+ (afterok $NK_CONST)}"
+    echo "[$STEP] Plot NK: $PLOTNK_JOB${RUNNK_CONST:+ (afterok $RUNNK_CONST)}"
 fi
 
-# 6e. plotNKtrace (depends on: NK — trace history plotting)
+# 6b. plotNKtrace (depends on: NK — trace history plotting)
 if has_step plotNKtrace; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
@@ -392,30 +445,77 @@ if has_step plotNKtrace; then
     echo "[$STEP] Plot NK trace: $PLOTNKTRACE_JOB${NK_CONST:+ (afterok $NK_CONST)}"
 fi
 
+# 6c. plot1yr (depends on: run1yr)
+if has_step plot1yr; then
+    STEP=$((STEP + 1))
+    dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
+    PLOT1YR_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plot1yr" -l walltime=${WALLTIME_PLOT} \
+        -v ${COMMON_VARS} \
+        scripts/plotting/plot_1year_age.sh)
+    echo "[$STEP] Plot 1yr: $PLOT1YR_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
+fi
+
+# 6d. plot10yr (depends on: run10yr)
+if has_step plot10yr; then
+    STEP=$((STEP + 1))
+    dep_flag=(); [ -n "${RUN10YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN10YR_JOB}")
+    PLOT10YR_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plot10yr" -l walltime=${WALLTIME_PLOT} \
+        -v ${COMMON_VARS} \
+        scripts/plotting/plot_10years_age.sh)
+    echo "[$STEP] Plot 10yr: $PLOT10YR_JOB${RUN10YR_JOB:+ (afterok $RUN10YR_JOB)}"
+fi
+
+# 6e. plot100yr (depends on: run100yr)
+if has_step plot100yr; then
+    STEP=$((STEP + 1))
+    dep_flag=(); [ -n "${RUN100YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN100YR_JOB}")
+    PLOT100YR_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plot100yr" -l walltime=${WALLTIME_PLOT} \
+        -v ${COMMON_VARS} \
+        scripts/plotting/plot_100years_age.sh)
+    echo "[$STEP] Plot 100yr: $PLOT100YR_JOB${RUN100YR_JOB:+ (afterok $RUN100YR_JOB)}"
+fi
+
 # ============================================================
 # Summary
 # ============================================================
 
 echo ""
-echo "=== $STEP jobs submitted for ${PARENT_MODEL} ==="
+echo "=== $STEP jobs submitted for ${PARENT_MODEL} (TM_SOURCE=$TM_SOURCE) ==="
 echo ""
-echo "Dependency chain:"
-[ -n "$GRID_JOB" ]           && echo "  grid ($GRID_JOB)"
-[ -n "$VEL_JOB" ]            && echo "   └── vel ($VEL_JOB)"
-[ -n "$RUN1YR_JOB" ]         && echo "        ├── run1yr ($RUN1YR_JOB)"
-[ -n "$PLOT1YR_JOB" ]        && echo "        │    └── plot1yr ($PLOT1YR_JOB)"
-[ -n "$RUN10YR_JOB" ]        && echo "        ├── run10yr ($RUN10YR_JOB)"
-[ -n "$PLOT10YR_JOB" ]       && echo "        │    └── plot10yr ($PLOT10YR_JOB)"
-[ -n "$RUN100YR_JOB" ]       && echo "        ├── run100yr ($RUN100YR_JOB)"
-[ -n "$PLOT100YR_JOB" ]      && echo "        │    └── plot100yr ($PLOT100YR_JOB)"
-[ -n "$RUNLONG_JOB" ]        && echo "        ├── runlong ($RUNLONG_JOB)"
-[ -n "$TMSNAP_JOB" ]         && echo "        │    └── TMsnapshot ($TMSNAP_JOB)"
-[ -n "$TMSOLVE_AVG_CPU" ]    && echo "        │         ├── TMsolve avg24/Pardiso ($TMSOLVE_AVG_CPU)"
-[ -n "$TMSOLVE_AVG_GPU" ]    && echo "        │         ├── TMsolve avg24/CUDSS ($TMSOLVE_AVG_GPU)"
-[ -n "$NK_AVG" ]             && echo "        │         └── NK avg24 ($NK_AVG)"
-[ -n "$TMBUILD_JOB" ]        && echo "        └── TMbuild ($TMBUILD_JOB)"
-[ -n "$TMSOLVE_CONST_CPU" ]  && echo "             ├── TMsolve const/Pardiso ($TMSOLVE_CONST_CPU)"
-[ -n "$TMSOLVE_CONST_GPU" ]  && echo "             ├── TMsolve const/CUDSS ($TMSOLVE_CONST_GPU)"
-[ -n "$NK_CONST" ]           && echo "             ├── NK const ($NK_CONST)"
-[ -n "$PLOTNK_JOB" ]         && echo "             │    └── plotNK ($PLOTNK_JOB)"
-[ -n "$PLOTNKTRACE_JOB" ]    && echo "             │    └── plotNKtrace ($PLOTNKTRACE_JOB)"
+
+# Flat summary — only shows submitted jobs, grouped by section
+has_any=false
+for label_job in \
+    "grid:$GRID_JOB" \
+    "vel:$VEL_JOB" \
+    "run1yr:$RUN1YR_JOB" \
+    "run10yr:$RUN10YR_JOB" \
+    "run100yr:$RUN100YR_JOB" \
+    "runlong:$RUNLONG_JOB" \
+    "TMbuild:$TMBUILD_JOB" \
+    "TMsnapshot:$TMSNAP_JOB" \
+    "TMsolve const/Pardiso:$TMSOLVE_CONST_CPU" \
+    "TMsolve const/CUDSS:$TMSOLVE_CONST_GPU" \
+    "TMsolve avg24/Pardiso:$TMSOLVE_AVG_CPU" \
+    "TMsolve avg24/CUDSS:$TMSOLVE_AVG_GPU" \
+    "NK const:$NK_CONST" \
+    "NK avg24:$NK_AVG" \
+    "run1yrNK const:$RUNNK_CONST" \
+    "run1yrNK avg24:$RUNNK_AVG" \
+    "plotNK:$PLOTNK_JOB" \
+    "plotNKtrace:$PLOTNKTRACE_JOB" \
+    "plot1yr:$PLOT1YR_JOB" \
+    "plot10yr:$PLOT10YR_JOB" \
+    "plot100yr:$PLOT100YR_JOB" \
+; do
+    label="${label_job%%:*}"
+    job="${label_job#*:}"
+    if [ -n "$job" ]; then
+        printf "  %-25s %s\n" "$label" "$job"
+        has_any=true
+    fi
+done
+$has_any || echo "  (no jobs submitted)"

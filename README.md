@@ -25,21 +25,21 @@ grid
       ├── run1yr
       │    └── TMsnapshot (TM_SOURCE=avg24)
       │         ├── TMsolve(avg24) ── Pardiso(CPU) + CUDSS(GPU)
-      │         └── NK(avg24)
+      │         └── NK(avg24) ── run1yrNK(avg24)
       ├── run10yr ── plot10yr
       ├── run100yr ── plot100yr
       ├── runlong
       └── TMbuild (TM_SOURCE=const)
            ├── TMsolve(const) ── Pardiso(CPU) + CUDSS(GPU)
-           └── NK(const) ── plotNK
+           └── NK(const) ── run1yrNK(const) ── plotNK
 ```
 
 ### Selecting steps with `JOB_CHAIN`
 
 Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in the chain are skipped (their outputs are assumed to already exist). `JOB_CHAIN` is required — the driver prints usage help if not set.
 
-**Canonical steps** (in order):
-`grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK plot1yr plot10yr plot100yr plotNK plotNKtrace`
+**Steps** (topological order):
+`grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
 
 **Shortcuts:**
 | Shortcut | Expands to |
@@ -48,9 +48,9 @@ Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in t
 | `standardruns` | `run1yr-run10yr-run100yr-runlong` |
 | `TMall` | `TMbuild-TMsnapshot-TMsolve` |
 | `plotall` | `plot1yr-plot10yr-plot100yr-plotNK` |
-| `full` | `preprocessing-run1yr-TMall-NK-plot1yr-plotNK` |
+| `full` | `preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr` |
 
-**Range notation:** `A..B` expands to all steps from A to B in canonical order (e.g., `vel..NK`).
+**Range notation:** `A..B` expands to all steps on any path from A to B in the dependency DAG — not a flat list.
 
 ```bash
 # Only run Newton-GMRES solves (matrices must already exist)
@@ -62,8 +62,14 @@ JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
 # Build matrices and run all solvers
 JOB_CHAIN=run1yr-TMall-NK bash scripts/driver.sh
 
-# Everything from vel to NK (range notation)
+# Everything from vel to NK (range follows the DAG, excludes run10yr/runlong/TMsolve)
 JOB_CHAIN=vel..NK bash scripts/driver.sh
+
+# Re-run + plot from NK solution (range follows NK→run1yrNK→plotNK path only)
+JOB_CHAIN=run1yrNK..plotNK bash scripts/driver.sh
+
+# Run both const and avg24 branches
+TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh
 
 # Run preprocessing only
 JOB_CHAIN=preprocessing bash scripts/driver.sh
@@ -71,6 +77,16 @@ JOB_CHAIN=preprocessing bash scripts/driver.sh
 # ACCESS-OM2-025 with specific GPU queue
 PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts/driver.sh
 ```
+
+### TM_SOURCE filtering
+
+`TM_SOURCE` controls which transport matrix branch is used for `TMsolve`, `NK`, and `run1yrNK`:
+
+| Value | Description |
+|-------|-------------|
+| `const` (default) | Only const-field matrices (from `TMbuild`) |
+| `avg24` | Only time-averaged snapshot matrices (from `TMsnapshot`) |
+| `both` | Both branches in parallel |
 
 ### GPU preprocessing with `PREPROCESS_ARCH`
 
