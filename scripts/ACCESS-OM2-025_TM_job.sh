@@ -2,7 +2,7 @@
 
 #PBS -N OM2-025_TMavg
 #PBS -P y99
-#PBS -l mem=190GB
+#PBS -l mem=192GB
 #PBS -q normal
 #PBS -l walltime=06:00:00
 #PBS -l ncpus=48

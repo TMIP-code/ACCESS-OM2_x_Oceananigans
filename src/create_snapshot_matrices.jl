@@ -11,7 +11,7 @@ snapshots.  Each Jacobian takes ~15 s on 48 CPUs.
 
 Usage — interactive:
 ```
-qsub -I -P y99 -l mem=190GB -q normal -l walltime=04:00:00 -l ncpus=48 \\
+qsub -I -P y99 -l mem=192GB -q normal -l walltime=04:00:00 -l ncpus=48 \\
      -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 \\
      -o logs/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans

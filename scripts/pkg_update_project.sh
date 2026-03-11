@@ -15,6 +15,9 @@ source scripts/env_defaults.sh
 # 1. Update (and download) packages on the login node but WITHOUT precompilation
 env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.update()'
 
+# 2. Download OceanBasins DataDeps data (requires internet, only on login node)
+env JULIA_PKG_PRECOMPILE_AUTO=0 DATADEPS_ALWAYS_ACCEPT=true julia --project -e 'using OceanBasins; oceanpolygons()'
+
 # 2. Submit the GPU job first (it will wait for CPU job to finish)
 export GPU_JOB_ID=$(qsub -W depend=on:1 scripts/pkg_instantiate_project_GPU.sh)
 
