@@ -3,6 +3,9 @@
 
 MODEL_SHORT=OM2-025
 
+# --- GPU queue (H200 needed for 0.25° resolution) ---
+GPU_RESOURCES=${GPU_RESOURCES:-gpuhopper}
+
 # --- Preprocessing ---
 WALLTIME_GRID=00:30:00
 WALLTIME_VEL=00:30:00
