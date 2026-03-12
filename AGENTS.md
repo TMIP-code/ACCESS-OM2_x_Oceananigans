@@ -16,12 +16,12 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── create_closures.jl        # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
 │   ├── solve_matrix_age.jl      # Solve steady-state age from saved matrix M (CPU-only)
-│   ├── plot_1year_age.jl         # Plot age diagnostics from 1-year output (standalone, CPU-only)
-│   ├── plot_10years_age.jl       # Plot age diagnostics from 10-year output (standalone, CPU-only)
-│   ├── plot_100years_age.jl      # Plot age diagnostics from 100-year output (standalone, CPU-only)
+│   ├── plot_standardrun_age.jl   # Plot age diagnostics from standard run output (DURATION env var, CPU-only)
 │   ├── plot_outputs.jl           # Plot u/v/w/η outputs from simulation (standalone, CPU-only)
 │   ├── debug_jacobian_symmetry.jl # Debug script for Jacobian structural symmetry
-│   └── shared_functions.jl      # load_tripolar_grid(), compute_wet_mask(), plot_age_diagnostics(), etc.
+│   └── shared_functions.jl      # load_project_config(), load_tripolar_grid(), compute_wet_mask(),
+│                                  # setup_age_simulation(), validate_age_field(), process_sparse_matrix(),
+│                                  # compute_and_save_coarsening(), plot_age_diagnostics(), etc.
 ├── model_configs/
 │   ├── ACCESS-OM2-1.sh              # Model-specific config (walltimes, MODEL_SHORT)
 │   └── ACCESS-OM2-025.sh            # Model-specific config (walltimes, MODEL_SHORT)
@@ -187,9 +187,7 @@ The unified `scripts/driver.sh` is the single interface for submitting jobs.
 - `scripts/solvers/solve_periodic_NK.sh` — Newton-GMRES GPU solver
 - `scripts/solvers/solve_TM_age_CPU.sh` — solve age from matrix, CPU (Pardiso/ParU/UMFPACK)
 - `scripts/solvers/solve_TM_age_GPU.sh` — solve age from matrix, GPU (CUDSS)
-- `scripts/plotting/plot_1year_age.sh` — plot 1-year age diagnostics (CPU)
-- `scripts/plotting/plot_10years_age.sh` — plot 10-year age diagnostics (CPU)
-- `scripts/plotting/plot_100years_age.sh` — plot 100-year age diagnostics (CPU)
+- `scripts/plotting/plot_standardrun_age.sh` — plot standard run age diagnostics (CPU, DURATION env var)
 - `scripts/plotting/plot_1year_from_periodic_sol.sh` — plot periodic solution diagnostics (CPU)
 - `scripts/benchmarks/submit_all_gpu_job_modes.sh` — batch submit 1yr runs across config combos
 - `scripts/benchmarks/submit_all_matrix_jobs.sh` — batch submit matrix build jobs

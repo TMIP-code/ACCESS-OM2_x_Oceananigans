@@ -1,13 +1,13 @@
-# Architecture selection based on NGPUS env var (set by env_defaults.sh in shell).
+# Architecture selection based on PBS_NGPUS (set by PBS scheduler).
 # Sets: arch, arch_str, ngpus
 #
-# NGPUS > 1  → Distributed(GPU())  (multi-GPU via MPI)
-# NGPUS == 1 → GPU()               (single GPU)
-# NGPUS == 0 → CPU()               (no GPU)
+# PBS_NGPUS > 1  → Distributed(GPU())  (multi-GPU via MPI)
+# PBS_NGPUS == 1 → GPU()               (single GPU)
+# PBS_NGPUS == 0 → CPU()               (no GPU)
 #
 # include()'d by setup_model.jl, create_velocities.jl, create_closures.jl.
 
-ngpus = parse(Int, get(ENV, "NGPUS", "0"))
+ngpus = parse(Int, ENV["PBS_NGPUS"])
 if ngpus > 1
     using CUDA
     using MPI

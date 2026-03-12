@@ -75,9 +75,6 @@ export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
 export UCX_WARN_UNUSED_ENV_VARS=n
 # MPItrampoline: point to mpiwrapper built against system OpenMPI
 export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
-# Detect number of GPUs available to this job (0 on CPU-only nodes)
-export NGPUS=$(nvidia-smi -L 2>/dev/null | wc -l)
-echo "NGPUS=$NGPUS"
 
 # Source model-specific config (MODEL_SHORT, GPU_RESOURCES, walltimes)
 MODEL_CONF="model_configs/${PARENT_MODEL}.sh"

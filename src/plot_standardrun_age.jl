@@ -1,5 +1,5 @@
 """
-Plot age diagnostic figures from saved 10-year simulation output.
+Plot age diagnostic figures from saved standard-run simulation output.
 
 This is a standalone CPU script that loads the saved age field and generates
 zonal-average and horizontal-slice plots. It is designed to be submitted as a
@@ -10,13 +10,13 @@ Usage — interactive (CPU node, no GPU needed):
 qsub -I -P y99 -l mem=47GB -q express -l walltime=01:00:00 -l ncpus=12 \\
      -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o logs/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-julia --project
-include("src/plot_10years_age.jl")
+DURATION=1year julia --project src/plot_standardrun_age.jl
 ```
 
 Alternatively, pass the JLD2 output filepath as ARGS[1].
 
 Environment variables:
+  DURATION         – 1year | 10years | 100years  (default: 1year)
   PARENT_MODEL     – model resolution tag  (default: ACCESS-OM2-1)
   VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
@@ -48,23 +48,18 @@ include("shared_functions.jl")
 # Configuration
 ################################################################################
 
-cfg_file = "LocalPreferences.toml"
-cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
+DURATION = get(ENV, "DURATION", "1year")
 
-parentmodel = if length(ARGS) >= 2
-    ARGS[2]
-elseif haskey(ENV, "PARENT_MODEL")
-    ENV["PARENT_MODEL"]
-else
-    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
-end
+duration_configs = Dict(
+    "1year" => (; colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1),
+    "10years" => (; colorrange = (0, 10), levels = 0:1:10),
+    "100years" => (; colorrange = (0, 100), levels = 0:10:100),
+)
 
-profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
-if profile === nothing
-    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-else
-    outputdir = profile["outputdir"]
-end
+haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be one of: $(join(keys(duration_configs), ", "))")
+(; colorrange, levels) = duration_configs[DURATION]
+
+(; parentmodel, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
@@ -74,10 +69,11 @@ age_output_dir = joinpath(outputdir, "standardrun", model_config)
 if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
-    output_filepath = joinpath(age_output_dir, "age_10years.jld2")
+    output_filepath = joinpath(age_output_dir, "age_$(DURATION).jld2")
 end
 
 @info "Age plot configuration"
+@info "- DURATION         = $DURATION"
 @info "- PARENT_MODEL     = $parentmodel"
 @info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
 @info "- W_FORMULATION    = $W_FORMULATION"
@@ -131,15 +127,15 @@ vol_3D = Array(interior(vol))
 ################################################################################
 
 age_years_3D = age_data ./ year
-label = "age_10years_$(ADVECTION_SCHEME)"
+label = "age_$(DURATION)_$(ADVECTION_SCHEME)"
 
 @info "Generating age diagnostic plots"
 flush(stdout); flush(stderr)
 
 plot_age_diagnostics(
     age_years_3D, grid, wet3D, vol_3D, age_output_dir, label;
-    colorrange = (0, 10), levels = 0:1:10
+    colorrange, levels
 )
 
-@info "plot_10years_age.jl complete"
+@info "plot_standardrun_age.jl complete (DURATION=$DURATION)"
 flush(stdout); flush(stderr)

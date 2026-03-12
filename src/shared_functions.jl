@@ -12,6 +12,7 @@ using GPUArraysCore: @allowscalar
 using Adapt: adapt
 using Statistics: mean, median
 using Printf: @sprintf
+using TOML
 
 ################################################################################
 # Config env var helpers
@@ -46,6 +47,40 @@ function timestepper_from_string(s::AbstractString)
         s == "SRK4" ? :SplitRungeKutta4 :
         s == "SRK5" ? :SplitRungeKutta5 :
         error("Unknown TIMESTEPPER: $s")
+end
+
+"""
+    load_project_config(; parentmodel_arg_index = 1) -> (; parentmodel, outputdir, Δt_seconds, profile)
+
+Load project configuration from LocalPreferences.toml, ARGS, or ENV.
+Priority: ARGS[parentmodel_arg_index] > ENV["PARENT_MODEL"] > TOML defaults > "ACCESS-OM2-1".
+
+Returns plain Float64 for Δt_seconds; callers needing Oceananigans units multiply by `second`.
+"""
+function load_project_config(; parentmodel_arg_index = 1)
+    cfg_file = "LocalPreferences.toml"
+    cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
+
+    parentmodel = if length(ARGS) >= parentmodel_arg_index && !isempty(ARGS[parentmodel_arg_index])
+        ARGS[parentmodel_arg_index]
+    elseif haskey(ENV, "PARENT_MODEL")
+        ENV["PARENT_MODEL"]
+    else
+        get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
+    end
+
+    profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
+    if profile === nothing
+        @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
+        outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
+        Δt = parentmodel == "ACCESS-OM2-1" ? 5400.0 :
+            parentmodel == "ACCESS-OM2-025" ? 1800.0 : 400.0
+    else
+        outputdir = profile["outputdir"]
+        Δt = Float64(profile["dt_seconds"])
+    end
+
+    return (; parentmodel, outputdir, Δt_seconds = Δt, profile)
 end
 
 @kernel function compute_coordinates_and_metrics_from_supergrid!(
@@ -547,9 +582,6 @@ end
 
 ################################################################################
 # Progress message callback for simulations
-#
-# NOTE: run_1year.jl defines its own version with a different format string
-# (divides max_age by elapsed time). That version is NOT centralized here.
 ################################################################################
 
 function progress_message(sim)
@@ -564,6 +596,207 @@ function progress_message(sim)
     )
 end
 
+
+################################################################################
+# Simulation setup for standard age runs
+################################################################################
+
+"""
+    setup_age_simulation(model, Δt, stop_time, outputdir, model_config, duration_tag;
+                          output_interval, progress_interval)
+
+Create a Simulation with progress callback and JLD2 output writer for a standard
+age simulation. Returns `(simulation, age_output_dir)`.
+"""
+function setup_age_simulation(
+        model, Δt, stop_time, outputdir, model_config, duration_tag;
+        output_interval, progress_interval
+    )
+    simulation = Simulation(model; Δt, stop_time)
+    add_callback!(simulation, progress_message, TimeInterval(progress_interval))
+
+    output_fields = Dict(
+        "age" => model.tracers.age,
+        "u" => model.velocities.u,
+        "v" => model.velocities.v,
+        "w" => model.velocities.w,
+        "η" => model.free_surface.displacement,
+    )
+
+    age_output_dir = joinpath(outputdir, "standardrun", model_config)
+    mkpath(age_output_dir)
+    output_prefix = joinpath(age_output_dir, "age_$(duration_tag)")
+
+    simulation.output_writers[:fields] = JLD2Writer(
+        model, output_fields;
+        schedule = TimeInterval(output_interval),
+        filename = output_prefix,
+        overwrite_existing = true,
+    )
+
+    @info "Simulation configured: stop_time=$(stop_time / year) yr, output_prefix=$output_prefix"
+    flush(stdout); flush(stderr)
+
+    return simulation, age_output_dir
+end
+
+
+################################################################################
+# Age field validation (post-simulation diagnostics)
+################################################################################
+
+"""
+    validate_age_field(model, grid, simulation, ADVECTION_SCHEME; label="simulation")
+
+Run 5 diagnostic tests on the age field after a simulation:
+1. Max age bound check (should not exceed elapsed time by >10%)
+2. Surface age near zero (surface relaxation working)
+3. Non-negativity (advection scheme oscillations)
+4. Depth-averaged profile (per-level statistics)
+5. Hotspot inspection (neighbors of max age cell)
+"""
+function validate_age_field(model, grid, simulation, ADVECTION_SCHEME; label = "simulation")
+    @info "Validating age field after $label"
+    flush(stdout); flush(stderr)
+
+    age_data = Array(interior(model.tracers.age))
+    elapsed_time = time(simulation)
+
+    (; wet3D, idx, Nidx) = compute_wet_mask(grid)
+    Nx′, Ny′, Nz′ = size(wet3D)
+    age_wet = age_data[idx]
+
+    # ── Test 1: Max age bound ────────────────────────────────────────────────
+    max_age_val = maximum(age_wet)
+    max_age_ratio = max_age_val / elapsed_time
+    @info "Max age bound check:" max_age_years = max_age_val / year ratio_to_elapsed = max_age_ratio
+    if max_age_ratio > 1.1
+        @warn "Max age exceeds 1.1× elapsed time — possible numerical overshoot or bug"
+    end
+
+    # ── Test 2: Surface age should be near zero ──────────────────────────────
+    surface_mask = wet3D[:, :, end]
+    surface_ages = age_data[:, :, end][surface_mask]
+    max_surface_age = maximum(abs, surface_ages)
+    mean_surface_age = mean(surface_ages)
+    @info "Surface age:" max_days = max_surface_age / day mean_days = mean_surface_age / day
+    if max_surface_age > 1day
+        @warn "Surface age exceeds 1 day — surface relaxation may not be working correctly"
+    end
+
+    # ── Test 3: Non-negativity ───────────────────────────────────────────────
+    n_negative = count(x -> x < 0, age_wet)
+    min_age_val = minimum(age_wet)
+    @info "Non-negativity:" n_negative fraction = n_negative / Nidx min_age_days = min_age_val / day
+    if n_negative > 0
+        @warn "Found $n_negative negative age values (min = $(min_age_val / day) days) — advection scheme ($ADVECTION_SCHEME) may produce oscillations"
+    end
+
+    # ── Test 4: Depth-averaged profile ───────────────────────────────────────
+    z_centers = Array(znodes(grid, Center(), Center(), Center()))
+    @info "Volume-weighted mean age by depth level:"
+    flush(stdout); flush(stderr)
+    for k in Nz′:-1:1
+        level_mask = wet3D[:, :, k]
+        n_wet = count(level_mask)
+        if n_wet == 0
+            continue
+        end
+        level_ages = age_data[:, :, k][level_mask]
+        level_mean = mean(level_ages)
+        level_max = maximum(level_ages)
+        level_min = minimum(level_ages)
+        z_val = z_centers[k]
+        @info @sprintf(
+            "  k=%3d  z=%7.0fm  mean=%6.2f yr  max=%6.2f yr  min=%6.2f yr  n_wet=%d",
+            k, z_val, level_mean / year, level_max / year, level_min / year, n_wet
+        )
+    end
+    flush(stdout); flush(stderr)
+
+    # ── Test 5: Hotspot inspection ───────────────────────────────────────────
+    max_idx = argmax(age_data)
+    mi, mj, mk = Tuple(max_idx)
+    @info "Max age hotspot at (i=$mi, j=$mj, k=$mk):" age_years = age_data[mi, mj, mk] / year z_meters = z_centers[mk]
+    for dk in -1:1, dj in -1:1, di in -1:1
+        ni, nj, nk = mi + di, mj + dj, mk + dk
+        if 1 ≤ ni ≤ Nx′ && 1 ≤ nj ≤ Ny′ && 1 ≤ nk ≤ Nz′ && wet3D[ni, nj, nk]
+            @info @sprintf("  neighbor (%+d,%+d,%+d): age = %6.2f yr", di, dj, dk, age_data[ni, nj, nk] / year)
+        end
+    end
+    flush(stdout); flush(stderr)
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    @info "Validation summary:" max_age_years = max_age_val / year mean_wet_age_years = mean(age_wet) / year max_surface_days = max_surface_age / day n_negative n_wet_cells = Nidx
+    flush(stdout); flush(stderr)
+
+    return nothing
+end
+
+
+################################################################################
+# Matrix processing helpers
+################################################################################
+
+"""
+    process_sparse_matrix(M, MATRIX_PROCESSING) -> SparseMatrixCSC
+
+Apply the requested matrix processing to M. Valid values for MATRIX_PROCESSING:
+- "raw": no processing
+- "symfill": add zero entries at (j,i) for every existing (i,j)
+- "dropzeros": remove stored zeros
+- "symdrop": keep (i,j) only if (j,i) also exists, then drop zeros
+"""
+function process_sparse_matrix(M, MATRIX_PROCESSING)
+    if MATRIX_PROCESSING == "symfill"
+        I_idx, J_idx, V = findnz(M)
+        M = sparse([I_idx; J_idx], [J_idx; I_idx], [V; zeros(length(V))], size(M)...)
+        @info "After symfill: nnz=$(nnz(M))"
+    elseif MATRIX_PROCESSING == "dropzeros"
+        nnz_before = nnz(M)
+        dropzeros!(M)
+        @info "After dropzeros: nnz $nnz_before → $(nnz(M))"
+    elseif MATRIX_PROCESSING == "symdrop"
+        dropzeros!(M)
+        M_t = copy(M')
+        nnz_before = nnz(M)
+        M = M .* (M_t .!= 0)
+        dropzeros!(M)
+        @info "After symdrop: nnz $nnz_before → $(nnz(M))"
+    else
+        @info "No matrix processing applied (raw)"
+    end
+    flush(stdout); flush(stderr)
+    return M
+end
+
+"""
+    compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY=false)
+
+If LUMP_AND_SPRAY is true, compute LUMP, SPRAY, Mc and save to matrices_dir.
+Returns (; Mc, LUMP, SPRAY) — all `nothing` if LUMP_AND_SPRAY is false.
+"""
+function compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY = false)
+    if LUMP_AND_SPRAY
+        @info "Computing LUMP and SPRAY matrices"
+        flush(stdout); flush(stderr)
+        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+        @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP)))"
+        @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY)))"
+        Mc = LUMP * M * SPRAY
+        @info "Coarsened matrix Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc)))"
+
+        jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
+        jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
+        jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
+        flush(stdout); flush(stderr)
+        return (; Mc, LUMP, SPRAY)
+    else
+        @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no)"
+        flush(stdout); flush(stderr)
+        return (; Mc = nothing, LUMP = nothing, SPRAY = nothing)
+    end
+end
 
 ################################################################################
 # Analysis utilities: zonal averages and horizontal slices

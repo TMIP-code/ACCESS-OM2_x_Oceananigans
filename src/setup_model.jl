@@ -49,33 +49,10 @@ using Printf
 # Configuration
 ################################################################################
 
-# Determine which model profile to use. Priority:
-# 1. ARGS[1] passed to julia
-# 2. ENV["PARENT_MODEL"]
-# 3. `defaults.parentmodel` in LocalPreferences.toml
-# 4. fallback to ACCESS-OM2-1
-cfg_file = "LocalPreferences.toml"
-cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
-
-parentmodel = if !isempty(ARGS)
-    ARGS[1]
-elseif haskey(ENV, "PARENT_MODEL")
-    ENV["PARENT_MODEL"]
-else
-    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
-end
-
-profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
-if profile === nothing
-    @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-    Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
-else
-    outputdir = profile["outputdir"]
-    Δt = profile["dt_seconds"] * second
-end
-
 include("shared_functions.jl")
+
+(; parentmodel, outputdir, Δt_seconds) = load_project_config()
+Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"

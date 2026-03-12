@@ -26,11 +26,10 @@ arch = CPU()
 flush(stdout); flush(stderr)
 
 # Configuration
-parentmodel = get(ENV, "PARENT_MODEL", "ACCESS-OM2-1")
+include("shared_functions.jl")
+(; parentmodel) = load_project_config()
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
-
-include("shared_functions.jl")
 
 # Load parent simulation config (default based on parentmodel)
 default_parentsimulation = Dict(

@@ -81,18 +81,6 @@ simulation = Simulation(
     stop_time,
 )
 
-function progress_message(sim)
-    max_age, idx_max = findmax(adapt(Array, sim.model.tracers.age) / year) # in years
-    mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
-    walltime = prettytime(sim.run_wall_time)
-
-    flush(stdout); flush(stderr)
-    return @info @sprintf(
-        "Iteration: %04d, time: %1.3f yr, Δt: %.2e yr, max(age) = %.1e yr at (%d, %d, %d), mean(age) = %.1e yr, wall: %s\n",
-        iteration(sim), time(sim) / year, sim.Δt / year, max_age, idx_max.I..., mean_age, walltime
-    )
-end
-
 # Progress every year
 add_callback!(simulation, progress_message, TimeInterval(12 * prescribed_Δt))
 

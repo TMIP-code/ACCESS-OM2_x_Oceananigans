@@ -36,23 +36,7 @@ include("shared_functions.jl")
 # Configuration
 ################################################################################
 
-cfg_file = "LocalPreferences.toml"
-cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
-
-parentmodel = if length(ARGS) >= 2
-    ARGS[2]
-elseif haskey(ENV, "PARENT_MODEL")
-    ENV["PARENT_MODEL"]
-else
-    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
-end
-
-profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
-if profile === nothing
-    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-else
-    outputdir = profile["outputdir"]
-end
+(; parentmodel, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"

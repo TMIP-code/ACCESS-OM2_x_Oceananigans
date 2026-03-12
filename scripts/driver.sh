@@ -451,8 +451,8 @@ if has_step plot1yr; then
     dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
     PLOT1YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_plot1yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_1year_age.sh)
+        -v ${COMMON_VARS},DURATION=1year \
+        scripts/plotting/plot_standardrun_age.sh)
     echo "[$STEP] Plot 1yr: $PLOT1YR_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
 fi
 
@@ -462,8 +462,8 @@ if has_step plot10yr; then
     dep_flag=(); [ -n "${RUN10YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN10YR_JOB}")
     PLOT10YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_plot10yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_10years_age.sh)
+        -v ${COMMON_VARS},DURATION=10years \
+        scripts/plotting/plot_standardrun_age.sh)
     echo "[$STEP] Plot 10yr: $PLOT10YR_JOB${RUN10YR_JOB:+ (afterok $RUN10YR_JOB)}"
 fi
 
@@ -473,8 +473,8 @@ if has_step plot100yr; then
     dep_flag=(); [ -n "${RUN100YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN100YR_JOB}")
     PLOT100YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_plot100yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_100years_age.sh)
+        -v ${COMMON_VARS},DURATION=100years \
+        scripts/plotting/plot_standardrun_age.sh)
     echo "[$STEP] Plot 100yr: $PLOT100YR_JOB${RUN100YR_JOB:+ (afterok $RUN100YR_JOB)}"
 fi
 

@@ -60,24 +60,7 @@ flush(stdout); flush(stderr)
 
 include("shared_functions.jl")
 
-cfg_file = "LocalPreferences.toml"
-cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
-
-parentmodel = if !isempty(ARGS)
-    ARGS[1]
-elseif haskey(ENV, "PARENT_MODEL")
-    ENV["PARENT_MODEL"]
-else
-    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
-end
-
-profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
-if profile === nothing
-    @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-    outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-else
-    outputdir = profile["outputdir"]
-end
+(; parentmodel, outputdir) = load_project_config()
 
 year = years = 365.25 * 86400  # seconds
 
@@ -165,46 +148,13 @@ flush(stdout); flush(stderr)
 @info "Applying matrix processing: $MATRIX_PROCESSING"
 flush(stdout); flush(stderr)
 
-if MATRIX_PROCESSING == "symfill"
-    I_idx, J_idx, V = findnz(M)
-    M = sparse([I_idx; J_idx], [J_idx; I_idx], [V; zeros(length(V))], size(M)...)
-    @info "After symfill: nnz=$(nnz(M))"
-elseif MATRIX_PROCESSING == "dropzeros"
-    nnz_before = nnz(M)
-    dropzeros!(M)
-    @info "After dropzeros: nnz $nnz_before → $(nnz(M))"
-elseif MATRIX_PROCESSING == "symdrop"
-    dropzeros!(M)
-    M_t = copy(M')
-    nnz_before = nnz(M)
-    M = M .* (M_t .!= 0)
-    dropzeros!(M)
-    @info "After symdrop: nnz $nnz_before → $(nnz(M))"
-else
-    @info "No matrix processing applied (raw)"
-end
-flush(stdout); flush(stderr)
+M = process_sparse_matrix(M, MATRIX_PROCESSING)
 
 ################################################################################
 # LUMP/SPRAY coarsening (if requested)
 ################################################################################
 
-if LUMP_AND_SPRAY
-    @info "Computing LUMP and SPRAY matrices"
-    flush(stdout); flush(stderr)
-    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-    @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP)))"
-    @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY)))"
-    Mc = LUMP * M * SPRAY
-    @info "Coarsened matrix Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc)))"
-
-    jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
-    jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
-    jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
-else
-    @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no)"
-end
-flush(stdout); flush(stderr)
+(; Mc, SPRAY) = compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY)
 
 ################################################################################
 # GPU LU solve via CUDSS

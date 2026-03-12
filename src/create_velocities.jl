@@ -34,18 +34,10 @@ using Statistics: mean, quantile
 const ρ₀ = 1035.0 # kg/m^3
 
 include("select_architecture.jl")
+include("shared_functions.jl")
 
 # Configuration
-cfg_file = "LocalPreferences.toml"
-cfg = isfile(cfg_file) ? TOML.parsefile(cfg_file) : Dict("models" => Dict(), "defaults" => Dict())
-
-parentmodel = if !isempty(ARGS)
-    ARGS[1]
-elseif haskey(ENV, "PARENT_MODEL")
-    ENV["PARENT_MODEL"]
-else
-    get(get(cfg, "defaults", Dict()), "parentmodel", "ACCESS-OM2-1")
-end
+(; parentmodel) = load_project_config()
 
 preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 mkpath(preprocessed_inputs_dir)
@@ -76,8 +68,6 @@ if make_plots
 end
 
 Δt = parentmodel == "ACCESS-OM2-1" ? 5400seconds : parentmodel == "ACCESS-OM2-025" ? 1800seconds : 400seconds
-
-include("shared_functions.jl")
 
 ################################################################################
 # Load grid from JLD2
