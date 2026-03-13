@@ -62,6 +62,9 @@ flush(stdout); flush(stderr)
 
 x_const = M_const.nzval
 
+# Pre-compute constant-side data (allocated once, reused across all iterations)
+x_const_f32 = Float32.(x_const)
+
 ################################################################################
 # Datashader scale and ticks (signed-log)
 ################################################################################
@@ -76,12 +79,18 @@ scaled_ticks = (myscale.(ticks), ticklabels)
 
 datashader_colormap = cgrad([:white; collect(cgrad(:managua))])
 
+x_const_scaled = Float32.(myscale.(x_const))
+
 ################################################################################
-# Set up reusable figures with Observables
+# Set up reusable figures with Observables (pre-allocated at correct size)
 ################################################################################
 
+# Pre-allocate point buffers with correct size; x-columns are constant
+scatter_points = StructArray{Point2f}((copy(x_const_f32), similar(x_const_f32)))
+ds_points = StructArray{Point2f}((copy(x_const_scaled), similar(x_const_scaled)))
+
 # --- Simple scatter figure ---
-scatter_data = Observable(Point2f[])
+scatter_data = Observable(scatter_points)
 scatter_fig = Figure(; size = (700, 650))
 scatter_ax = Axis(
     scatter_fig[1, 1];
@@ -94,7 +103,7 @@ scatter!(scatter_ax, scatter_data; markersize = 1, color = (:black, 0.1), raster
 ablines!(scatter_ax, 0, 1; color = :red, linewidth = 1)
 
 # --- Datashader figure ---
-ds_data = Observable(Point2f[])
+ds_data = Observable(ds_points)
 ds_fig = Figure(; size = (800, 700))
 ds_ax = Axis(
     ds_fig[1, 1];
@@ -139,8 +148,9 @@ for label in avg_labels
     max_abs_diff = maximum(abs, y_avg .- x_const)
     @info "$label vs const: max|diff| = $(@sprintf("%.4e", max_abs_diff)), nnz = $(length(x_const))"
 
-    # --- Update simple scatter ---
-    scatter_data[] = StructArray{Point2f}((Float32.(x_const), Float32.(y_avg)))
+    # --- Update simple scatter (in-place, x-column unchanged) ---
+    scatter_points.y .= Float32.(y_avg)
+    notify(scatter_data)
     scatter_ax.title[] = "$label vs const nzval ($parentmodel, $model_config)"
     scatter_ax.ylabel[] = "$label nzval"
     autolimits!(scatter_ax)
@@ -149,8 +159,9 @@ for label in avg_labels
     save(outfile, scatter_fig)
     @info "Saved $outfile"
 
-    # --- Update datashader ---
-    ds_data[] = StructArray{Point2f}((myscale.(x_const), myscale.(y_avg)))
+    # --- Update datashader (in-place, x-column unchanged) ---
+    ds_points.y .= Float32.(myscale.(y_avg))
+    notify(ds_data)
     ds_ax.title[] = "$label vs const nzval — density ($parentmodel, $model_config)"
     ds_ax.ylabel[] = "$label nzval (pseudolog10)"
     autolimits!(ds_ax)
@@ -160,6 +171,10 @@ for label in avg_labels
     @info "Saved $outfile_ds"
 
     any_plotted = true
+
+    # Free avg matrix before loading the next one
+    M_avg = nothing
+    GC.gc()
     flush(stdout); flush(stderr)
 end
 
