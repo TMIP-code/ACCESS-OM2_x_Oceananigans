@@ -17,7 +17,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 TM_LABEL_X="${TM_LABEL_X:-const}"
-TM_LABEL_Y="${TM_LABEL_Y:-avg24}"
+TM_LABEL_Y="${TM_LABEL_Y:-avg}"
 
 echo "Running plot_TM_datashader.jl on CPU: $TM_LABEL_Y vs $TM_LABEL_X"
 log_dir=logs/julia/$PARENT_MODEL/TM/plot

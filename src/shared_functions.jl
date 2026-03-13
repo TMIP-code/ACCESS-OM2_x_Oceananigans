@@ -631,6 +631,8 @@ function setup_age_simulation(
         model, output_fields;
         schedule = TimeInterval(output_interval),
         filename = output_prefix,
+        file_splitting = TimeInterval(output_interval),
+        with_halos = false,
         overwrite_existing = true,
     )
 

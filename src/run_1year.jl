@@ -40,7 +40,7 @@ set!(model, age = Returns(0.0))
 
 simulation, age_output_dir = setup_age_simulation(
     model, Δt, stop_time, outputdir, model_config, "1year";
-    output_interval = prescribed_Δt / 2,
+    output_interval = prescribed_Δt,
     progress_interval = prescribed_Δt,
 )
 

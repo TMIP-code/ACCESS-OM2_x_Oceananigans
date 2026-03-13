@@ -25,9 +25,9 @@ Environment variables:
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
   LUMP_AND_SPRAY    – yes | no  (default: no)
   MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
-  TM_SOURCE         – const | avg24 | avg12a | avg12b  (default: const)
+  TM_SOURCE         – const | avg  (default: const)
                       Subdirectory under TM/{model_config}/ to load M from.
-                      e.g., TM_SOURCE=avg24 loads from TM/{MC}/avg24/M.jld2
+                      e.g., TM_SOURCE=avg loads from TM/{MC}/avg/M.jld2
 """
 
 @info "Loading packages"
@@ -81,7 +81,7 @@ LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
 
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
-(TM_SOURCE ∈ ("const", "avg24", "avg12a", "avg12b")) || error("TM_SOURCE must be one of: const, avg24, avg12a, avg12b (got: $TM_SOURCE)")
+(TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 M_dir = joinpath(matrices_dir, TM_SOURCE)

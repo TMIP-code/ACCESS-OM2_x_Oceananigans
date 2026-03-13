@@ -1,10 +1,11 @@
 """
 Build transport matrices from velocity snapshots saved by a 1-year simulation.
 
-Loads u, v, w, η snapshots from the JLD2Writer output of `run_1year.jl` and
-computes a Jacobian at each snapshot time.  The saved w field already includes
-the ∂η/∂t contribution (diagnosed during the simulation), so this script always
-uses `wprescribed` regardless of the W_FORMULATION env var.
+Loads u, v, w, η snapshots from the split JLD2Writer part files produced by
+`run_1year.jl` (one file per monthly output) and computes a Jacobian at each
+snapshot time.  The saved w field already includes the ∂η/∂t contribution
+(diagnosed during the simulation), so this script always uses `wprescribed`
+regardless of the W_FORMULATION env var.
 
 The sparsity pattern and graph colouring are computed once and reused for all
 snapshots.  Each Jacobian takes ~15 s on 48 CPUs.
@@ -20,7 +21,6 @@ include("src/create_snapshot_matrices.jl")
 ```
 
 Environment variables: same as create_matrix.jl (PARENT_MODEL, VELOCITY_SOURCE, etc.)
-  SNAPSHOT_FILE – path to run_1year JLD2 output (default: auto-detected)
 """
 
 @info "Loading packages and functions"
@@ -116,40 +116,27 @@ Nx, Ny, Nz = size(grid)
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Load velocity snapshots from run_1year output
+# Discover snapshot part files from run_1year output
 ################################################################################
 
-snapshot_file = get(ENV, "SNAPSHOT_FILE", "")
-if isempty(snapshot_file)
-    age_output_dir = joinpath(outputdir, "standardrun", model_config)
-    snapshot_file = joinpath(age_output_dir, "age_1year.jld2")
+age_output_dir = joinpath(outputdir, "standardrun", model_config)
+
+# With file_splitting = TimeInterval(prescribed_Δt), run_1year produces:
+#   age_1year_part1.jld2  (t=0, skip)
+#   age_1year_part2.jld2  (t=1mo)
+#   ...
+#   age_1year_part13.jld2 (t=12mo)
+# Parts 2–13 are the usable monthly snapshots.
+n_parts = 13
+part_files = [joinpath(age_output_dir, "age_1year_part$(i).jld2") for i in 2:n_parts]
+n_usable = length(part_files)
+
+@info "Snapshot part files (skipping part1 = t=0):"
+for (i, f) in enumerate(part_files)
+    isfile(f) || error("Part file not found: $f")
+    @info "  snapshot $(@sprintf("%02d", i)): $f"
 end
-@info "Loading velocity snapshots from: $snapshot_file"
-isfile(snapshot_file) || error("Snapshot file not found: $snapshot_file")
-flush(stdout); flush(stderr)
-
-u_fts = FieldTimeSeries(snapshot_file, "u"; architecture = arch, grid, backend = InMemory(2))
-v_fts = FieldTimeSeries(snapshot_file, "v"; architecture = arch, grid, backend = InMemory(2))
-w_fts = FieldTimeSeries(snapshot_file, "w"; architecture = arch, grid, backend = InMemory(2))
-η_fts = FieldTimeSeries(snapshot_file, "η"; architecture = arch, grid, backend = InMemory(2))
-
-snapshot_times = u_fts.times
-n_snapshots = length(snapshot_times)
-
-# Handle t=0 offset: JLD2Writer may include an initial snapshot at t≈0
-t0_offset = snapshot_times[1] ≈ 0.0 ? 1 : 0
-if t0_offset > 0
-    @info "Detected t=0 snapshot — skipping it ($(n_snapshots - t0_offset) usable snapshots)"
-else
-    @info "No t=0 snapshot detected ($n_snapshots usable snapshots)"
-end
-n_usable = n_snapshots - t0_offset
-flush(stdout); flush(stderr)
-
-@info "Snapshot times (years):"
-for i in (1 + t0_offset):n_snapshots
-    @info "  snapshot $(@sprintf("%02d", i - t0_offset)): t = $(@sprintf("%.4f", snapshot_times[i] / year)) yr"
-end
+@info "$n_usable usable snapshot part files"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -169,16 +156,22 @@ v_constant = YFaceField(grid; boundary_conditions = vbcs)
 w_constant = ZFaceField(grid; boundary_conditions = wbcs)
 η_constant = Field{Center, Center, Nothing}(grid)
 
-# Initialise with first usable snapshot for sparsity detection
-first_snap = 1 + t0_offset
-set!(u_constant, interior(u_fts[first_snap]))
+# Initialise with first usable snapshot (part 2) for sparsity detection
+@info "Loading first snapshot for sparsity detection: $(part_files[1])"
+flush(stdout); flush(stderr)
+u_snap = FieldTimeSeries(part_files[1], "u"; architecture = arch, grid, backend = InMemory())
+v_snap = FieldTimeSeries(part_files[1], "v"; architecture = arch, grid, backend = InMemory())
+w_snap = FieldTimeSeries(part_files[1], "w"; architecture = arch, grid, backend = InMemory())
+η_snap = FieldTimeSeries(part_files[1], "η"; architecture = arch, grid, backend = InMemory())
+set!(u_constant, interior(u_snap[end]))
 fill_halo_regions!(u_constant)
-set!(v_constant, interior(v_fts[first_snap]))
+set!(v_constant, interior(v_snap[end]))
 fill_halo_regions!(v_constant)
-set!(w_constant, interior(w_fts[first_snap]))
+set!(w_constant, interior(w_snap[end]))
 fill_halo_regions!(w_constant)
-set!(η_constant, interior(η_fts[first_snap]))
+set!(η_constant, interior(η_snap[end]))
 fill_halo_regions!(η_constant)
+u_snap = v_snap = w_snap = η_snap = nothing  # free memory
 
 @info "Constant velocity containers initialised"
 flush(stdout); flush(stderr)
@@ -377,33 +370,14 @@ GC.gc()
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Classify snapshots for inline averaging (start-of-month vs mid-month)
+# Allocate accumulator for inline averaging
 ################################################################################
 
-@info "Classifying snapshots for inline averaging"
-flush(stdout); flush(stderr)
-
-is_start_of_month = falses(n_usable)
-for i_snap in 1:n_usable
-    i_fts = i_snap + t0_offset
-    t_months = snapshot_times[i_fts] / month
-    dist_to_int = abs(t_months - round(t_months))
-    dist_to_half = abs(t_months - (floor(t_months) + 0.5))
-    is_start_of_month[i_snap] = dist_to_int < dist_to_half
-end
-n_start = count(is_start_of_month)
-n_mid = n_usable - n_start
-@info "  Start-of-month: $n_start, mid-month: $n_mid"
-flush(stdout); flush(stderr)
-
-# Allocate nzval accumulators (reuse sparsity pattern from jac_buffer)
 nnz_count = nnz(jac_buffer)
-nzval_avg24 = zeros(Float64, nnz_count)
-nzval_avg12a = zeros(Float64, nnz_count)   # start-of-month
-nzval_avg12b = zeros(Float64, nnz_count)   # mid-month
+nzval_avg = zeros(Float64, nnz_count)
 
 ################################################################################
-# Compute Jacobian at each snapshot
+# Compute Jacobian at each snapshot (load one part file at a time)
 ################################################################################
 
 @info "="^72
@@ -412,22 +386,31 @@ nzval_avg12b = zeros(Float64, nnz_count)   # mid-month
 flush(stdout); flush(stderr)
 
 for i_snap in 1:n_usable
-    i_fts = i_snap + t0_offset
-    t_snap = snapshot_times[i_fts]
     snap_label = @sprintf("%02d", i_snap)
+    file = part_files[i_snap]
 
-    @info "Snapshot $snap_label/$n_usable: t = $(@sprintf("%.4f", t_snap / year)) yr"
+    @info "Snapshot $snap_label/$n_usable: loading $file"
     flush(stdout); flush(stderr)
 
+    # Load velocity fields from this part file
+    u_snap = FieldTimeSeries(file, "u"; architecture = arch, grid, backend = InMemory())
+    v_snap = FieldTimeSeries(file, "v"; architecture = arch, grid, backend = InMemory())
+    w_snap = FieldTimeSeries(file, "w"; architecture = arch, grid, backend = InMemory())
+    η_snap = FieldTimeSeries(file, "η"; architecture = arch, grid, backend = InMemory())
+    t_snap = u_snap.times[end]
+
+    @info "  t = $(@sprintf("%.4f", t_snap / year)) yr"
+
     # Update velocity fields from snapshot
-    set!(u_constant, interior(u_fts[i_fts]))
+    set!(u_constant, interior(u_snap[end]))
     fill_halo_regions!(u_constant)
-    set!(v_constant, interior(v_fts[i_fts]))
+    set!(v_constant, interior(v_snap[end]))
     fill_halo_regions!(v_constant)
-    set!(w_constant, interior(w_fts[i_fts]))
+    set!(w_constant, interior(w_snap[end]))
     fill_halo_regions!(w_constant)
-    set!(η_constant, interior(η_fts[i_fts]))
+    set!(η_constant, interior(η_snap[end]))
     fill_halo_regions!(η_constant)
+    u_snap = v_snap = w_snap = η_snap = nothing  # free memory
 
     # Update zstar scaling from this snapshot's η
     launch!(CPU(), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η_constant, grid)
@@ -441,13 +424,8 @@ for i_snap in 1:n_usable
 
     @info "  M(snapshot $snap_label): nnz=$(nnz(jac_buffer)), max|M|=$(maximum(abs, nonzeros(jac_buffer)))"
 
-    # Accumulate into averages (all share the same sparsity pattern)
-    nzval_avg24 .+= jac_buffer.nzval
-    if is_start_of_month[i_snap]
-        nzval_avg12a .+= jac_buffer.nzval
-    else
-        nzval_avg12b .+= jac_buffer.nzval
-    end
+    # Accumulate into average (all share the same sparsity pattern)
+    nzval_avg .+= jac_buffer.nzval
 
     # Save snapshot matrix directly (no copy — JLD2 serializes immediately)
     outfile = joinpath(snapshot_matrices_dir, "M_snapshot_$(snap_label).jld2")
@@ -457,40 +435,36 @@ for i_snap in 1:n_usable
 end
 
 ################################################################################
-# Finalise and save averaged matrices
+# Finalise and save averaged matrix
 ################################################################################
 
 @info "="^72
-@info "Finalising averaged matrices"
+@info "Finalising averaged matrix"
 @info "="^72
 flush(stdout); flush(stderr)
 
-nzval_avg24 ./= n_usable
-nzval_avg12a ./= n_start
-nzval_avg12b ./= n_mid
+nzval_avg ./= n_usable
 
-for (label, nzval) in [("avg24", nzval_avg24), ("avg12a", nzval_avg12a), ("avg12b", nzval_avg12b)]
-    M_avg = SparseMatrixCSC(
-        size(jac_buffer, 1), size(jac_buffer, 2),
-        jac_buffer.colptr, jac_buffer.rowval, copy(nzval),
-    )
+M_avg = SparseMatrixCSC(
+    size(jac_buffer, 1), size(jac_buffer, 2),
+    jac_buffer.colptr, jac_buffer.rowval, copy(nzval_avg),
+)
 
-    if !Pardiso.isstructurallysymmetric(M_avg)
-        error("[$label] Averaged matrix is NOT structurally symmetric (nnz=$(nnz(M_avg)))")
-    end
-    @info "  [$label] Structural symmetry check passed"
-
-    out_dir = joinpath(matrices_dir, label)
-    mkpath(out_dir)
-    outfile = joinpath(out_dir, "M.jld2")
-    isfile(outfile) && rm(outfile)
-    jldsave(outfile; M = M_avg)
-    @info "  Saved $outfile (nnz=$(nnz(M_avg)))"
-    flush(stdout); flush(stderr)
+if !Pardiso.isstructurallysymmetric(M_avg)
+    error("Averaged matrix is NOT structurally symmetric (nnz=$(nnz(M_avg)))")
 end
+@info "Structural symmetry check passed"
+
+avg_dir = joinpath(matrices_dir, "avg")
+mkpath(avg_dir)
+outfile = joinpath(avg_dir, "M.jld2")
+isfile(outfile) && rm(outfile)
+jldsave(outfile; M = M_avg)
+@info "Saved $outfile (nnz=$(nnz(M_avg)))"
+flush(stdout); flush(stderr)
 
 @info "="^72
 @info "create_snapshot_matrices.jl complete"
 @info "Saved $n_usable snapshot matrices to $snapshot_matrices_dir"
-@info "Saved averaged matrices (avg24, avg12a, avg12b) to $matrices_dir"
+@info "Saved averaged matrix to $avg_dir"
 flush(stdout); flush(stderr)

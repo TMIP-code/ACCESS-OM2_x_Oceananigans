@@ -30,7 +30,7 @@ include("shared_functions.jl")
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
 label_x = get(ENV, "TM_LABEL_X", "const")
-label_y = get(ENV, "TM_LABEL_Y", "avg24")
+label_y = get(ENV, "TM_LABEL_Y", "avg")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 plots_dir = joinpath(matrices_dir, "plots")
@@ -76,8 +76,8 @@ flush(stdout); flush(stderr)
 # Datashader scale and ticks (signed-log)
 ################################################################################
 
-myscale(x) = Makie.pseudolog10(1.0e7x)
-powersoften = -6:-2
+myscale(x) = Makie.pseudolog10(1.0e11x)
+powersoften = -10:-2
 ticks = [-reverse(exp10.(powersoften)); 0; exp10.(powersoften)]
 signedstr(x) = x > 0 ? "+$x" : "−$(-x)"
 ticklabels = [rich("10", superscript(signedstr(i))) for i in powersoften]

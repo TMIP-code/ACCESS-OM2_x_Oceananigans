@@ -23,9 +23,9 @@ PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
 grid
  └── vel
       ├── run1yr
-      │    └── TMsnapshot (TM_SOURCE=avg24)
-      │         ├── TMsolve(avg24) ── Pardiso(CPU) + CUDSS(GPU)
-      │         └── NK(avg24) ── run1yrNK(avg24)
+      │    └── TMsnapshot (TM_SOURCE=avg)
+      │         ├── TMsolve(avg) ── Pardiso(CPU) + CUDSS(GPU)
+      │         └── NK(avg) ── run1yrNK(avg)
       ├── run10yr ── plot10yr
       ├── run100yr ── plot100yr
       ├── runlong
@@ -68,7 +68,7 @@ JOB_CHAIN=vel..NK bash scripts/driver.sh
 # Re-run + plot from NK solution (range follows NK→run1yrNK→plotNK path only)
 JOB_CHAIN=run1yrNK..plotNK bash scripts/driver.sh
 
-# Run both const and avg24 branches
+# Run both const and avg branches
 TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh
 
 # Run preprocessing only
@@ -85,7 +85,7 @@ PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts
 | Value | Description |
 |-------|-------------|
 | `const` (default) | Only const-field matrices (from `TMbuild`) |
-| `avg24` | Only time-averaged snapshot matrices (from `TMsnapshot`) |
+| `avg` | Only time-averaged snapshot matrices (from `TMsnapshot`) |
 | `both` | Both branches in parallel |
 
 ### GPU preprocessing with `PREPROCESS_ARCH`

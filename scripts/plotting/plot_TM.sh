@@ -14,7 +14,7 @@ WALLTIME="${WALLTIME_PLOT:-00:30:00}"
 
 common_vars="PARENT_MODEL=${PARENT_MODEL},VELOCITY_SOURCE=${VELOCITY_SOURCE},W_FORMULATION=${W_FORMULATION},ADVECTION_SCHEME=${ADVECTION_SCHEME},TIMESTEPPER=${TIMESTEPPER}"
 
-for pair in const:avg12a const:avg12b const:avg24 avg12a:avg24 avg12b:avg12a; do
+for pair in const:avg; do
     lx="${pair%%:*}"; ly="${pair#*:}"
     job=$(qsub \
         -N "${MODEL_SHORT}_plotTM_${ly}_vs_${lx}" -l walltime="${WALLTIME}" \

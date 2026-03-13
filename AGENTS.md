@@ -119,7 +119,7 @@ GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Vo
 JOB_CHAIN steps: `grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
 Shortcuts: `preprocessing` `standardruns` `TMall` `plotall` `full`
 Range notation: `A..B` follows the dependency DAG (e.g., `run1yrNK..plotNK` = `run1yrNK-plotNK`)
-TM_SOURCE: `const` (default), `avg24`, or `both` — filters TMsolve/NK/run1yrNK branches
+TM_SOURCE: `const` (default), `avg`, or `both` — filters TMsolve/NK/run1yrNK branches
 
 Monitor:
 ```bash

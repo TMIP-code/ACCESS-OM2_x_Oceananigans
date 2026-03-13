@@ -29,7 +29,7 @@ Environment variables (in addition to setup_model.jl):
   LUMP_AND_SPRAY – yes | no  (default: no)
                    yes: lump-and-spray coarsening (Bardin et al., 2014)
                    no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
-  TM_SOURCE      – const | avg24 | avg12a | avg12b  (default: const)
+  TM_SOURCE      – const | avg  (default: const)
                    Subdirectory under TM/{model_config}/ to load M from.
 """
 
@@ -61,7 +61,7 @@ LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
 
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
-(TM_SOURCE ∈ ("const", "avg24", "avg12a", "avg12b")) || error("TM_SOURCE must be one of: const, avg24, avg12a, avg12b (got: $TM_SOURCE)")
+(TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 

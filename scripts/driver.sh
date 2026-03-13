@@ -9,7 +9,7 @@ set -euo pipefail
 #   PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
 #   JOB_CHAIN=vel..NK bash scripts/driver.sh                      # range notation
 #   GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
-#   TM_SOURCE=both JOB_CHAIN=NK bash scripts/driver.sh            # run both const+avg24
+#   TM_SOURCE=both JOB_CHAIN=NK bash scripts/driver.sh            # run both const+avg
 #
 # Steps:
 #   grid vel run1yr run10yr run100yr runlong
@@ -30,7 +30,7 @@ set -euo pipefail
 #
 # TM_SOURCE filtering:
 #   TM_SOURCE=const  (default) — only const branch for TMsolve/NK/run1yrNK
-#   TM_SOURCE=avg24  — only avg24 branch
+#   TM_SOURCE=avg  — only avg branch
 #   TM_SOURCE=both   — both branches
 #
 # Dependency DAG:
@@ -40,7 +40,7 @@ set -euo pipefail
 #            │ → runlong   (afterok vel, parallel)
 #            │ → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
 #            │                          └→ plotTM (afterok TMbuild + TMsnapshot)
-#            └→ run1yr → TMsnapshot     → TMsolve(avg24) + NK(avg24) → run1yrNK → plotNK
+#            └→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
 #   plot10yr    (afterok run10yr)
@@ -65,7 +65,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "Usage: PARENT_MODEL=... JOB_CHAIN=... bash scripts/driver.sh"
     echo ""
     echo "  PARENT_MODEL  Model to run (default: ACCESS-OM2-1)"
-    echo "  TM_SOURCE     const (default), avg24, or both"
+    echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
     echo "    grid vel run1yr run10yr run100yr runlong"
@@ -174,10 +174,10 @@ case "$GPU_RESOURCES" in
     *)         echo "Unknown GPU_RESOURCES=$GPU_RESOURCES (must be: gpuvolta, gpuvolta2, gpuhopper)"; exit 1 ;;
 esac
 
-# --- TM_SOURCE filtering (const, avg24, or both) ---
+# --- TM_SOURCE filtering (const, avg, or both) ---
 TM_SOURCE=${TM_SOURCE:-const}
 run_const() { [[ "$TM_SOURCE" == "const" || "$TM_SOURCE" == "both" ]]; }
-run_avg24() { [[ "$TM_SOURCE" == "avg24" || "$TM_SOURCE" == "both" ]]; }
+run_avg() { [[ "$TM_SOURCE" == "avg" || "$TM_SOURCE" == "both" ]]; }
 
 # --- Solver configuration (shared by TMsolve and NK) ---
 JVP_METHOD=${JVP_METHOD:-exact}
@@ -339,24 +339,24 @@ if has_step TMsolve; then
         echo "[$STEP] TMsolve const/CUDSS: $TMSOLVE_CONST_GPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
     fi
 
-    if run_avg24; then
-        # 4c. avg24 branch — CPU (Pardiso)
+    if run_avg; then
+        # 4c. avg branch — CPU (Pardiso)
         STEP=$((STEP + 1))
         dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
         TMSOLVE_AVG_CPU=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_TMslv_a" -l walltime=${WALLTIME_TM_SOLVE} \
-            -v ${COMMON_VARS},TM_SOURCE=avg24,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            -v ${COMMON_VARS},TM_SOURCE=avg,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
             scripts/solvers/solve_TM_age_CPU.sh)
-        echo "[$STEP] TMsolve avg24/Pardiso: $TMSOLVE_AVG_CPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        echo "[$STEP] TMsolve avg/Pardiso: $TMSOLVE_AVG_CPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
 
-        # 4d. avg24 branch — GPU (CUDSS)
+        # 4d. avg branch — GPU (CUDSS)
         STEP=$((STEP + 1))
         TMSOLVE_AVG_GPU=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_TMslv_aG" -l walltime=${WALLTIME_TM_SOLVE} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=avg24,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            -v ${COMMON_VARS},TM_SOURCE=avg,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
             scripts/solvers/solve_TM_age_GPU.sh)
-        echo "[$STEP] TMsolve avg24/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        echo "[$STEP] TMsolve avg/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
     fi
 fi
 
@@ -377,16 +377,16 @@ if has_step NK; then
         echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
     fi
 
-    if run_avg24; then
-        # 5b. NK from avg24 TM (depends on: TMsnapshot)
+    if run_avg; then
+        # 5b. NK from avg TM (depends on: TMsnapshot)
         STEP=$((STEP + 1))
         dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
         NK_AVG=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=avg24,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
+            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
             scripts/solvers/solve_periodic_NK.sh)
-        echo "[$STEP] NK avg24: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        echo "[$STEP] NK avg: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
     fi
 fi
 
@@ -408,8 +408,8 @@ if has_step run1yrNK; then
         echo "[$STEP] Run NK 1yr (const): $RUNNK_CONST${NK_CONST:+ (afterok $NK_CONST)}"
     fi
 
-    if run_avg24; then
-        # avg24 branch (depends on NK avg24)
+    if run_avg; then
+        # avg branch (depends on NK avg)
         STEP=$((STEP + 1))
         dep_flag=(); [ -n "${NK_AVG:-}" ] && dep_flag=(-W "depend=afterok:${NK_AVG}")
         RUNNK_AVG=$(qsub "${dep_flag[@]}" \
@@ -417,7 +417,7 @@ if has_step run1yrNK; then
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
             -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
             scripts/standard_runs/run_1year_from_periodic_sol.sh)
-        echo "[$STEP] Run NK 1yr (avg24): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
+        echo "[$STEP] Run NK 1yr (avg): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
     fi
 fi
 
@@ -438,7 +438,7 @@ if has_step plotTM; then
     plot_tm_res=()
     [ -n "${PLOT_TM_NCPUS:-}" ] && plot_tm_res+=(-l "ncpus=${PLOT_TM_NCPUS}")
     [ -n "${PLOT_TM_MEM:-}" ] && plot_tm_res+=(-l "mem=${PLOT_TM_MEM}")
-    for pair in const:avg12a const:avg12b const:avg24 avg12a:avg24 avg12b:avg12a; do
+    for pair in const:avg; do
         lx="${pair%%:*}"; ly="${pair#*:}"
         STEP=$((STEP + 1))
         job=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
@@ -526,12 +526,12 @@ for label_job in \
     "TMsnapshot:$TMSNAP_JOB" \
     "TMsolve const/Pardiso:$TMSOLVE_CONST_CPU" \
     "TMsolve const/CUDSS:$TMSOLVE_CONST_GPU" \
-    "TMsolve avg24/Pardiso:$TMSOLVE_AVG_CPU" \
-    "TMsolve avg24/CUDSS:$TMSOLVE_AVG_GPU" \
+    "TMsolve avg/Pardiso:$TMSOLVE_AVG_CPU" \
+    "TMsolve avg/CUDSS:$TMSOLVE_AVG_GPU" \
     "NK const:$NK_CONST" \
-    "NK avg24:$NK_AVG" \
+    "NK avg:$NK_AVG" \
     "run1yrNK const:$RUNNK_CONST" \
-    "run1yrNK avg24:$RUNNK_AVG" \
+    "run1yrNK avg:$RUNNK_AVG" \
 ; do
     label="${label_job%%:*}"
     job="${label_job#*:}"
