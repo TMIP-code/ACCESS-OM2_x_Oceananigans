@@ -435,14 +435,17 @@ if has_step plotTM; then
         dep_str=$(IFS=:; echo "${deps[*]}")
         dep_flag=(-W "depend=afterok:${dep_str}")
     fi
+    plot_tm_res=()
+    [ -n "${PLOT_TM_NCPUS:-}" ] && plot_tm_res+=(-l "ncpus=${PLOT_TM_NCPUS}")
+    [ -n "${PLOT_TM_MEM:-}" ] && plot_tm_res+=(-l "mem=${PLOT_TM_MEM}")
     STEP=$((STEP + 1))
-    PLOTTM_SCATTER=$(qsub "${dep_flag[@]}" \
+    PLOTTM_SCATTER=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
         -N "${MODEL_SHORT}_plotTM_scatter" -l walltime=${WALLTIME_PLOT} \
         -v ${COMMON_VARS} \
         scripts/plotting/plot_TM_scatter.sh)
     echo "[$STEP] Plot TM scatter: $PLOTTM_SCATTER${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
     STEP=$((STEP + 1))
-    PLOTTM_DATASHADER=$(qsub "${dep_flag[@]}" \
+    PLOTTM_DATASHADER=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
         -N "${MODEL_SHORT}_plotTM_datashader" -l walltime=${WALLTIME_PLOT} \
         -v ${COMMON_VARS} \
         scripts/plotting/plot_TM_datashader.sh)
