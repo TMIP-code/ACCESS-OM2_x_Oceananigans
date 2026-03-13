@@ -1,5 +1,5 @@
 #!/bin/bash
-# Convenience wrapper: submits scatter and datashader TM plot jobs in parallel.
+# Convenience wrapper: submits TM datashader plot jobs for all comparison pairs.
 # Usage (from repo root): bash scripts/plotting/plot_TM.sh
 # Accepts env vars: PARENT_MODEL, VELOCITY_SOURCE, etc. (same as PBS scripts)
 
@@ -14,14 +14,11 @@ WALLTIME="${WALLTIME_PLOT:-00:30:00}"
 
 common_vars="PARENT_MODEL=${PARENT_MODEL},VELOCITY_SOURCE=${VELOCITY_SOURCE},W_FORMULATION=${W_FORMULATION},ADVECTION_SCHEME=${ADVECTION_SCHEME},TIMESTEPPER=${TIMESTEPPER}"
 
-SCATTER_JOB=$(qsub \
-    -N "${MODEL_SHORT}_plotTM_scatter" -l walltime="${WALLTIME}" \
-    -v "${common_vars}" \
-    scripts/plotting/plot_TM_scatter.sh)
-echo "Scatter: $SCATTER_JOB"
-
-DATASHADER_JOB=$(qsub \
-    -N "${MODEL_SHORT}_plotTM_datashader" -l walltime="${WALLTIME}" \
-    -v "${common_vars}" \
-    scripts/plotting/plot_TM_datashader.sh)
-echo "Datashader: $DATASHADER_JOB"
+for pair in const:avg12a const:avg12b const:avg24 avg12a:avg24 avg12b:avg12a; do
+    lx="${pair%%:*}"; ly="${pair#*:}"
+    job=$(qsub \
+        -N "${MODEL_SHORT}_plotTM_${ly}_vs_${lx}" -l walltime="${WALLTIME}" \
+        -v "${common_vars},TM_LABEL_X=${lx},TM_LABEL_Y=${ly}" \
+        scripts/plotting/plot_TM_datashader.sh)
+    echo "Plot TM ${ly} vs ${lx}: $job"
+done

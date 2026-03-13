@@ -201,7 +201,7 @@ GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
-PLOTTM_SCATTER="" PLOTTM_DATASHADER=""
+PLOTTM_JOBS=() PLOTTM_LABELS=()
 PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 
 # ============================================================
@@ -438,18 +438,16 @@ if has_step plotTM; then
     plot_tm_res=()
     [ -n "${PLOT_TM_NCPUS:-}" ] && plot_tm_res+=(-l "ncpus=${PLOT_TM_NCPUS}")
     [ -n "${PLOT_TM_MEM:-}" ] && plot_tm_res+=(-l "mem=${PLOT_TM_MEM}")
-    STEP=$((STEP + 1))
-    PLOTTM_SCATTER=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
-        -N "${MODEL_SHORT}_plotTM_scatter" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_TM_scatter.sh)
-    echo "[$STEP] Plot TM scatter: $PLOTTM_SCATTER${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
-    STEP=$((STEP + 1))
-    PLOTTM_DATASHADER=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
-        -N "${MODEL_SHORT}_plotTM_datashader" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_TM_datashader.sh)
-    echo "[$STEP] Plot TM datashader: $PLOTTM_DATASHADER${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+    for pair in const:avg12a const:avg12b const:avg24 avg12a:avg24 avg12b:avg12a; do
+        lx="${pair%%:*}"; ly="${pair#*:}"
+        STEP=$((STEP + 1))
+        job=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
+            -N "${MODEL_SHORT}_plotTM_${ly}_vs_${lx}" -l walltime=${WALLTIME_PLOT} \
+            -v "${COMMON_VARS},TM_LABEL_X=${lx},TM_LABEL_Y=${ly}" \
+            scripts/plotting/plot_TM_datashader.sh)
+        PLOTTM_JOBS+=("$job"); PLOTTM_LABELS+=("${ly} vs ${lx}")
+        echo "[$STEP] Plot TM ${ly} vs ${lx}: $job${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+    done
 fi
 
 # 6b. plotNK (depends on: run1yrNK — needs the re-run snapshots)
@@ -534,8 +532,19 @@ for label_job in \
     "NK avg24:$NK_AVG" \
     "run1yrNK const:$RUNNK_CONST" \
     "run1yrNK avg24:$RUNNK_AVG" \
-    "plotTM scatter:$PLOTTM_SCATTER" \
-    "plotTM datashader:$PLOTTM_DATASHADER" \
+; do
+    label="${label_job%%:*}"
+    job="${label_job#*:}"
+    if [ -n "$job" ]; then
+        printf "  %-25s %s\n" "$label" "$job"
+        has_any=true
+    fi
+done
+for i in "${!PLOTTM_JOBS[@]}"; do
+    printf "  %-25s %s\n" "plotTM ${PLOTTM_LABELS[$i]}" "${PLOTTM_JOBS[$i]}"
+    has_any=true
+done
+for label_job in \
     "plotNK:$PLOTNK_JOB" \
     "plotNKtrace:$PLOTNKTRACE_JOB" \
     "plot1yr:$PLOT1YR_JOB" \
