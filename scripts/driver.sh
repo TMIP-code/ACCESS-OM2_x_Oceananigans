@@ -13,14 +13,14 @@ set -euo pipefail
 #
 # Steps:
 #   grid vel run1yr run10yr run100yr runlong
-#   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace
+#   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
 #   plot1yr plot10yr plot100yr
 #
 # Shortcuts:
 #   preprocessing  = grid-vel
 #   standardruns   = run1yr-run10yr-run100yr-runlong
 #   TMall          = TMbuild-TMsnapshot-TMsolve
-#   plotall         = plot1yr-plot10yr-plot100yr-plotNK
+#   plotall         = plot1yr-plot10yr-plot100yr-plotNK-plotTM
 #   full           = preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr
 #
 # Range notation:
@@ -39,6 +39,7 @@ set -euo pipefail
 #            │ → run100yr  (afterok vel, parallel)
 #            │ → runlong   (afterok vel, parallel)
 #            │ → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
+#            │                          └→ plotTM (afterok TMbuild + TMsnapshot)
 #            └→ run1yr → TMsnapshot     → TMsolve(avg24) + NK(avg24) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
@@ -68,7 +69,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  Steps:"
     echo "    grid vel run1yr run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace"
+    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plot1yr plot10yr plot100yr"
     echo ""
     echo "  Shortcuts:"
@@ -89,7 +90,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr)
+ALL_STEPS=(grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
 
 # --- Dependency DAG (step → space-separated children) ---
 declare -A DAG
@@ -98,8 +99,8 @@ DAG[vel]="run1yr run10yr run100yr runlong TMbuild"
 DAG[run1yr]="TMsnapshot plot1yr"
 DAG[run10yr]="plot10yr"
 DAG[run100yr]="plot100yr"
-DAG[TMbuild]="TMsolve NK"
-DAG[TMsnapshot]="TMsolve NK"
+DAG[TMbuild]="TMsolve NK plotTM"
+DAG[TMsnapshot]="TMsolve NK plotTM"
 DAG[NK]="run1yrNK plotNKtrace"
 DAG[run1yrNK]="plotNK"
 
@@ -160,7 +161,7 @@ JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1
 JOB_CHAIN="${JOB_CHAIN//preprocessing/grid-vel}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
-JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK}"
+JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
@@ -200,6 +201,7 @@ GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
+PLOTTM_JOB=""
 PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 
 # ============================================================
@@ -423,7 +425,25 @@ fi
 # 6. Plotting
 # ============================================================
 
-# 6a. plotNK (depends on: run1yrNK — needs the re-run snapshots)
+# 6a. plotTM (depends on: TMbuild + TMsnapshot — needs all matrix variants)
+if has_step plotTM; then
+    STEP=$((STEP + 1))
+    deps=()
+    [ -n "${TMBUILD_JOB:-}" ] && deps+=("${TMBUILD_JOB}")
+    [ -n "${TMSNAP_JOB:-}" ] && deps+=("${TMSNAP_JOB}")
+    dep_flag=()
+    if [ ${#deps[@]} -gt 0 ]; then
+        dep_str=$(IFS=:; echo "${deps[*]}")
+        dep_flag=(-W "depend=afterok:${dep_str}")
+    fi
+    PLOTTM_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plotTM" -l walltime=${WALLTIME_PLOT} \
+        -v ${COMMON_VARS} \
+        scripts/plotting/plot_TM.sh)
+    echo "[$STEP] Plot TM: $PLOTTM_JOB${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+fi
+
+# 6b. plotNK (depends on: run1yrNK — needs the re-run snapshots)
 if has_step plotNK; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${RUNNK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${RUNNK_CONST}")
@@ -434,7 +454,7 @@ if has_step plotNK; then
     echo "[$STEP] Plot NK: $PLOTNK_JOB${RUNNK_CONST:+ (afterok $RUNNK_CONST)}"
 fi
 
-# 6b. plotNKtrace (depends on: NK — trace history plotting)
+# 6c. plotNKtrace (depends on: NK — trace history plotting)
 if has_step plotNKtrace; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
@@ -445,7 +465,7 @@ if has_step plotNKtrace; then
     echo "[$STEP] Plot NK trace: $PLOTNKTRACE_JOB${NK_CONST:+ (afterok $NK_CONST)}"
 fi
 
-# 6c. plot1yr (depends on: run1yr)
+# 6d. plot1yr (depends on: run1yr)
 if has_step plot1yr; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
@@ -456,7 +476,7 @@ if has_step plot1yr; then
     echo "[$STEP] Plot 1yr: $PLOT1YR_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
 fi
 
-# 6d. plot10yr (depends on: run10yr)
+# 6e. plot10yr (depends on: run10yr)
 if has_step plot10yr; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${RUN10YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN10YR_JOB}")
@@ -467,7 +487,7 @@ if has_step plot10yr; then
     echo "[$STEP] Plot 10yr: $PLOT10YR_JOB${RUN10YR_JOB:+ (afterok $RUN10YR_JOB)}"
 fi
 
-# 6e. plot100yr (depends on: run100yr)
+# 6f. plot100yr (depends on: run100yr)
 if has_step plot100yr; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "${RUN100YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN100YR_JOB}")
@@ -505,6 +525,7 @@ for label_job in \
     "NK avg24:$NK_AVG" \
     "run1yrNK const:$RUNNK_CONST" \
     "run1yrNK avg24:$RUNNK_AVG" \
+    "plotTM:$PLOTTM_JOB" \
     "plotNK:$PLOTNK_JOB" \
     "plotNKtrace:$PLOTNKTRACE_JOB" \
     "plot1yr:$PLOT1YR_JOB" \
