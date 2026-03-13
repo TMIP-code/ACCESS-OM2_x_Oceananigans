@@ -85,9 +85,11 @@ x_const_scaled = Float32.(myscale.(x_const))
 # Set up reusable figures with Observables (pre-allocated at correct size)
 ################################################################################
 
-# Pre-allocate point buffers with correct size; x-columns are constant
-scatter_points = StructArray{Point2f}((copy(x_const_f32), similar(x_const_f32)))
-ds_points = StructArray{Point2f}((copy(x_const_scaled), similar(x_const_scaled)))
+# Pre-allocate point buffers with correct size; x-columns share existing arrays (no copy)
+scatter_y = similar(x_const_f32)
+scatter_points = StructArray{Point2f}((x_const_f32, scatter_y))
+ds_y = similar(x_const_scaled)
+ds_points = StructArray{Point2f}((x_const_scaled, ds_y))
 
 # --- Simple scatter figure ---
 scatter_data = Observable(scatter_points)
@@ -145,11 +147,11 @@ for label in avg_labels
 
     y_avg = M_avg.nzval
 
-    max_abs_diff = maximum(abs, y_avg .- x_const)
+    max_abs_diff = maximum(abs(y_avg[i] - x_const[i]) for i in eachindex(y_avg, x_const))
     @info "$label vs const: max|diff| = $(@sprintf("%.4e", max_abs_diff)), nnz = $(length(x_const))"
 
     # --- Update simple scatter (in-place, x-column unchanged) ---
-    scatter_points.y .= Float32.(y_avg)
+    scatter_y .= y_avg
     notify(scatter_data)
     scatter_ax.title[] = "$label vs const nzval ($parentmodel, $model_config)"
     scatter_ax.ylabel[] = "$label nzval"
@@ -160,7 +162,7 @@ for label in avg_labels
     @info "Saved $outfile"
 
     # --- Update datashader (in-place, x-column unchanged) ---
-    ds_points.y .= Float32.(myscale.(y_avg))
+    ds_y .= myscale.(y_avg)
     notify(ds_data)
     ds_ax.title[] = "$label vs const nzval — density ($parentmodel, $model_config)"
     ds_ax.ylabel[] = "$label nzval (pseudolog10)"
@@ -170,7 +172,7 @@ for label in avg_labels
     save(outfile_ds, ds_fig)
     @info "Saved $outfile_ds"
 
-    any_plotted = true
+    global any_plotted = true
 
     # Free avg matrix before loading the next one
     M_avg = nothing
