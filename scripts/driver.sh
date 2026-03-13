@@ -201,7 +201,7 @@ GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
-PLOTTM_JOB=""
+PLOTTM_SCATTER="" PLOTTM_DATASHADER=""
 PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 
 # ============================================================
@@ -427,7 +427,6 @@ fi
 
 # 6a. plotTM (depends on: TMbuild + TMsnapshot — needs all matrix variants)
 if has_step plotTM; then
-    STEP=$((STEP + 1))
     deps=()
     [ -n "${TMBUILD_JOB:-}" ] && deps+=("${TMBUILD_JOB}")
     [ -n "${TMSNAP_JOB:-}" ] && deps+=("${TMSNAP_JOB}")
@@ -436,11 +435,18 @@ if has_step plotTM; then
         dep_str=$(IFS=:; echo "${deps[*]}")
         dep_flag=(-W "depend=afterok:${dep_str}")
     fi
-    PLOTTM_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plotTM" -l walltime=${WALLTIME_PLOT} \
+    STEP=$((STEP + 1))
+    PLOTTM_SCATTER=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plotTM_scatter" -l walltime=${WALLTIME_PLOT} \
         -v ${COMMON_VARS} \
-        scripts/plotting/plot_TM.sh)
-    echo "[$STEP] Plot TM: $PLOTTM_JOB${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+        scripts/plotting/plot_TM_scatter.sh)
+    echo "[$STEP] Plot TM scatter: $PLOTTM_SCATTER${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+    STEP=$((STEP + 1))
+    PLOTTM_DATASHADER=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_plotTM_datashader" -l walltime=${WALLTIME_PLOT} \
+        -v ${COMMON_VARS} \
+        scripts/plotting/plot_TM_datashader.sh)
+    echo "[$STEP] Plot TM datashader: $PLOTTM_DATASHADER${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
 fi
 
 # 6b. plotNK (depends on: run1yrNK — needs the re-run snapshots)
@@ -525,7 +531,8 @@ for label_job in \
     "NK avg24:$NK_AVG" \
     "run1yrNK const:$RUNNK_CONST" \
     "run1yrNK avg24:$RUNNK_AVG" \
-    "plotTM:$PLOTTM_JOB" \
+    "plotTM scatter:$PLOTTM_SCATTER" \
+    "plotTM datashader:$PLOTTM_DATASHADER" \
     "plotNK:$PLOTNK_JOB" \
     "plotNKtrace:$PLOTNKTRACE_JOB" \
     "plot1yr:$PLOT1YR_JOB" \
