@@ -6,7 +6,7 @@ Included after `setup_model.jl` — assumes its globals are in scope:
   year, on_architecture, compute_wet_mask
 """
 
-using LinearAlgebra: norm, dot
+using LinearAlgebra: norm
 using Oceananigans.Simulations: reset!
 using Printf: @sprintf
 
@@ -65,16 +65,7 @@ flush(stdout); flush(stderr)
 grid_cpu = on_architecture(CPU(), grid)
 v1D = interior(compute_volume(grid_cpu))[idx]
 
-"""
-    make_vol_norm(v1D, year)
-
-Return a volume-weighted RMS norm function in units of years:
-  vol_norm(x) = sqrt(∑ vᵢ xᵢ² / ∑ vᵢ) / year
-"""
-function make_vol_norm(v1D, year)
-    inv_sumv = 1 / sum(v1D)
-    return x -> sqrt(dot(x, Diagonal(v1D), x) * inv_sumv) / year
-end
+# make_vol_norm is defined in shared_functions.jl
 
 vol_norm = make_vol_norm(v1D, year)
 

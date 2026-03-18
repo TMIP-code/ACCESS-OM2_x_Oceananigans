@@ -13,6 +13,7 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface
 using KernelAbstractions: @kernel, @index
 using GPUArraysCore: @allowscalar
 using Adapt: adapt
+using LinearAlgebra: dot, Diagonal
 using Statistics: mean, median
 using Printf: @sprintf
 using TOML
@@ -657,6 +658,127 @@ function compute_volume(grid)
 end
 
 
+"""
+    make_vol_norm(v1D, year)
+
+Return a volume-weighted RMS norm function in units of years:
+  vol_norm(x) = sqrt(∑ vᵢ xᵢ² / ∑ vᵢ) / year
+where `v1D` is a 1D vector of cell volumes (wet cells only) and `year` is
+the number of seconds in a year.
+"""
+function make_vol_norm(v1D, year)
+    inv_sumv = 1 / sum(v1D)
+    return x -> sqrt(dot(x, Diagonal(v1D), x) * inv_sumv) / year
+end
+
+
+################################################################################
+# Part-file loading helpers for split JLD2 output
+################################################################################
+
+# Part files are monthly snapshots produced by file_splitting:
+#   part 1 = snapshot at t=0
+#   part 2 = snapshot at t=1 month
+#   ...
+#   part 13 = snapshot at t=1 year
+
+"""
+    load_serial_part(dir, field_name, duration_tag, part) -> (data, time)
+
+Load a single serial part file (one monthly snapshot).
+Returns the 3D data array and the snapshot time.
+"""
+function load_serial_part(dir, field_name, duration_tag, part)
+    filepath = joinpath(dir, "$(field_name)_$(duration_tag)_part$(part).jld2")
+    isfile(filepath) || error("Part file not found: $filepath")
+    return jldopen(filepath, "r") do f
+        iters = keys(f["timeseries/$(field_name)"])
+        iter = first(filter(k -> k != "serialized", iters))
+        data = f["timeseries/$(field_name)/$iter"]
+        t = f["timeseries/t/$iter"]
+        return data, t
+    end
+end
+
+"""
+    load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz) -> (data, time)
+
+Load and stitch distributed rank files for a single part into a global array.
+Partition layout is px × py (e.g., 2×2 for 4 GPUs).
+`Nx, Ny, Nz` is the interior size (e.g., from `size(wet3D)`).
+The distributed grid may include a fold row (Ny_full = Ny + 1 for tripolar grids);
+the stitched result is trimmed to `(Nx, Ny, Nz)` to match serial interior output.
+"""
+function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz)
+    nranks = px * py
+
+    # Oceananigans rank2index uses column-major ordering:
+    #   rank = i * Ry + j  (0-indexed, Rz=1)
+    #   i = div(rank, py),  j = mod(rank, py)
+    # So x-column i contains ranks {i*py, i*py+1, ..., i*py+py-1}
+    # and y-row j contains ranks {j, j+py, j+2*py, ...}
+
+    # Determine per-rank sizes from one rank per x-column and one per y-row
+    rank_sizes_x = zeros(Int, px)
+    rank_sizes_y = zeros(Int, py)
+    for i in 1:px
+        rank = (i - 1) * py  # first rank in x-column i
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        isfile(filepath) || error("Rank file not found: $filepath")
+        jldopen(filepath, "r") do f
+            iters = keys(f["timeseries/$(field_name)"])
+            iter = first(filter(k -> k != "serialized", iters))
+            rank_sizes_x[i] = size(f["timeseries/$(field_name)/$iter"], 1)
+        end
+    end
+    for j in 1:py
+        rank = j - 1  # first rank in y-row j
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        jldopen(filepath, "r") do f
+            iters = keys(f["timeseries/$(field_name)"])
+            iter = first(filter(k -> k != "serialized", iters))
+            rank_sizes_y[j] = size(f["timeseries/$(field_name)/$iter"], 2)
+        end
+    end
+
+    Nx_full = sum(rank_sizes_x)
+    Ny_full = sum(rank_sizes_y)
+    x_offsets = cumsum([0; rank_sizes_x[1:(end - 1)]])
+    y_offsets = cumsum([0; rank_sizes_y[1:(end - 1)]])
+
+    global_data = zeros(Float64, Nx_full, Ny_full, Nz)
+    t = nothing
+
+    for rank in 0:(nranks - 1)
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        isfile(filepath) || error("Rank file not found: $filepath")
+
+        # Oceananigans column-major: i = div(rank, py), j = mod(rank, py)
+        i_rank = div(rank, py) + 1
+        j_rank = mod(rank, py) + 1
+
+        jldopen(filepath, "r") do f
+            iters = keys(f["timeseries/$(field_name)"])
+            iter = first(filter(k -> k != "serialized", iters))
+            local_data = f["timeseries/$(field_name)/$iter"]
+            if t === nothing
+                t = f["timeseries/t/$iter"]
+            end
+
+            x_start = x_offsets[i_rank] + 1
+            x_end = x_offsets[i_rank] + rank_sizes_x[i_rank]
+            y_start = y_offsets[j_rank] + 1
+            y_end = y_offsets[j_rank] + rank_sizes_y[j_rank]
+
+            global_data[x_start:x_end, y_start:y_end, :] .= local_data
+        end
+    end
+
+    # Trim to interior size (exclude fold row for tripolar grids)
+    return global_data[1:Nx, 1:Ny, :], t
+end
+
+
 ################################################################################
 # Hydrostatic free surface tendency kernel
 ################################################################################
@@ -720,14 +842,22 @@ function setup_age_simulation(
         joinpath(outputdir, "standardrun", model_config, gpu_tag)
     mkpath(age_output_dir)
 
-    # One output writer per field (separate files for each)
-    output_defs = Dict(
-        "age" => model.tracers.age,
-        "u" => model.velocities.u,
-        "v" => model.velocities.v,
-        "w" => model.velocities.w,
-        "eta" => model.free_surface.displacement,
-    )
+    # One output writer per field (separate files for each).
+    # Distributed grids: only output age (Center,Center,Center) — Face-located
+    # fields (u,v,w,eta) trigger a BoundsError in _fill_north_send_buffer!
+    # on distributed tripolar grids (upstream Oceananigans bug).
+    is_distributed = !isempty(gpu_tag)
+    output_defs = if is_distributed
+        Dict("age" => model.tracers.age)
+    else
+        Dict(
+            "age" => model.tracers.age,
+            "u" => model.velocities.u,
+            "v" => model.velocities.v,
+            "w" => model.velocities.w,
+            "eta" => model.free_surface.displacement,
+        )
+    end
     for (name, field) in output_defs
         output_prefix = joinpath(age_output_dir, "$(name)_$(duration_tag)")
         simulation.output_writers[Symbol(name)] = JLD2Writer(
@@ -741,7 +871,7 @@ function setup_age_simulation(
         )
     end
 
-    @info "Simulation configured: stop_time=$(stop_time / year) yr, output_prefix=$output_prefix"
+    @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
 
     return simulation, age_output_dir
