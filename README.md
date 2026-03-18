@@ -108,14 +108,16 @@ Model-specific settings (walltimes, PBS name prefix) live in `model_configs/`:
 ```
 scripts/
 ├── driver.sh                  # Unified pipeline entry point
+├── test_driver.sh             # Test/diagnostic driver (halofill, diag, mpi)
 ├── env_defaults.sh            # Common env var defaults
 ├── preprocessing/             # Grid, velocities, transport matrices
-├── standard_runs/             # Age simulations (1yr, 10yr, 100yr, long)
+├── standard_runs/             # Age simulations (1yr, 10yr, 100yr, long, benchmark)
 ├── solvers/                   # Newton-Krylov + TM age solvers
-├── plotting/                  # Diagnostic plots
+├── plotting/                  # Diagnostic plots + architecture comparison
+├── tests/                     # Test PBS wrappers (halofill, diag, mpi)
 ├── benchmarks/                # Parameter sweep submitters
 ├── maintenance/               # Package management, MPI setup, archiving
-├── debugging/                 # Test/check scripts
+├── debugging/                 # Debug/check scripts
 └── prepreprocessing/          # CDO periodic averaging (external)
 ```
 
@@ -176,7 +178,43 @@ qsub -v TIMESTEPPER=SRK3,ADVECTION_SCHEME=weno5 scripts/standard_runs/run_1year.
 
 ## Tests
 
-Julia test scripts live in `test/`. To run the regression test comparing newly-built snapshot matrices against archived reference matrices, submit a PBS job (these load large matrices and must run on a compute node, not the login node):
+Test/diagnostic jobs are managed by a separate `scripts/test_driver.sh` (independent from the production `driver.sh`). Available test steps:
+
+| Step | Description |
+|------|-------------|
+| `halofill` | MWE testing `fill_halo_regions!` at all staggered locations on distributed tripolar grids |
+| `diag` | 10-step diagnostic run saving age at every time step (for serial vs distributed comparison) |
+| `mpi` | MPI smoke test (rank/device info, 10-iteration simulation) |
+
+```bash
+# Run halo fill test on 4 GPUs (2x2 partition)
+GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh
+
+# Run diagnostic steps (serial baseline)
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
+
+# Run diagnostic steps (distributed 2x2)
+GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
+
+# Run all tests at once
+GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill-diag-mpi bash scripts/test_driver.sh
+```
+
+### Comparing serial vs distributed output
+
+After both serial and distributed `diag` jobs complete, compare step-by-step:
+
+```bash
+GPU_TAG=2x2 DURATION_TAG=diag PARENT_MODEL=ACCESS-OM2-1 \
+  qsub scripts/plotting/compare_runs_across_architectures.sh
+```
+
+This prints a per-step volume-weighted RMS norm table and generates diagnostic plots.
+The same script works for 1-year runs (`DURATION_TAG=1year`).
+
+### Matrix regression tests
+
+Julia test scripts for matrix regression live in `test/`. To run the regression test comparing newly-built snapshot matrices against archived reference matrices:
 
 ```bash
 qsub scripts/debugging/check_snapshot_matrices_job.sh

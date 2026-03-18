@@ -13,6 +13,10 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── periodic_solver_common.jl # Shared solver infrastructure (simulation, wet mask, Φ!, G!)
 │   ├── create_grid.jl            # Build tripolar grid → preprocessed_inputs/{model}/{model}_grid.jld2
 │   ├── create_velocities.jl      # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
+│   ├── run_1year_benchmark.jl    # Benchmark 1-year run (no output writers, precompile + time)
+│   ├── run_diagnostic_steps.jl  # 10-step diagnostic run saving every step (serial/distributed)
+│   ├── compare_runs_across_architectures.jl  # Compare serial vs distributed age output
+│   ├── test_distributed_halo_fill.jl  # MWE: fill_halo_regions! at all staggered locations
 │   ├── create_closures.jl        # (WIP — not yet used in pipeline)
 │   ├── create_matrix.jl          # Build transport matrix → outputs/{model}/matrices/
 │   ├── solve_matrix_age.jl      # Solve steady-state age from saved matrix M (CPU-only)
@@ -28,6 +32,7 @@ ACCESS-OM2_x_Oceananigans/
 ├── scripts/
 │   ├── env_defaults.sh              # Common env var defaults (sourced by all job scripts)
 │   ├── driver.sh                    # Unified pipeline driver (PARENT_MODEL, JOB_CHAIN)
+│   ├── test_driver.sh               # Test/diagnostic driver (halofill, diag, mpi)
 │   ├── build_grid.sh               # PBS: grid build (CPU, express)
 │   ├── build_velocities.sh         # PBS: velocity preprocessing (CPU/GPU, express)
 │   ├── run_1year.sh                # PBS: 1-year GPU simulation
@@ -48,8 +53,12 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── submit_all_matrix_jobs.sh   # Submit matrix build for all configs
 │   ├── submit_all_solve_matrix_age.sh  # Submit all solver × coarsening combos
 │   ├── pkg_instantiate_project_CPU.sh
-│   └── pkg_instantiate_project_GPU.sh
-├── test/                                     # Julia test scripts
+│   ├── pkg_instantiate_project_GPU.sh
+│   └── tests/                         # Test PBS wrappers (used by test_driver.sh)
+│       ├── run_halofill_test.sh       # fill_halo_regions! MWE on distributed GPU
+│       ├── run_diagnostic_steps.sh    # 10-step diagnostic run
+│       └── run_mpi_test.sh            # MPI smoke test
+├── test/                                     # Julia test scripts (matrix regression)
 ├── archive/scripts/                       # Archived/obsolete PBS scripts
 ├── preprocessed_inputs/{parentmodel}/  # symlink → /scratch/y99/TMIP/…/preprocessed_inputs/
 │   ├── {parentmodel}_grid.jld2
@@ -116,10 +125,17 @@ JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh                          # singl
 GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Volta GPUs
 ```
 
-JOB_CHAIN steps: `grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
+JOB_CHAIN steps: `grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
 Shortcuts: `preprocessing` `standardruns` `TMall` `plotall` `full`
 Range notation: `A..B` follows the dependency DAG (e.g., `run1yrNK..plotNK` = `run1yrNK-plotNK`)
 TM_SOURCE: `const` (default), `avg`, or `both` — filters TMsolve/NK/run1yrNK branches
+
+Tests use a separate driver:
+```bash
+GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
+```
+Test steps: `halofill` (halo fill MWE), `diag` (10-step diagnostic), `mpi` (MPI smoke test)
 
 Monitor:
 ```bash
