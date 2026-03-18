@@ -68,7 +68,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
-    echo "    grid vel run1yr run10yr run100yr runlong"
+    echo "    grid vel run1yr run1yrfast run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plot1yr plot10yr plot100yr"
     echo ""
@@ -90,12 +90,12 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
+ALL_STEPS=(grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
 
 # --- Dependency DAG (step → space-separated children) ---
 declare -A DAG
 DAG[grid]="vel"
-DAG[vel]="run1yr run10yr run100yr runlong TMbuild"
+DAG[vel]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
 DAG[run1yr]="TMsnapshot plot1yr"
 DAG[run10yr]="plot10yr"
 DAG[run100yr]="plot100yr"
@@ -166,13 +166,31 @@ JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
 # --- GPU queue configuration ---
+# GPU_RESOURCES accepts an optional -AxB partition suffix, e.g. gpuvolta-2x2 → 4 GPUs.
 GPU_RESOURCES=${GPU_RESOURCES:-gpuhopper}
-case "$GPU_RESOURCES" in
-    gpuvolta)  GPU_MEM=96GB;  GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuvolta ;;
-    gpuvolta2) GPU_MEM=192GB; GPU_NGPUS=2; GPU_NCPUS=24; GPU_QUEUE=gpuvolta ;;
-    gpuhopper) GPU_MEM=256GB; GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuhopper ;;
-    *)         echo "Unknown GPU_RESOURCES=$GPU_RESOURCES (must be: gpuvolta, gpuvolta2, gpuhopper)"; exit 1 ;;
+
+GPU_BASE="${GPU_RESOURCES%%-*}"    # base queue before first '-'
+GPU_SUFFIX="${GPU_RESOURCES#*-}"   # part after '-' (equals GPU_BASE if no '-')
+if [[ "$GPU_BASE" != "$GPU_SUFFIX" ]] && [[ "$GPU_SUFFIX" =~ ^([0-9]+)x([0-9]+)$ ]]; then
+    GPU_PARTITION_X="${BASH_REMATCH[1]}"
+    GPU_PARTITION_Y="${BASH_REMATCH[2]}"
+    GPU_NGPUS=$(( GPU_PARTITION_X * GPU_PARTITION_Y ))
+else
+    GPU_PARTITION_X=1
+    GPU_PARTITION_Y=1
+    GPU_NGPUS=1
+fi
+
+case "$GPU_BASE" in
+    gpuvolta)  GPU_MEM_PER_GPU=96;  GPU_QUEUE=gpuvolta ;;
+    gpuhopper) GPU_MEM_PER_GPU=256; GPU_QUEUE=gpuhopper ;;
+    *) echo "Unknown GPU_RESOURCES base: $GPU_BASE (must be gpuvolta or gpuhopper)"; exit 1 ;;
 esac
+GPU_MEM="$(( GPU_NGPUS * GPU_MEM_PER_GPU ))GB"     # total for distributed job
+GPU_MEM_SINGLE="${GPU_MEM_PER_GPU}GB"               # for single-GPU jobs (TMsolve GPU)
+GPU_NCPUS=$(( GPU_NGPUS * 12 ))
+
+export GPU_PARTITION_X GPU_PARTITION_Y
 
 # --- TM_SOURCE filtering (const, avg, or both) ---
 TM_SOURCE=${TM_SOURCE:-const}
@@ -192,12 +210,12 @@ echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "JOB_CHAIN=$JOB_CHAIN"
 echo "TM_SOURCE=$TM_SOURCE"
-echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
+echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_X}x${GPU_PARTITION_Y}, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, INITIAL_AGE=$INITIAL_AGE"
 echo ""
 
 STEP=0
-GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
+GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
@@ -247,19 +265,31 @@ if has_step run1yr; then
     RUN1YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run1yr" -l walltime=${WALLTIME_RUN_1YEAR} \
         -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS} \
+        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
         scripts/standard_runs/run_1year.sh)
     echo "[$STEP] 1-year run: $RUN1YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
 
-# 2b. run10yr (parallel with run1yr)
+# 2b. run1yrfast — benchmark 1-year walltime (no output writers)
+if has_step run1yrfast; then
+    STEP=$((STEP + 1))
+    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
+    RUN1YRFAST_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_run1yrfast" -l walltime=${WALLTIME_RUN_1YEAR} \
+        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        scripts/standard_runs/run_1year_benchmark.sh)
+    echo "[$STEP] 1-year benchmark: $RUN1YRFAST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
+fi
+
+# 2c. run10yr (parallel with run1yr)
 if has_step run10yr; then
     STEP=$((STEP + 1))
     dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
     RUN10YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run10yr" -l walltime=${WALLTIME_RUN_10YEARS} \
         -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS} \
+        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
         scripts/standard_runs/run_10years.sh)
     echo "[$STEP] 10-year run: $RUN10YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -271,7 +301,7 @@ if has_step run100yr; then
     RUN100YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run100yr" -l walltime=${WALLTIME_RUN_100YEARS} \
         -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS} \
+        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
         scripts/standard_runs/run_100years.sh)
     echo "[$STEP] 100-year run: $RUN100YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -283,7 +313,7 @@ if has_step runlong; then
     RUNLONG_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_runlong" -l walltime=${WALLTIME_RUN_LONG} \
         -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},NYEARS=${NYEARS:-3000} \
+        -v ${COMMON_VARS},NYEARS=${NYEARS:-3000},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
         scripts/standard_runs/run_long.sh)
     echo "[$STEP] Long run: $RUNLONG_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -333,7 +363,7 @@ if has_step TMsolve; then
         STEP=$((STEP + 1))
         TMSOLVE_CONST_GPU=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_TMslv_cG" -l walltime=${WALLTIME_TM_SOLVE} \
-            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=$GPU_MEM_SINGLE \
             -v ${COMMON_VARS},TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
             scripts/solvers/solve_TM_age_GPU.sh)
         echo "[$STEP] TMsolve const/CUDSS: $TMSOLVE_CONST_GPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
@@ -353,7 +383,7 @@ if has_step TMsolve; then
         STEP=$((STEP + 1))
         TMSOLVE_AVG_GPU=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_TMslv_aG" -l walltime=${WALLTIME_TM_SOLVE} \
-            -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+            -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=$GPU_MEM_SINGLE \
             -v ${COMMON_VARS},TM_SOURCE=avg,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
             scripts/solvers/solve_TM_age_GPU.sh)
         echo "[$STEP] TMsolve avg/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
@@ -372,7 +402,7 @@ if has_step NK; then
         NK_CONST=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_NK_c" -l walltime=${WALLTIME_NK} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
+            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
             scripts/solvers/solve_periodic_NK.sh)
         echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
     fi
@@ -384,7 +414,7 @@ if has_step NK; then
         NK_AVG=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE} \
+            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
             scripts/solvers/solve_periodic_NK.sh)
         echo "[$STEP] NK avg: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
     fi
@@ -403,7 +433,7 @@ if has_step run1yrNK; then
         RUNNK_CONST=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_run1yrNK_c" -l walltime=${WALLTIME_RUN_1YEAR} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
             scripts/standard_runs/run_1year_from_periodic_sol.sh)
         echo "[$STEP] Run NK 1yr (const): $RUNNK_CONST${NK_CONST:+ (afterok $NK_CONST)}"
     fi
@@ -415,7 +445,7 @@ if has_step run1yrNK; then
         RUNNK_AVG=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_run1yrNK_a" -l walltime=${WALLTIME_RUN_1YEAR} \
             -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
             scripts/standard_runs/run_1year_from_periodic_sol.sh)
         echo "[$STEP] Run NK 1yr (avg): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
     fi
@@ -519,6 +549,7 @@ for label_job in \
     "grid:$GRID_JOB" \
     "vel:$VEL_JOB" \
     "run1yr:$RUN1YR_JOB" \
+    "run1yrfast:$RUN1YRFAST_JOB" \
     "run10yr:$RUN10YR_JOB" \
     "run100yr:$RUN100YR_JOB" \
     "runlong:$RUNLONG_JOB" \

@@ -1,8 +1,11 @@
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
+using Oceananigans.DistributedComputations: Distributed
+using Oceananigans.Fields: location, instantiated_location
 using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceFolded,
     validate_dimension_specification, generate_coordinate, on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
-using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, continue_south!
+using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!
+using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
@@ -454,7 +457,18 @@ end
 
 function load_tripolar_grid(grid_file, arch = CPU(), FT = Float64)
     gd = load(grid_file) # gd for grid Dict
-    underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
+    underlying_grid = build_underlying_grid(gd, arch, FT)
+    return ImmersedBoundaryGrid(
+        underlying_grid,
+        PartialCellBottom(gd["bottom"]);
+        active_cells_map = true,
+        active_z_columns = true,
+    )
+end
+
+# Single-process (CPU or single GPU): use low-level positional constructor with saved arrays
+function build_underlying_grid(gd, arch, FT = Float64)
+    return OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
         arch,
         gd["Nx"], gd["Ny"], gd["Nz"],
         gd["Hx"], gd["Hy"], gd["Hz"],
@@ -481,20 +495,93 @@ function load_tripolar_grid(grid_file, arch = CPU(), FT = Float64)
         on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
         on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
         convert(FT, gd["radius"]),
-        Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
+        Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"]),
     )
-
-    grid = ImmersedBoundaryGrid(
-        underlying_grid,
-        PartialCellBottom(gd["bottom"]);
-        active_cells_map = true,
-        active_z_columns = true,
-    )
-
-
-    return grid
 end
 
+# Distributed: re-create via TripolarGrid which handles partitioning, topology, and connectivity
+function build_underlying_grid(gd, arch::Distributed, FT = Float64)
+    # Extract z face positions from saved MutableVerticalDiscretization (strip halos)
+    Nz = gd["Nz"]
+    z_faces = gd["z"].cᵃᵃᶠ[1:(Nz + 1)]
+    return TripolarGrid(
+        arch, FT;
+        size = (gd["Nx"], gd["Ny"], Nz),
+        z = z_faces,
+        halo = (gd["Hx"], gd["Hy"], gd["Hz"]),
+        north_poles_latitude = gd["north_poles_latitude"],
+        first_pole_longitude = gd["first_pole_longitude"],
+        southernmost_latitude = gd["southernmost_latitude"],
+        radius = gd["radius"],
+        fold_topology = RightFaceFolded,
+    )
+end
+
+################################################################################
+# Distributed-aware loading helpers
+################################################################################
+
+"""
+    load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid=nothing)
+
+Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, loads on CPU
+first then copies to distributed fields via `fold_set!` to work around Oceananigans bug
+where `offset_data` clips global data to local size before `fold_set!` can partition it.
+"""
+function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing)
+    return FieldTimeSeries(file, name; architecture = arch, grid, backend, time_indexing)
+end
+
+function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_indexing)
+    @info "Loading FTS '$name' via CPU grid for distributed partitioning"
+    cpu_fts = FieldTimeSeries(
+        file, name; architecture = CPU(), grid = cpu_grid,
+        backend = InMemory(), time_indexing
+    )
+    dist_fts = FieldTimeSeries(
+        instantiated_location(cpu_fts), grid, cpu_fts.times;
+        backend = InMemory(), time_indexing
+    )
+    # Use fold_set! directly because DistributedTripolarField dispatch doesn't match
+    # ImmersedBoundaryGrid-wrapped fields (Oceananigans bug: DistributedTripolarField
+    # uses DistributedTripolarGrid but not DistributedTripolarGridOfSomeKind).
+    conformal_mapping = grid.underlying_grid.conformal_mapping
+    y_loc = instantiated_location(cpu_fts)[2]
+    for n in eachindex(cpu_fts.times)
+        fold_set!(dist_fts[n], Array(interior(cpu_fts[n])), conformal_mapping, typeof(y_loc))
+    end
+    fill_halo_regions!(dist_fts)
+    return dist_fts
+end
+
+"""
+    load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
+
+Load MLD data and create a vertical diffusivity field. For `Distributed` architectures,
+keeps data on CPU so `set!` dispatches to `fold_set!` with global arrays.
+"""
+function load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
+    mld_ds = open_dataset(mld_file)
+    mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
+    z_center = znodes(grid, Center(), Center(), Center())
+    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+    κVField = CenterField(grid)
+    set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+    return κVField
+end
+
+function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, Nz)
+    mld_ds = open_dataset(mld_file)
+    mld_data = -replace(readcubedata(mld_ds.mld).data, NaN => 0.0)
+    z_center = collect(znodes(grid, Center(), Center(), Center()))
+    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+    κVField = CenterField(grid)
+    # Use fold_set! directly (DistributedTripolarField dispatch doesn't match ImmersedBoundaryGrid)
+    conformal_mapping = grid.underlying_grid.conformal_mapping
+    fold_set!(κVField, Array(κVML * is_mld + κVBG * .!is_mld), conformal_mapping, Center)
+    fill_halo_regions!(κVField)
+    return κVField
+end
 
 #taken from Makie ext (not sure how to load these)
 function drop_singleton_indices(N)
@@ -585,6 +672,16 @@ end
 ################################################################################
 
 function progress_message(sim)
+    if architecture(sim.model.grid) isa Distributed
+        # Lightweight progress for distributed runs: avoid GPU→CPU transfer and
+        # MPI-synchronous findmax/mean which can deadlock across ranks.
+        flush(stdout); flush(stderr)
+        return @info @sprintf(
+            "  sim iter: %04d, time: %1.3f yr, Δt: %.2e yr, wall: %s\n",
+            iteration(sim), time(sim) / year, sim.Δt / year, prettytime(sim.run_wall_time)
+        )
+    end
+
     max_age, idx_max = findmax(adapt(Array, sim.model.tracers.age) / year)
     mean_age = mean(adapt(Array, sim.model.tracers.age)) / year
     walltime = prettytime(sim.run_wall_time)
@@ -615,26 +712,34 @@ function setup_age_simulation(
     simulation = Simulation(model; Δt, stop_time)
     add_callback!(simulation, progress_message, TimeInterval(progress_interval))
 
-    output_fields = Dict(
+    px = parse(Int, get(ENV, "GPU_PARTITION_X", "1"))
+    py = parse(Int, get(ENV, "GPU_PARTITION_Y", "1"))
+    gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
+    age_output_dir = isempty(gpu_tag) ?
+        joinpath(outputdir, "standardrun", model_config) :
+        joinpath(outputdir, "standardrun", model_config, gpu_tag)
+    mkpath(age_output_dir)
+
+    # One output writer per field (separate files for each)
+    output_defs = Dict(
         "age" => model.tracers.age,
         "u" => model.velocities.u,
         "v" => model.velocities.v,
         "w" => model.velocities.w,
-        "η" => model.free_surface.displacement,
+        "eta" => model.free_surface.displacement,
     )
-
-    age_output_dir = joinpath(outputdir, "standardrun", model_config)
-    mkpath(age_output_dir)
-    output_prefix = joinpath(age_output_dir, "age_$(duration_tag)")
-
-    simulation.output_writers[:fields] = JLD2Writer(
-        model, output_fields;
-        schedule = TimeInterval(output_interval),
-        filename = output_prefix,
-        file_splitting = TimeInterval(output_interval),
-        with_halos = false,
-        overwrite_existing = true,
-    )
+    for (name, field) in output_defs
+        output_prefix = joinpath(age_output_dir, "$(name)_$(duration_tag)")
+        simulation.output_writers[Symbol(name)] = JLD2Writer(
+            model, Dict(name => field);
+            schedule = TimeInterval(output_interval),
+            filename = output_prefix,
+            file_splitting = TimeInterval(output_interval),
+            with_halos = false,
+            overwrite_existing = true,
+            including = [],
+        )
+    end
 
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_prefix=$output_prefix"
     flush(stdout); flush(stderr)

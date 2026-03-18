@@ -184,6 +184,9 @@ function Φ!(age_out, age_in; source_rate = 1.0)
     age3D_cpu[idx] .= age_in
     copyto!(age3D_gpu, age3D_cpu)
 
+    # Ensure all ranks are synchronised before setting initial condition
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+
     # Set initial condition and attach trace writer
     set!(model, age = age3D_gpu)
 
@@ -205,6 +208,9 @@ function Φ!(age_out, age_in; source_rate = 1.0)
     if TRACE_SOLVER_HISTORY
         delete!(simulation.output_writers, :trace)
     end
+
+    # Ensure all ranks finish simulation before extracting results
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 
     # GPU field → CPU 3D → CPU vec  (copyto! avoids intermediate Array allocation)
     copyto!(age3D_cpu, interior(model.tracers.age))

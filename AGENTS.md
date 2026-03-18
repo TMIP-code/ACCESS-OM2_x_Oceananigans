@@ -249,6 +249,17 @@ Memory is auto-set by the driver: 256GB for gpuhopper, 96GB for gpuvolta.
 | `SMAA_CHECK_OBJ` | `no` | Restart at best past iterate on NaN/Inf (`yes`/`no`) |
 | `SMAA_ORDERS` | `332` | Alternating order sequence (each digit 1–3) |
 
+## Multi-GPU (MPI) runs
+
+Multi-GPU runs use `mpiexec` with socket binding flags:
+```bash
+mpiexec --bind-to socket --map-by socket -n $NGPUS julia --project ...
+```
+
+**Why `--bind-to socket --map-by socket`:** Gadi's default behaviour assigns MPI ranks to CPU sockets randomly. Since each GPU is physically attached to a specific CPU socket, random assignment means a CPU may be bound to a GPU on a different socket, making CPU-GPU communication cross the inter-socket link and become extremely slow. Socket binding ensures each MPI rank runs on the CPU socket directly connected to its GPU, giving the fastest possible CPU-GPU data path.
+
+Required modules for MPI jobs: `cuda/12.9.0` + `openmpi/5.0.8`.
+
 ## Key design decisions
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)
 - `setup_model.jl` creates the model but NOT the simulation — each downstream script creates its own

@@ -33,7 +33,11 @@ run_log_dir=logs/julia/$PARENT_MODEL/periodic/NK
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}_${job_id}.log"
 
-echo "Running src/solve_periodic_NK.jl for PARENT_MODEL=$PARENT_MODEL"
+NGPUS="${PBS_NGPUS:-1}"
+JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
+[ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+
+echo "Running src/solve_periodic_NK.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
-julia $JULIA_BOUNDS_FLAG --project src/solve_periodic_NK.jl &> "$log_file"
+$JULIA_LAUNCHER src/solve_periodic_NK.jl &> "$log_file"
 echo "Done running src/solve_periodic_NK.jl for PARENT_MODEL=$PARENT_MODEL"

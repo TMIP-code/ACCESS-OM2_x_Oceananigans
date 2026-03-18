@@ -76,12 +76,20 @@ preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs
 
 @info "Reconstructing grid (loading data from JLD2)"
 flush(stdout); flush(stderr)
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
 flush(stdout); flush(stderr)
+
+# Build a non-distributed CPU grid for loading global data from JLD2 files
+if arch isa Distributed
+    @info "Building CPU grid for distributed FTS loading"
+    flush(stdout); flush(stderr)
+    cpu_grid = load_tripolar_grid(grid_file, CPU())
+end
 
 ################################################################################
 # Load velocities from disk
@@ -112,31 +120,34 @@ elseif VELOCITY_SOURCE == "bgridvelocities"
     """
 end
 
-N_in_mem = 4  # Keep 4 timesteps in memory (monthly data)
-
-backend = InMemory(N_in_mem)
+backend = InMemory()
 time_indexing = Cyclical(1year)
+fts_kw = arch isa Distributed ? (; cpu_grid) : (;)
 
-u_ts = FieldTimeSeries(u_file, "u"; architecture = arch, grid, backend, time_indexing)
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+u_ts = load_fts(arch, u_file, "u", grid; backend, time_indexing, fts_kw...)
 @show u_ts
-v_ts = FieldTimeSeries(v_file, "v"; architecture = arch, grid, backend, time_indexing)
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+v_ts = load_fts(arch, v_file, "v", grid; backend, time_indexing, fts_kw...)
 @show v_ts
 @info "Loading sea surface height from MOM output"
 flush(stdout); flush(stderr)
 η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
-η_ts = FieldTimeSeries(η_file, "η"; architecture = arch, grid, backend, time_indexing)
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+η_ts = load_fts(arch, η_file, "η", grid; backend, time_indexing, fts_kw...)
 @show η_ts
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
 
-@info "Velocities loaded (InMemory backend with $N_in_mem timesteps in memory)"
+@info "Velocities loaded (InMemory backend)"
 flush(stdout); flush(stderr)
 
 if W_FORMULATION == "wprescribed"
     @info "Using prescribed w field from: $(w_file)"
     isfile(w_file) || println("W_FORMULATION=wprescribed requires file: $(w_file)")
-    w_ts = FieldTimeSeries(w_file, "w"; architecture = arch, grid, backend, time_indexing)
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    w_ts = load_fts(arch, w_file, "w", grid; backend, time_indexing, fts_kw...)
     @show w_ts
 
     @info "Prescribing u, v, and w"
@@ -169,12 +180,9 @@ time_window = "Jan1960-Dec1979"
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
 # Load MLD to add strong vertical diffusion in the mixed layer
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
-mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
-z_center = znodes(grid, Center(), Center(), Center())
-is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-κVField = CenterField(grid)
-set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+mld_file = joinpath(inputdir, "mld.nc")
+κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
 implicit_vertical_diffusion = VerticalScalarDiffusivity(
     VerticallyImplicitTimeDiscretization();
@@ -221,6 +229,7 @@ forcing = (
 tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
 @info "Tracer advection scheme: $tracer_advection"
 
+arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 model = HydrostaticFreeSurfaceModel(
     grid;
     timestepper = timestepper_from_string(TIMESTEPPER),

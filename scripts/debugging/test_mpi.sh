@@ -19,5 +19,5 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 echo "Running MPI test on 4 GPUs"
-mpirun -n 4 julia --project src/test_mpi.jl
+mpiexec --bind-to socket --map-by socket -n 4 julia --project src/test_mpi.jl
 echo "MPI test completed"

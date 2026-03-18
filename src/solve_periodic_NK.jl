@@ -88,7 +88,12 @@ flush(stdout); flush(stderr)
 # Solver output directory (used by periodic_solver_common.jl for trace files)
 ################################################################################
 
-solver_output_dir = joinpath(outputdir, "periodic", model_config, "NK")
+px = parse(Int, get(ENV, "GPU_PARTITION_X", "1"))
+py = parse(Int, get(ENV, "GPU_PARTITION_Y", "1"))
+gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
+solver_output_dir = isempty(gpu_tag) ?
+    joinpath(outputdir, "periodic", model_config, "NK") :
+    joinpath(outputdir, "periodic", model_config, gpu_tag, "NK")
 mkpath(solver_output_dir)
 
 ################################################################################
@@ -96,6 +101,11 @@ mkpath(solver_output_dir)
 ################################################################################
 
 include("periodic_solver_common.jl")
+
+if arch isa Distributed
+    @warn "NK solver with Distributed arch: Newton solve runs on rank-local wet-cell " *
+        "partitions only — results will be incorrect until global gather/scatter is implemented."
+end
 
 @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
 

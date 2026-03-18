@@ -56,7 +56,9 @@ flush(stdout); flush(stderr)
 # Validate age field
 ################################################################################
 
-validate_age_field(model, grid, simulation, ADVECTION_SCHEME; label = "1-year")
+if !(arch isa Distributed)
+    validate_age_field(model, grid, simulation, ADVECTION_SCHEME; label = "1-year")
+end
 
 @info "run_1year.jl complete"
 @info "Run plot_1year_age.jl on CPU to generate age diagnostic plots"

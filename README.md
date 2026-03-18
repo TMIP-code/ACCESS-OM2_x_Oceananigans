@@ -119,6 +119,21 @@ scripts/
 └── prepreprocessing/          # CDO periodic averaging (external)
 ```
 
+## Multi-GPU (MPI) runs
+
+Multi-GPU simulations use MPI to distribute the grid across GPUs. All PBS scripts automatically detect `NGPUS > 1` and launch via `mpiexec`.
+
+**Socket binding on Gadi:** Gadi assigns MPI ranks to CPU sockets randomly by default. Since each GPU is physically attached to a specific CPU socket, this can result in a CPU communicating with a GPU on a different socket, causing severe CPU-GPU transfer slowdowns. All scripts use `--bind-to socket --map-by socket` to pin each MPI rank to the socket directly connected to its GPU.
+
+GPU partition is set via `GPU_RESOURCES`:
+```bash
+# 2x2 partition (4 GPUs) on Volta
+GPU_RESOURCES=gpuvolta-2x2 JOB_CHAIN=run1yr bash scripts/driver.sh
+
+# 1x2 slab partition (2 GPUs) on Hopper
+GPU_RESOURCES=gpuhopper-1x2 JOB_CHAIN=run1yr bash scripts/driver.sh
+```
+
 ## Project setup notes
 
 Gadi compute nodes don't have access to the internet, so the project dependencies must be downloaded on the login node. But the default multi-threaded precompilation could use too much resources and crash during `pkg> up`. Instead, run the dedicated script `scripts/maintenance/pkg_update_project.sh`, which runs `pkg> up` on the login node _without_ precompilation, then submits precompilation on compute nodes on the CPU and then on the GPU.

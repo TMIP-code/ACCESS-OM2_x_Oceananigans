@@ -17,20 +17,16 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
-NYEARS=${NYEARS:-3000}
-export NYEARS
-echo "NYEARS=$NYEARS"
-
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"
-log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
+log_file="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}.log"
 
 NGPUS="${PBS_NGPUS:-1}"
 JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
 [ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
 
-echo "Running src/run_long.jl for PARENT_MODEL=$PARENT_MODEL (NYEARS=$NYEARS, NGPUS=$NGPUS)"
+echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
-$JULIA_LAUNCHER src/run_long.jl &> "$log_file"
-echo "Done running src/run_long.jl for PARENT_MODEL=$PARENT_MODEL"
+$JULIA_LAUNCHER src/run_1year_benchmark.jl &> "$log_file"
+echo "Done running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL"

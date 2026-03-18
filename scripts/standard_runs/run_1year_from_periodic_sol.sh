@@ -26,7 +26,11 @@ run_log_dir=logs/julia/$PARENT_MODEL/periodic/1year
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_${solver_tag}_${job_id}.log"
 
-echo "Running src/run_periodic_1year.jl for PARENT_MODEL=$PARENT_MODEL"
+NGPUS="${PBS_NGPUS:-1}"
+JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
+[ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+
+echo "Running src/run_periodic_1year.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
-julia $JULIA_BOUNDS_FLAG --project src/run_periodic_1year.jl &> "$log_file"
+$JULIA_LAUNCHER src/run_periodic_1year.jl &> "$log_file"
 echo "Done running src/run_periodic_1year.jl for PARENT_MODEL=$PARENT_MODEL"
