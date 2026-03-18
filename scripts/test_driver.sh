@@ -8,6 +8,8 @@
 #
 # Available test steps (dash-separated in JOB_CHAIN):
 #   halofill  — fill_halo_regions! MWE at all staggered locations (distributed GPU)
+#   halofillcpu — same MWE on 4 CPU ranks (no GPUs, express queue)
+#   jld2      — JLD2Writer deadlock MWE on 2 CPU ranks (CliMA/Oceananigans.jl#5410)
 #   diag      — 10-step diagnostic run saving every step (serial or distributed)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
 
@@ -22,7 +24,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_RESOURCES=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill diag mpi"
+    echo "Available test steps: halofill halofillcpu jld2 diag mpi"
     echo ""
     echo "Examples:"
     echo "  GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -68,7 +70,7 @@ echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_
 echo ""
 
 STEP=0
-HALOFILL_JOB="" HALOFILLCPU_JOB="" DIAG_JOB="" MPI_JOB=""
+HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" MPI_JOB=""
 
 # --- halofill: fill_halo_regions! MWE (GPU) ---
 if has_step halofill; then
@@ -90,6 +92,17 @@ if has_step halofillcpu; then
         -v ${COMMON_VARS} \
         scripts/tests/run_halofill_test.sh)
     echo "[$STEP] halofill (CPU): $HALOFILLCPU_JOB"
+fi
+
+# --- jld2: JLD2Writer deadlock MWE (2 CPU ranks, express queue) ---
+if has_step jld2; then
+    STEP=$((STEP + 1))
+    JLD2_JOB=$(qsub \
+        -N "${MODEL_SHORT}_jld2" -l walltime=$WALLTIME \
+        -q express -l ngpus=0 -l ncpus=2 -l mem=16GB \
+        -v ${COMMON_VARS} \
+        scripts/tests/run_jld2writer_test.sh)
+    echo "[$STEP] jld2 (CPU): $JLD2_JOB"
 fi
 
 # --- diag: 10-step diagnostic run ---
@@ -120,6 +133,7 @@ echo ""
 for label_job in \
     "halofill:$HALOFILL_JOB" \
     "halofillcpu:$HALOFILLCPU_JOB" \
+    "jld2:$JLD2_JOB" \
     "diag:$DIAG_JOB" \
     "mpi:$MPI_JOB" \
 ; do
