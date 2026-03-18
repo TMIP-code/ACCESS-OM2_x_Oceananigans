@@ -1,0 +1,149 @@
+"""
+MWE: Test fill_halo_regions! on distributed tripolar grid fields at all staggered locations.
+
+Run with 4 GPUs:
+    mpiexec --bind-to socket --map-by socket -n 4 julia --project src/test_distributed_halo_fill.jl
+
+Run with 4 CPUs (no GPUs):
+    mpiexec -n 4 julia --project src/test_distributed_halo_fill.jl
+
+Expected: fill_halo_regions! should work for all (LX, LY, LZ) locations.
+Observed: BoundsError in _fill_north_send_buffer! for Face-located fields.
+"""
+
+using Oceananigans
+using Oceananigans: fill_halo_regions!
+using Oceananigans.Architectures: CPU
+using Oceananigans.Grids: znodes
+using Oceananigans.OutputWriters: JLD2OutputWriter
+using MPI
+
+MPI.Init()
+
+# Dynamic architecture: GPU if available and PBS_NGPUS > 0, else CPU
+ngpus = parse(Int, get(ENV, "PBS_NGPUS", "0"))
+if ngpus > 0
+    using CUDA
+    CUDA.set_runtime_version!(v"12.9.0"; local_toolkit = true)
+    child_arch = GPU()
+else
+    child_arch = CPU()
+end
+
+rank = MPI.Comm_rank(MPI.COMM_WORLD)
+nranks = MPI.Comm_size(MPI.COMM_WORLD)
+@info "MPI rank $rank/$nranks, arch=$child_arch" * (ngpus > 0 ? ", CUDA device: $(CUDA.device())" : "")
+
+# Determine partition from number of ranks
+px, py = if nranks == 4
+    (2, 2)
+elseif nranks == 2
+    (1, 2)
+else
+    error("Expected 2 or 4 MPI ranks, got $nranks")
+end
+
+arch = Distributed(child_arch, partition = Partition(px, py))
+
+grid = TripolarGrid(
+    arch, Float64;
+    size = (60, 61, 10),
+    z = (-1000, 0),
+    halo = (7, 7, 7),
+    first_pole_longitude = 75,
+    north_poles_latitude = 55,
+)
+
+ibg = ImmersedBoundaryGrid(grid, GridFittedBottom((x, y) -> -1000))
+
+@info "Rank $rank: grid size = $(size(ibg)), topology = $(Oceananigans.Grids.topology(ibg))"
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+# Test fill_halo_regions! at all staggered locations
+locations = [
+    (Center, Center, Center),
+    (Face, Center, Center),
+    (Center, Face, Center),
+    (Center, Center, Face),
+    (Face, Face, Center),
+]
+
+for loc in locations
+    LX, LY, LZ = loc
+    f = Field{LX, LY, LZ}(ibg)
+    set!(f, (x, y, z) -> x + y + z)
+
+    @info "Rank $rank: testing fill_halo_regions! at ($LX, $LY, $LZ)..."
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
+
+    try
+        fill_halo_regions!(f)
+        @info "Rank $rank: ($LX, $LY, $LZ) — OK"
+    catch e
+        @error "Rank $rank: ($LX, $LY, $LZ) — FAILED" exception = (e, catch_backtrace())
+    end
+
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
+end
+
+# Test fill_halo_regions! on a FieldTimeSeries
+@info "Rank $rank: testing fill_halo_regions! on FieldTimeSeries at (Center, Face, Center)..."
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+times = [0.0, 1.0, 2.0]
+fts = FieldTimeSeries{Center, Face, Center}(ibg, times)
+for n in eachindex(times)
+    set!(fts[n], (x, y, z) -> x + y + z + n)
+end
+
+try
+    fill_halo_regions!(fts)
+    @info "Rank $rank: FTS (Center, Face, Center) — OK"
+catch e
+    @error "Rank $rank: FTS (Center, Face, Center) — FAILED" exception = (e, catch_backtrace())
+end
+
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+# Test JLD2OutputWriter with velocity-like fields
+@info "Rank $rank: testing JLD2OutputWriter with Face-located field..."
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+v_field = Field{Center, Face, Center}(ibg)
+set!(v_field, (x, y, z) -> y + z)
+
+model = HydrostaticFreeSurfaceModel(
+    ibg;
+    velocities = PrescribedVelocityFields(),
+    tracers = (; age = CenterField(ibg)),
+    free_surface = nothing,
+)
+
+simulation = Simulation(model; Δt = 1.0, stop_time = 1.0)
+
+try
+    simulation.output_writers[:v] = JLD2OutputWriter(
+        model, Dict("v" => v_field);
+        schedule = TimeInterval(1.0),
+        filename = "test_output_rank$(rank)",
+        overwrite_existing = true,
+        including = [],
+    )
+    run!(simulation)
+    @info "Rank $rank: JLD2OutputWriter with Face field — OK"
+catch e
+    @error "Rank $rank: JLD2OutputWriter with Face field — FAILED" exception = (e, catch_backtrace())
+end
+
+# Cleanup
+rm("test_output_rank$(rank).jld2"; force = true)
+
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+@info "Rank $rank: all tests complete"
