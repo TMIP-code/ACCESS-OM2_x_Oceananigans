@@ -15,7 +15,8 @@ using Oceananigans
 using Oceananigans: fill_halo_regions!
 using Oceananigans.Architectures: CPU
 using Oceananigans.Grids: znodes
-using Oceananigans.OutputWriters: JLD2OutputWriter
+using JLD2
+using Oceananigans.OutputWriters
 using MPI
 
 MPI.Init()
@@ -128,7 +129,7 @@ model = HydrostaticFreeSurfaceModel(
 simulation = Simulation(model; Δt = 1.0, stop_time = 1.0)
 
 try
-    simulation.output_writers[:v] = JLD2OutputWriter(
+    simulation.output_writers[:v] = Oceananigans.OutputWriters.JLD2Writer(
         model, Dict("v" => v_field);
         schedule = TimeInterval(1.0),
         filename = "test_output_rank$(rank)",
