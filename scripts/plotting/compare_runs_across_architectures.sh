@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #PBS -P y99
+#PBS -l walltime=01:00:00
 #PBS -l mem=47GB
 #PBS -q express
 #PBS -l ncpus=12
@@ -17,11 +18,12 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 GPU_TAG=${GPU_TAG:-2x2}
-export GPU_TAG
+DURATION_TAG=${DURATION_TAG:-1year}
+export GPU_TAG DURATION_TAG
 
-echo "Running compare_1year_runs.jl on CPU (GPU_TAG=$GPU_TAG)"
+echo "Running compare_runs_across_architectures.jl on CPU (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 log_dir=logs/julia/$PARENT_MODEL/plot/compare
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
-julia --project src/compare_1year_runs.jl &> "$log_dir/${MODEL_CONFIG}_${GPU_TAG}_${job_id}.log"
-echo "Done running compare_1year_runs.jl (GPU_TAG=$GPU_TAG)"
+julia --project src/compare_runs_across_architectures.jl &> "$log_dir/${MODEL_CONFIG}_${GPU_TAG}_${DURATION_TAG}_${job_id}.log"
+echo "Done running compare_runs_across_architectures.jl (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
