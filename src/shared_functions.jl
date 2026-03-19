@@ -1,8 +1,8 @@
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
 using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Fields: location, instantiated_location
-using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Periodic, RectilinearGrid, RightFaceFolded,
-    validate_dimension_specification, generate_coordinate, on_architecture, znodes
+using Oceananigans.Grids: Grids, Bounded, Flat, MutableVerticalDiscretization, OrthogonalSphericalShellGrid, Periodic,
+    RectilinearGrid, RightFaceFolded, validate_dimension_specification, generate_coordinate, on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!
 using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
@@ -471,7 +471,17 @@ end
 
 # Single-process (CPU or single GPU): use low-level positional constructor with saved arrays
 function build_underlying_grid(gd, arch, FT = Float64)
-    return OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
+    # Reconstruct MutableVerticalDiscretization from plain z_faces via generate_coordinate
+    z_faces = gd["z_faces"]
+    _, z_mvd = Oceananigans.Grids.generate_coordinate(
+        FT,
+        (Periodic, RightFaceFolded, Bounded),
+        (gd["Nx"], gd["Ny"], gd["Nz"]),
+        (gd["Hx"], gd["Hy"], gd["Hz"]),
+        MutableVerticalDiscretization(z_faces),
+        :z, 3, CPU(),
+    )
+    grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
         arch,
         gd["Nx"], gd["Ny"], gd["Nz"],
         gd["Hx"], gd["Hy"], gd["Hz"],
@@ -484,7 +494,7 @@ function build_underlying_grid(gd, arch, FT = Float64)
         on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
         on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
         on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
-        on_architecture(arch, gd["z"]),
+        on_architecture(arch, z_mvd),
         on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
         on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
         on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
@@ -500,17 +510,18 @@ function build_underlying_grid(gd, arch, FT = Float64)
         convert(FT, gd["radius"]),
         Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"]),
     )
+    @assert grid.z isa MutableVerticalDiscretization "Serial grid: expected MutableVerticalDiscretization, got $(typeof(grid.z))"
+    return grid
 end
 
 # Distributed: re-create via TripolarGrid which handles partitioning, topology, and connectivity
 function build_underlying_grid(gd, arch::Distributed, FT = Float64)
-    # Extract z face positions from saved MutableVerticalDiscretization (strip halos)
     Nz = gd["Nz"]
-    z_faces = gd["z"].cᵃᵃᶠ[1:(Nz + 1)]
-    return TripolarGrid(
+    z_faces = gd["z_faces"]
+    grid = TripolarGrid(
         arch, FT;
         size = (gd["Nx"], gd["Ny"], Nz),
-        z = z_faces,
+        z = MutableVerticalDiscretization(z_faces),
         halo = (gd["Hx"], gd["Hy"], gd["Hz"]),
         north_poles_latitude = gd["north_poles_latitude"],
         first_pole_longitude = gd["first_pole_longitude"],
@@ -518,6 +529,8 @@ function build_underlying_grid(gd, arch::Distributed, FT = Float64)
         radius = gd["radius"],
         fold_topology = RightFaceFolded,
     )
+    @assert grid.z isa MutableVerticalDiscretization "Distributed grid: expected MutableVerticalDiscretization, got $(typeof(grid.z))"
+    return grid
 end
 
 ################################################################################

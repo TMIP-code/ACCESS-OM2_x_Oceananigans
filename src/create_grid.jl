@@ -167,7 +167,18 @@ code_to_reconstruct_the_grid = """
         on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
         on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
         on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
-        on_architecture(arch, gd["z"]),
+        on_architecture(arch, let
+            z_faces = gd["z_faces"]
+            _, z_mvd = Oceananigans.Grids.generate_coordinate(
+                FT,
+                (Periodic, RightFaceFolded, Bounded),
+                (gd["Nx"], gd["Ny"], gd["Nz"]),
+                (gd["Hx"], gd["Hy"], gd["Hz"]),
+                MutableVerticalDiscretization(z_faces),
+                :z, 3, CPU(),
+            )
+            z_mvd
+        end),
         on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
         on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
         on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
@@ -223,7 +234,7 @@ save(
         "Azᶠᶜᵃ" => underlying_grid.Azᶠᶜᵃ,
         "Azᶜᶠᵃ" => underlying_grid.Azᶜᶠᵃ,
         "Azᶠᶠᵃ" => underlying_grid.Azᶠᶠᵃ,
-        "z" => underlying_grid.z,
+        "z_faces" => Array(underlying_grid.z.cᵃᵃᶠ[1:(underlying_grid.Nz + 1)]),
         "bottom" => bottom,
         "radius" => underlying_grid.radius,
         "north_poles_latitude" => underlying_grid.conformal_mapping.north_poles_latitude,
