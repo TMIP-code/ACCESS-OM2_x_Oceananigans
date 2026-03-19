@@ -1,10 +1,11 @@
 #!/bin/bash
 
 #PBS -P y99
-#PBS -l mem=256GB
-#PBS -q gpuhopper
-#PBS -l ngpus=1
-#PBS -l ncpus=12
+#PBS -l mem=384GB
+#PBS -q gpuvolta
+#PBS -l ngpus=4
+#PBS -l ncpus=48
+#PBS -l walltime=00:30:00
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o logs/PBS/
