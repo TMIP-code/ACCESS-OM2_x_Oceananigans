@@ -112,7 +112,7 @@ function make_velocity_fts(ibg, z, ib_constructor)
 
         # All ranks: load via serial CPU grid then distribute (matches load_fts(::Distributed))
         cpu_ibg = _make_serial_ibg(z, ib_constructor)
-        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        time_indexing = Oceananigans.OutputReaders.Cyclical(last(fts_times))
         u_fts = _load_fts_distributed(u_file, "u", ibg, cpu_ibg, time_indexing)
         v_fts = _load_fts_distributed(v_file, "v", ibg, cpu_ibg, time_indexing)
 
@@ -147,7 +147,7 @@ function make_w_fts(ibg, z, ib_constructor)
         MPI.Barrier(MPI.COMM_WORLD)
 
         cpu_ibg = _make_serial_ibg(z, ib_constructor)
-        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        time_indexing = Oceananigans.OutputReaders.Cyclical(last(fts_times))
         w_fts = _load_fts_distributed(w_file, "w", ibg, cpu_ibg, time_indexing)
 
         MPI.Barrier(MPI.COMM_WORLD)
@@ -178,7 +178,7 @@ function make_eta_fts(ibg, z, ib_constructor)
         MPI.Barrier(MPI.COMM_WORLD)
 
         cpu_ibg = _make_serial_ibg(z, ib_constructor)
-        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        time_indexing = Oceananigans.OutputReaders.Cyclical(last(fts_times))
         η_fts = _load_fts_distributed(η_file, "η", ibg, cpu_ibg, time_indexing)
 
         MPI.Barrier(MPI.COMM_WORLD)
