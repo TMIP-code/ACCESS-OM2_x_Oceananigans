@@ -296,23 +296,28 @@ if serial_vel_exists && dist_vel_exists
         field_diff = field_dist .- Array(field_serial_trimmed)
 
         # Determine which k-slices to plot
+        # For eta (2D, stored as nz=1), use k=1 for data but surface mask (k=Nz)
         if field_name == "eta"
             k_slices = [1]
             k_labels = ["2D"]
+            mask_k_override = Nz  # surface mask for 2D field
         elseif field_name == "w"
             # w is at Face z-locations: Nz+1 levels. Plot top (k=nz_field) and near-surface (k=nz_field-1)
             k_slices = [nz_field, nz_field - 1]
             k_labels = ["k$(nz_field)_top", "k$(nz_field - 1)"]
+            mask_k_override = nothing
         else
             # u, v: plot surface k=Nz
             k_slices = [Nz]
             k_labels = ["k$(Nz)_surface"]
+            mask_k_override = nothing
         end
 
         for (ki, (k, klabel)) in enumerate(zip(k_slices, k_labels))
+            mk = isnothing(mask_k_override) ? min(k, Nz) : mask_k_override
             # --- Serial field ---
             serial_slice = Array(field_serial_trimmed[:, :, k])
-            serial_slice[.!wet3D[:, :, min(k, Nz)]] .= NaN
+            serial_slice[.!wet3D[:, :, mk]] .= NaN
 
             fig = Figure(; size = (900, 500))
             ax = Axis(
@@ -327,7 +332,7 @@ if serial_vel_exists && dist_vel_exists
 
             # --- Distributed field ---
             dist_slice = field_dist[:, :, k]
-            dist_slice[.!wet3D[:, :, min(k, Nz)]] .= NaN
+            dist_slice[.!wet3D[:, :, mk]] .= NaN
 
             fig = Figure(; size = (900, 500))
             ax = Axis(
@@ -342,7 +347,7 @@ if serial_vel_exists && dist_vel_exists
 
             # --- Difference ---
             diff_slice = copy(field_diff[:, :, k])
-            wet_slice = wet3D[:, :, min(k, Nz)]
+            wet_slice = wet3D[:, :, mk]
             diff_slice[.!wet_slice] .= NaN
             wet_vals = filter(!isnan, diff_slice[wet_slice])
 
