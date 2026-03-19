@@ -1144,6 +1144,8 @@ function plot_age_diagnostics(
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         lowclip = colormap[1],
         highclip = colormap[end],
+        target_depths = [100, 200, 500, 1000, 2000, 3000],
+        target_k_indices = Int[],
     )
     mkpath(output_dir)
 
@@ -1199,25 +1201,33 @@ function plot_age_diagnostics(
         save(outputfile, fig)
     end
 
-    # ── Horizontal slices (figures 5-10) ──────────────────────────────────
+    # ── Horizontal slices ───────────────────────────────────────────────
 
-    target_depths = [100, 200, 500, 1000, 2000, 3000]
-
+    # Collect (k, file_tag, title_tag) tuples from target_depths and target_k_indices
+    slice_specs = Tuple{Int, String, String}[]
     for depth in target_depths
         k = find_nearest_depth_index(grid, depth)
         actual_depth = round(depth_vals[k]; digits = 1)
+        push!(slice_specs, (k, "$(depth)m", "$depth m (k=$k, z=$actual_depth m)"))
+    end
+    for k in target_k_indices
+        actual_depth = round(depth_vals[k]; digits = 1)
+        push!(slice_specs, (k, "k$(k)", "k=$k (z=$actual_depth m)"))
+    end
+
+    for (k, file_tag, title_tag) in slice_specs
         slice = age_plot[:, :, k]
 
         fig = Figure(; size = (1000, 500))
         ax = Axis(
             fig[1, 1];
-            title = "$label at $depth m (k=$k, z=$actual_depth m)",
+            title = "$label at $title_tag",
         )
 
         hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip, highclip)
         Colorbar(fig[1, 2], hm; label = "Age (years)")
 
-        outputfile = joinpath(output_dir, "$(label)_slice_$(depth)m.png")
+        outputfile = joinpath(output_dir, "$(label)_slice_$(file_tag).png")
         @info "Saving $outputfile"
         save(outputfile, fig)
     end

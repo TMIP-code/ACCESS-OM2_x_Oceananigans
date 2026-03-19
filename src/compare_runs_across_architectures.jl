@@ -117,7 +117,7 @@ flush(stdout); flush(stderr)
 
 # Store snapshots for plotting: parts 1, 2, and NPARTS
 plot_parts = sort(unique([1, 2, NPARTS]))
-snapshots = Dict{Int, @NamedTuple{age_serial_yr::Array{Float64,3}, age_dist_yr::Array{Float64,3}, age_diff_yr::Array{Float64,3}, t_yr::Float64}}()
+snapshots = Dict{Int, @NamedTuple{age_serial_yr::Array{Float64, 3}, age_dist_yr::Array{Float64, 3}, age_diff_yr::Array{Float64, 3}, t_yr::Float64}}()
 
 for part in 1:NPARTS
     age_serial_full, t_serial = load_serial_part(serial_dir, "age", DURATION_TAG, part)
@@ -196,11 +196,14 @@ for part in plot_parts
     part_label = "part$(part)"
     @info "Plotting $part_label (t = $(@sprintf("%.5f", snap.t_yr)) yr)"
 
+    compare_k_indices = 30:50
+
     # Serial age (reference)
     plot_age_diagnostics(
         snap.age_serial_yr, grid, wet3D, vol_3D, plot_output_dir,
         "serial_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
         colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
+        target_k_indices = compare_k_indices,
     )
 
     # Distributed age
@@ -208,6 +211,7 @@ for part in plot_parts
         snap.age_dist_yr, grid, wet3D, vol_3D, plot_output_dir,
         "distributed_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
         colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
+        target_k_indices = compare_k_indices,
     )
 
     # Absolute difference — colorscale based on mean|diff|
@@ -222,6 +226,7 @@ for part in plot_parts
         colorrange = diff_range, levels = diff_levels,
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
+        target_k_indices = compare_k_indices,
     )
 
     # Relative difference (skip if age too small)
@@ -246,6 +251,7 @@ for part in plot_parts
             colorrange = reldiff_range, levels = reldiff_levels,
             colormap = cgrad(:balance, n_levels - 1, categorical = true),
             lowclip = :blue, highclip = :red,
+            target_k_indices = compare_k_indices,
         )
     end
 
