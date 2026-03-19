@@ -11,6 +11,8 @@
 #   halofillcpu — same MWE on 4 CPU ranks (no GPUs, express queue)
 #   jld2      — JLD2Writer deadlock MWE on 2 CPU ranks (CliMA/Oceananigans.jl#5410)
 #   diag      — 10-step diagnostic run saving every step (serial or distributed)
+#   compare   — compare serial vs distributed outputs (CPU, express queue)
+#               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
 
 set -euo pipefail
@@ -33,7 +35,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_RESOURCES=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag mpi"
+    echo "Available test steps: halofill halofillcpu jld2 diag compare mpi"
     echo ""
     echo "Examples:"
     echo "  GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -80,7 +82,7 @@ echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_
 echo ""
 
 STEP=0
-HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" MPI_JOB=""
+HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" COMPARE_JOB="" MPI_JOB=""
 
 # --- halofill: fill_halo_regions! MWE (GPU) ---
 if has_step halofill; then
@@ -126,6 +128,19 @@ if has_step diag; then
     echo "[$STEP] diag: $DIAG_JOB"
 fi
 
+# --- compare: compare serial vs distributed outputs (CPU, express queue) ---
+if has_step compare; then
+    STEP=$((STEP + 1))
+    DURATION_TAG=${DURATION_TAG:-diag}
+    GPU_TAG="${GPU_PARTITION_X}x${GPU_PARTITION_Y}"
+    COMPARE_JOB=$(qsub \
+        -N "${MODEL_SHORT}_compare" -l walltime=01:00:00 \
+        -q express -l ngpus=0 -l ncpus=12 -l mem=47GB \
+        -v ${COMMON_VARS},GPU_TAG=${GPU_TAG},DURATION_TAG=${DURATION_TAG} \
+        scripts/plotting/compare_runs_across_architectures.sh)
+    echo "[$STEP] compare (CPU, GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG): $COMPARE_JOB"
+fi
+
 # --- mpi: MPI smoke test ---
 if has_step mpi; then
     STEP=$((STEP + 1))
@@ -145,6 +160,7 @@ for label_job in \
     "halofillcpu:$HALOFILLCPU_JOB" \
     "jld2:$JLD2_JOB" \
     "diag:$DIAG_JOB" \
+    "compare:$COMPARE_JOB" \
     "mpi:$MPI_JOB" \
 ; do
     label="${label_job%%:*}"
