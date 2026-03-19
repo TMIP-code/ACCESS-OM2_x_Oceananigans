@@ -6,7 +6,7 @@ using Oceananigans.Grids: Grids, Bounded, Flat, OrthogonalSphericalShellGrid, Pe
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!
 using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
-using Oceananigans.Architectures: CPU, architecture
+using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency
@@ -703,15 +703,17 @@ function load_serial_part(dir, field_name, duration_tag, part)
 end
 
 """
-    load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz) -> (data, time)
+    load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny[, Nz]) -> (data, time)
 
 Load and stitch distributed rank files for a single part into a global array.
-Partition layout is px × py (e.g., 2×2 for 4 GPUs).
-`Nx, Ny, Nz` is the interior size (e.g., from `size(wet3D)`).
+Partition layout is px × py (e.g., 2×2 for 4 GPUs/CPUs).
+`Nx, Ny` is the interior size (e.g., from `size(wet3D)`).
+`Nz` is optional — the z-dimension is auto-detected from rank 0 data.
+Handles 2D fields (e.g., eta) and fields with different z-sizes (e.g., w at Nz+1).
 The distributed grid may include a fold row (Ny_full = Ny + 1 for tripolar grids);
-the stitched result is trimmed to `(Nx, Ny, Nz)` to match serial interior output.
+the stitched result is trimmed to `(Nx, Ny, :)` to match serial interior output.
 """
-function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz)
+function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz = nothing)
     nranks = px * py
 
     # Oceananigans rank2index uses column-major ordering:
@@ -721,8 +723,11 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
     # and y-row j contains ranks {j, j+py, j+2*py, ...}
 
     # Determine per-rank sizes from one rank per x-column and one per y-row
+    # Also auto-detect z-size and dimensionality from rank 0
     rank_sizes_x = zeros(Int, px)
     rank_sizes_y = zeros(Int, py)
+    nz_data = 0
+    ndims_data = 0
     for i in 1:px
         rank = (i - 1) * py  # first rank in x-column i
         filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
@@ -730,7 +735,12 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
         jldopen(filepath, "r") do f
             iters = keys(f["timeseries/$(field_name)"])
             iter = first(filter(k -> k != "serialized", iters))
-            rank_sizes_x[i] = size(f["timeseries/$(field_name)/$iter"], 1)
+            sample = f["timeseries/$(field_name)/$iter"]
+            rank_sizes_x[i] = size(sample, 1)
+            if i == 1
+                ndims_data = ndims(sample)
+                nz_data = ndims_data >= 3 ? size(sample, 3) : 1
+            end
         end
     end
     for j in 1:py
@@ -748,7 +758,7 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
     x_offsets = cumsum([0; rank_sizes_x[1:(end - 1)]])
     y_offsets = cumsum([0; rank_sizes_y[1:(end - 1)]])
 
-    global_data = zeros(Float64, Nx_full, Ny_full, Nz)
+    global_data = zeros(Float64, Nx_full, Ny_full, nz_data)
     t = nothing
 
     for rank in 0:(nranks - 1)
@@ -772,7 +782,11 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
             y_start = y_offsets[j_rank] + 1
             y_end = y_offsets[j_rank] + rank_sizes_y[j_rank]
 
-            global_data[x_start:x_end, y_start:y_end, :] .= local_data
+            if ndims_data >= 3
+                global_data[x_start:x_end, y_start:y_end, :] .= local_data
+            else
+                global_data[x_start:x_end, y_start:y_end, 1] .= local_data
+            end
         end
     end
 
@@ -845,11 +859,14 @@ function setup_age_simulation(
     mkpath(age_output_dir)
 
     # One output writer per field (separate files for each).
-    # Distributed grids: only output age (Center,Center,Center) — Face-located
+    # Distributed GPU: only output age (Center,Center,Center) — Face-located
     # fields (u,v,w,eta) trigger a BoundsError in _fill_north_send_buffer!
     # on distributed tripolar grids (upstream Oceananigans bug).
-    is_distributed = !isempty(gpu_tag)
-    output_defs = if is_distributed
+    # Distributed CPU: output all fields (bug may be GPU-specific).
+    grid_arch = Oceananigans.Architectures.architecture(model.grid)
+    is_distributed_gpu = grid_arch isa Distributed &&
+        Oceananigans.Architectures.child_architecture(grid_arch) isa GPU
+    output_defs = if is_distributed_gpu
         Dict("age" => model.tracers.age)
     else
         Dict(

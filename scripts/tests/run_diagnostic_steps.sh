@@ -22,11 +22,16 @@ run_log_dir=logs/julia/$PARENT_MODEL/standardrun
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_diag_${job_id}.log"
 
-NGPUS="${PBS_NGPUS:-1}"
+NGPUS="${PBS_NGPUS:-0}"
+NCPUS="${PBS_NCPUS:-1}"
 JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
-[ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+if [ "$NGPUS" -gt 1 ]; then
+    JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+elif [ "$NGPUS" -eq 0 ] && [ "$NCPUS" -gt 1 ]; then
+    JULIA_LAUNCHER="mpiexec -n $NCPUS $JULIA_LAUNCHER"
+fi
 
-echo "Running src/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
+echo "Running src/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS, NCPUS=$NCPUS)"
 echo "logging output in $log_file"
 $JULIA_LAUNCHER src/run_diagnostic_steps.jl &> "$log_file"
 echo "Done running src/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL"

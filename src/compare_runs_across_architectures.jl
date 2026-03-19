@@ -258,5 +258,134 @@ for part in plot_parts
     flush(stdout); flush(stderr)
 end
 
+################################################################################
+# Compare velocity and eta fields (part 2 = first timestep after t=0)
+################################################################################
+
+# Extract grid coordinates for heatmap plotting
+ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+lon = Array(ug.λᶜᶜᵃ[1:Nx, 1:Ny])
+lat = Array(ug.φᶜᶜᵃ[1:Nx, 1:Ny])
+
+velocity_fields = ["u", "v", "w", "eta"]
+velocity_part = 2  # first timestep (part 1 = t=0, part 2 = t=Δt)
+
+# Check if velocity files exist (they won't if distributed was GPU-only)
+serial_vel_exists = isfile(joinpath(serial_dir, "u_$(DURATION_TAG)_part$(velocity_part).jld2"))
+dist_vel_exists = isfile(joinpath(distributed_dir, "u_$(DURATION_TAG)_rank0_part$(velocity_part).jld2"))
+
+if serial_vel_exists && dist_vel_exists
+    @info "Comparing velocity/eta fields at part $velocity_part"
+    flush(stdout); flush(stderr)
+
+    for field_name in velocity_fields
+        serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG)_part$(velocity_part).jld2")
+        dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank0_part$(velocity_part).jld2")
+        if !isfile(serial_file) || !isfile(dist_file)
+            @warn "Skipping $field_name: missing serial or distributed file"
+            continue
+        end
+
+        field_serial, t_s = load_serial_part(serial_dir, field_name, DURATION_TAG, velocity_part)
+        field_dist, t_d = load_distributed_part(distributed_dir, field_name, DURATION_TAG, velocity_part, px, py, Nx, Ny)
+        t_yr = t_s / year
+
+        # Trim serial to match distributed interior size
+        nz_field = size(field_dist, 3)
+        field_serial_trimmed = @view field_serial[1:Nx, 1:Ny, 1:nz_field]
+        field_diff = field_dist .- Array(field_serial_trimmed)
+
+        # Determine which k-slices to plot
+        if field_name == "eta"
+            k_slices = [1]
+            k_labels = ["2D"]
+        elseif field_name == "w"
+            # w is at Face z-locations: Nz+1 levels. Plot top (k=nz_field) and near-surface (k=nz_field-1)
+            k_slices = [nz_field, nz_field - 1]
+            k_labels = ["k$(nz_field)_top", "k$(nz_field - 1)"]
+        else
+            # u, v: plot surface k=Nz
+            k_slices = [Nz]
+            k_labels = ["k$(Nz)_surface"]
+        end
+
+        for (ki, (k, klabel)) in enumerate(zip(k_slices, k_labels))
+            # --- Serial field ---
+            serial_slice = Array(field_serial_trimmed[:, :, k])
+            serial_slice[.!wet3D[:, :, min(k, Nz)]] .= NaN
+
+            fig = Figure(; size = (900, 500))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name serial (t=$(@sprintf("%.5f", t_yr)) yr, $klabel)",
+                xlabel = "Longitude", ylabel = "Latitude",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(ax, 1:Nx, 1:Ny, serial_slice; nan_color = :lightgray)
+            Colorbar(fig[1, 2], hm; label = field_name)
+            save(joinpath(plot_output_dir, "$(field_name)_serial_$(DURATION_TAG)_$(klabel).png"), fig)
+
+            # --- Distributed field ---
+            dist_slice = field_dist[:, :, k]
+            dist_slice[.!wet3D[:, :, min(k, Nz)]] .= NaN
+
+            fig = Figure(; size = (900, 500))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name distributed $(GPU_TAG) (t=$(@sprintf("%.5f", t_yr)) yr, $klabel)",
+                xlabel = "Longitude", ylabel = "Latitude",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(ax, 1:Nx, 1:Ny, dist_slice; nan_color = :lightgray)
+            Colorbar(fig[1, 2], hm; label = field_name)
+            save(joinpath(plot_output_dir, "$(field_name)_dist_$(GPU_TAG)_$(DURATION_TAG)_$(klabel).png"), fig)
+
+            # --- Difference ---
+            diff_slice = copy(field_diff[:, :, k])
+            wet_slice = wet3D[:, :, min(k, Nz)]
+            diff_slice[.!wet_slice] .= NaN
+            wet_vals = filter(!isnan, diff_slice[wet_slice])
+
+            if !isempty(wet_vals)
+                mean_abs = mean(abs, wet_vals)
+                max_abs = maximum(abs, wet_vals)
+                rms = sqrt(mean(wet_vals .^ 2))
+                @info @sprintf(
+                    "  %4s %s: max|diff|=%.2e  mean|diff|=%.2e  RMS=%.2e",
+                    field_name, klabel, max_abs, mean_abs, rms
+                )
+
+                diff_scale = mean_abs > 0 ? 3 * mean_abs : 1.0e-10
+                fig = Figure(; size = (900, 500))
+                ax = Axis(
+                    fig[1, 1];
+                    title = "$field_name diff (dist-serial) (t=$(@sprintf("%.5f", t_yr)) yr, $klabel)",
+                    xlabel = "Longitude", ylabel = "Latitude",
+                    backgroundcolor = :lightgray,
+                )
+                hm = heatmap!(
+                    ax, 1:Nx, 1:Ny, diff_slice;
+                    colorrange = (-diff_scale, diff_scale),
+                    colormap = :balance, nan_color = :lightgray,
+                    lowclip = :blue, highclip = :red,
+                )
+                Colorbar(fig[1, 2], hm; label = "$field_name diff")
+                save(joinpath(plot_output_dir, "$(field_name)_diff_$(GPU_TAG)_$(DURATION_TAG)_$(klabel).png"), fig)
+            end
+        end
+
+        flush(stdout); flush(stderr)
+    end
+else
+    @info "Velocity/eta files not found — skipping velocity comparison"
+    if !serial_vel_exists
+        @info "  Missing serial: $(joinpath(serial_dir, "u_$(DURATION_TAG)_part$(velocity_part).jld2"))"
+    end
+    if !dist_vel_exists
+        @info "  Missing distributed: $(joinpath(distributed_dir, "u_$(DURATION_TAG)_rank0_part$(velocity_part).jld2"))"
+    end
+end
+flush(stdout); flush(stderr)
+
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 flush(stdout); flush(stderr)

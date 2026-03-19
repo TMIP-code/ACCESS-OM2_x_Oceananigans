@@ -10,7 +10,9 @@
 #   halofill  — fill_halo_regions! MWE at all staggered locations (distributed GPU)
 #   halofillcpu — same MWE on 4 CPU ranks (no GPUs, express queue)
 #   jld2      — JLD2Writer deadlock MWE on 2 CPU ranks (CliMA/Oceananigans.jl#5410)
-#   diag      — 10-step diagnostic run saving every step (serial or distributed)
+#   diag      — 10-step diagnostic run saving every step (serial or distributed GPU)
+#   diagcpu   — 10-step diagnostic on CPU (distributed MPI, no GPUs, express queue)
+#   diagcpuserial — 10-step diagnostic on CPU (serial, no GPUs, express queue)
 #   compare   — compare serial vs distributed outputs (CPU, express queue)
 #               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
@@ -35,7 +37,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_RESOURCES=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag compare mpi"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare mpi"
     echo ""
     echo "Examples:"
     echo "  GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -82,7 +84,7 @@ echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_
 echo ""
 
 STEP=0
-HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" COMPARE_JOB="" MPI_JOB=""
+HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" DIAGCPU_JOB="" DIAGCPUSERIAL_JOB="" COMPARE_JOB="" MPI_JOB=""
 
 # --- halofill: fill_halo_regions! MWE (GPU) ---
 if has_step halofill; then
@@ -128,6 +130,28 @@ if has_step diag; then
     echo "[$STEP] diag: $DIAG_JOB"
 fi
 
+# --- diagcpu: 10-step diagnostic on CPU (distributed MPI, no GPUs, express queue) ---
+if has_step diagcpu; then
+    STEP=$((STEP + 1))
+    DIAGCPU_JOB=$(qsub \
+        -N "${MODEL_SHORT}_diagcpu" -l walltime=01:00:00 \
+        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
+        -v ${COMMON_VARS},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        scripts/tests/run_diagnostic_steps.sh)
+    echo "[$STEP] diagcpu (CPU, ${GPU_PARTITION_X}x${GPU_PARTITION_Y}): $DIAGCPU_JOB"
+fi
+
+# --- diagcpuserial: 10-step diagnostic on CPU (serial, no GPUs, express queue) ---
+if has_step diagcpuserial; then
+    STEP=$((STEP + 1))
+    DIAGCPUSERIAL_JOB=$(qsub \
+        -N "${MODEL_SHORT}_diagcpuser" -l walltime=01:00:00 \
+        -q express -l ngpus=0 -l ncpus=1 -l mem=47GB \
+        -v ${COMMON_VARS} \
+        scripts/tests/run_diagnostic_steps.sh)
+    echo "[$STEP] diagcpuserial (CPU, serial): $DIAGCPUSERIAL_JOB"
+fi
+
 # --- compare: compare serial vs distributed outputs (CPU, express queue) ---
 if has_step compare; then
     STEP=$((STEP + 1))
@@ -160,6 +184,8 @@ for label_job in \
     "halofillcpu:$HALOFILLCPU_JOB" \
     "jld2:$JLD2_JOB" \
     "diag:$DIAG_JOB" \
+    "diagcpu:$DIAGCPU_JOB" \
+    "diagcpuserial:$DIAGCPUSERIAL_JOB" \
     "compare:$COMPARE_JOB" \
     "mpi:$MPI_JOB" \
 ; do

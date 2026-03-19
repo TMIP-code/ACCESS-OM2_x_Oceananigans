@@ -3,9 +3,10 @@
 #
 # PBS_NGPUS > 1  → Distributed(GPU(), partition=Partition(px, py))  (multi-GPU via MPI)
 # PBS_NGPUS == 1 → GPU()                                             (single GPU)
+# PBS_NGPUS == 0 + GPU_PARTITION_X set → Distributed(CPU(), ...)     (multi-CPU via MPI)
 # PBS_NGPUS == 0 → CPU()                                             (no GPU)
 #
-# For multi-GPU runs, GPU_PARTITION_X and GPU_PARTITION_Y must be set in ENV
+# For multi-GPU/CPU runs, GPU_PARTITION_X and GPU_PARTITION_Y must be set in ENV
 # (passed via qsub -v from driver.sh). These determine the domain decomposition.
 #
 # include()'d by setup_model.jl, create_velocities.jl, create_closures.jl.
@@ -31,6 +32,16 @@ elseif ngpus == 1
     @show CUDA.versioninfo()
     arch = GPU()
     arch_str = "GPU"
+elseif ngpus == 0 && haskey(ENV, "GPU_PARTITION_X")
+    using MPI
+    MPI.Init()
+    px = parse(Int, ENV["GPU_PARTITION_X"])
+    py = parse(Int, ENV["GPU_PARTITION_Y"])
+    arch = Distributed(CPU(), partition = Partition(px, py))
+    arch_str = "DistributedCPU($(px)x$(py))"
+    rank = MPI.Comm_rank(MPI.COMM_WORLD)
+    nranks = MPI.Comm_size(MPI.COMM_WORLD)
+    @info "MPI rank $rank/$nranks, partition=$(px)x$(py) (CPU)"
 else
     arch = CPU()
     arch_str = "CPU"
