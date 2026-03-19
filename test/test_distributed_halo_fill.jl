@@ -1,5 +1,5 @@
 """
-MWE: fill_halo_regions! BoundsError for Face-located fields on distributed tripolar grids.
+MWE: JLD2Writer hangs on distributed tripolar grids with prescribed velocity model.
 
 This is a self-contained test that only depends on Oceananigans, MPI, and JLD2.
 It can be run against any Oceananigans branch to verify the bug / a fix.
@@ -10,19 +10,24 @@ Run with 4 CPUs (no GPUs):
 Run with 4 GPUs:
     mpiexec --bind-to socket --map-by socket -n 4 julia --project test/test_distributed_halo_fill.jl
 
-Expected: fill_halo_regions! should work for all (LX, LY, LZ) locations.
-Observed: BoundsError in _fill_north_send_buffer! for Face-located fields on 2D partitions.
+Tests:
+  1. fill_halo_regions! at all 8 staggered (LX, LY, LZ) locations
+  2. fill_halo_regions! on a FieldTimeSeries at Face location
+  3. JLD2Writer with a single Face-located Field (simple case)
+  4. JLD2Writer with PrescribedVelocityFields + DiagnosticVerticalVelocity
+     + PrescribedFreeSurface — outputs mixed field types (TSI + regular Field)
+     This matches the setup that hangs in the actual simulation.
 
-Root cause: y_communication_buffer() in communication_buffers.jl uses `Nx = size(grid, 1)`
-(interior size without location awareness) to size the TwoDBuffer. For Face-located fields,
-the parent array has Nx+1 columns, so the buffer is too small → BoundsError.
-The fold zipper code (distributed_zipper.jl) correctly uses `size(parent(data), 1)` for
-the north fold rank, but non-fold ranks fall back to the buggy y_communication_buffer.
+The key difference: model.velocities.u/v are TimeSeriesInterpolation (TSI),
+model.velocities.w is a regular Field (from DiagnosticVerticalVelocity), and
+fill_halo_regions!(::TimeSeriesInterpolation) is a no-op. The mix of no-op
+and real MPI halo fills may cause rank desynchronization → deadlock.
 """
 
 using Oceananigans
 using Oceananigans: fill_halo_regions!
 using Oceananigans.Architectures: CPU
+using Oceananigans.Units: seconds
 using JLD2
 using Oceananigans.OutputWriters
 using MPI
@@ -136,7 +141,7 @@ flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
 
 # =========================================================================
-# Test 3: JLD2OutputWriter with Face-located field (triggers fill_halo_regions!)
+# Test 3: JLD2Writer with a single Face-located Field (simple case)
 # =========================================================================
 
 @info "Rank $rank: testing JLD2Writer with Face-located field..."
@@ -146,33 +151,110 @@ MPI.Barrier(MPI.COMM_WORLD)
 v_field = Field{Center, Face, Center}(ibg)
 set!(v_field, (x, y, z) -> y + z)
 
-model = HydrostaticFreeSurfaceModel(
+model_simple = HydrostaticFreeSurfaceModel(
     ibg;
     velocities = PrescribedVelocityFields(),
     tracers = (; age = CenterField(ibg)),
     free_surface = nothing,
 )
 
-simulation = Simulation(model; Δt = 1.0, stop_time = 1.0)
+sim_simple = Simulation(model_simple; Δt = 1.0, stop_time = 1.0)
 
 try
-    simulation.output_writers[:v] = JLD2Writer(
-        model, Dict("v" => v_field);
+    sim_simple.output_writers[:v] = JLD2Writer(
+        model_simple, Dict("v" => v_field);
         schedule = TimeInterval(1.0),
-        filename = "test_halofill_output_rank$(rank)",
+        filename = "test_halofill_simple_rank$(rank)",
         overwrite_existing = true,
         including = [],
     )
-    run!(simulation)
-    @info "Rank $rank: JLD2Writer with Face field — PASS"
+    run!(sim_simple)
+    @info "Rank $rank: JLD2Writer simple — PASS"
     global npass += 1
 catch e
-    @error "Rank $rank: JLD2Writer with Face field — FAIL" exception = (e, catch_backtrace())
+    @error "Rank $rank: JLD2Writer simple — FAIL" exception = (e, catch_backtrace())
     global nfail += 1
 end
 
-# Cleanup
-rm("test_halofill_output_rank$(rank).jld2"; force = true)
+rm("test_halofill_simple_rank$(rank).jld2"; force = true)
+
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+# =========================================================================
+# Test 4: JLD2Writer with PrescribedVelocityFields + DiagnosticVerticalVelocity
+#          + PrescribedFreeSurface (matches actual simulation setup)
+# =========================================================================
+
+@info "Rank $rank: testing JLD2Writer with prescribed velocities + diagnostic w..."
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+# Create FieldTimeSeries for u, v, eta (mimics prescribed velocity model)
+Δt_fts = 1.0
+fts_times = [0.0, 1.0, 2.0, 3.0]
+
+u_fts = FieldTimeSeries{Face, Center, Center}(ibg, fts_times)
+v_fts = FieldTimeSeries{Center, Face, Center}(ibg, fts_times)
+η_fts = FieldTimeSeries{Center, Center, Nothing}(ibg, fts_times)
+
+for n in eachindex(fts_times)
+    set!(u_fts[n], (x, y, z) -> 0.1 * cosd(y))
+    set!(v_fts[n], (x, y, z) -> 0.0)
+    set!(η_fts[n], (x, y) -> 0.0)
+end
+
+# Build model with prescribed u, v (→ TimeSeriesInterpolation), diagnostic w
+model_prescribed = HydrostaticFreeSurfaceModel(
+    ibg;
+    velocities = PrescribedVelocityFields(
+        u = u_fts, v = v_fts,
+        formulation = DiagnosticVerticalVelocity()
+    ),
+    tracers = (; age = CenterField(ibg)),
+    free_surface = PrescribedFreeSurface(displacement = η_fts),
+)
+
+# model.velocities.u/v are TimeSeriesInterpolation, model.velocities.w is a regular Field
+@info "Rank $rank: u type = $(typeof(model_prescribed.velocities.u))"
+@info "Rank $rank: v type = $(typeof(model_prescribed.velocities.v))"
+@info "Rank $rank: w type = $(typeof(model_prescribed.velocities.w))"
+@info "Rank $rank: η type = $(typeof(model_prescribed.free_surface.displacement))"
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+sim_prescribed = Simulation(model_prescribed; Δt = Δt_fts, stop_time = 2 * Δt_fts)
+
+# Output the same mix of field types as the actual simulation:
+# age (CenterField), u (TSI), v (TSI), w (regular Field), eta (TSI)
+output_fields = Dict(
+    "age" => model_prescribed.tracers.age,
+    "u" => model_prescribed.velocities.u,
+    "v" => model_prescribed.velocities.v,
+    "w" => model_prescribed.velocities.w,
+    "eta" => model_prescribed.free_surface.displacement,
+)
+
+try
+    sim_prescribed.output_writers[:fields] = JLD2Writer(
+        model_prescribed, output_fields;
+        schedule = TimeInterval(Δt_fts),
+        filename = "test_halofill_prescribed_rank$(rank)",
+        overwrite_existing = true,
+        with_halos = true,
+        including = [],
+    )
+    @info "Rank $rank: JLD2Writer created, running simulation..."
+    flush(stdout); flush(stderr)
+    run!(sim_prescribed)
+    @info "Rank $rank: JLD2Writer prescribed — PASS"
+    global npass += 1
+catch e
+    @error "Rank $rank: JLD2Writer prescribed — FAIL" exception = (e, catch_backtrace())
+    global nfail += 1
+end
+
+rm("test_halofill_prescribed_rank$(rank).jld2"; force = true)
 
 flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
