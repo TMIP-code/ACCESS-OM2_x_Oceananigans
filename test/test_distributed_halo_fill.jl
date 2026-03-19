@@ -212,125 +212,160 @@ end
 # Test 3a: PartialCellBottom (instead of GridFittedBottom)
 # =========================================================================
 
-grid_3a = make_grid(arch)
-ibg_3a = ImmersedBoundaryGrid(grid_3a, PartialCellBottom(bottom_height = (x, y) -> -800))
+try
+    grid_3a = make_grid(arch)
+    ibg_3a = ImmersedBoundaryGrid(grid_3a, PartialCellBottom((x, y) -> -800))
 
-model_3a = HydrostaticFreeSurfaceModel(
-    ibg_3a;
-    velocities = PrescribedVelocityFields(),
-    tracers = (; age = CenterField(ibg_3a)),
-    free_surface = nothing,
-)
+    model_3a = HydrostaticFreeSurfaceModel(
+        ibg_3a;
+        velocities = PrescribedVelocityFields(),
+        tracers = (; age = CenterField(ibg_3a)),
+        free_surface = nothing,
+    )
 
-v_3a = Field{Center, Face, Center}(ibg_3a)
-set!(v_3a, (x, y, z) -> y + z)
+    v_3a = Field{Center, Face, Center}(ibg_3a)
+    set!(v_3a, (x, y, z) -> y + z)
 
-if run_jld2writer_test("3a_PartialCellBottom", model_3a, Dict("v" => v_3a), 1.0)
-    global npass += 1
-else
+    if run_jld2writer_test("3a_PartialCellBottom", model_3a, Dict("v" => v_3a), 1.0)
+        global npass += 1
+    else
+        global nfail += 1
+    end
+catch e
+    @error "Rank $rank: [3a_PartialCellBottom] — FAIL (setup)" exception = (e, catch_backtrace())
     global nfail += 1
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
 end
 
 # =========================================================================
 # Test 3b: MutableVerticalDiscretization (instead of static z)
 # =========================================================================
 
-grid_3b = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-ibg_3b = ImmersedBoundaryGrid(grid_3b, GridFittedBottom((x, y) -> -1000))
+try
+    grid_3b = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
+    ibg_3b = ImmersedBoundaryGrid(grid_3b, GridFittedBottom((x, y) -> -1000))
 
-model_3b = HydrostaticFreeSurfaceModel(
-    ibg_3b;
-    velocities = PrescribedVelocityFields(),
-    tracers = (; age = CenterField(ibg_3b)),
-    free_surface = nothing,
-)
+    model_3b = HydrostaticFreeSurfaceModel(
+        ibg_3b;
+        velocities = PrescribedVelocityFields(),
+        tracers = (; age = CenterField(ibg_3b)),
+        free_surface = nothing,
+    )
 
-v_3b = Field{Center, Face, Center}(ibg_3b)
-set!(v_3b, (x, y, z) -> y + z)
+    v_3b = Field{Center, Face, Center}(ibg_3b)
+    set!(v_3b, (x, y, z) -> y + z)
 
-if run_jld2writer_test("3b_MutableVertDisc", model_3b, Dict("v" => v_3b), 1.0)
-    global npass += 1
-else
+    if run_jld2writer_test("3b_MutableVertDisc", model_3b, Dict("v" => v_3b), 1.0)
+        global npass += 1
+    else
+        global nfail += 1
+    end
+catch e
+    @error "Rank $rank: [3b_MutableVertDisc] — FAIL (setup)" exception = (e, catch_backtrace())
     global nfail += 1
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
 end
 
 # =========================================================================
 # Test 3c: PrescribedVelocityFields with FTS u, v (→ TimeSeriesInterpolation)
 # =========================================================================
 
-u_fts_3c, v_fts_3c = make_velocity_fts(ibg_baseline)
+try
+    u_fts_3c, v_fts_3c = make_velocity_fts(ibg_baseline)
 
-model_3c = HydrostaticFreeSurfaceModel(
-    ibg_baseline;
-    velocities = PrescribedVelocityFields(u = u_fts_3c, v = v_fts_3c),
-    tracers = (; age = CenterField(ibg_baseline)),
-    free_surface = nothing,
-)
-
-@info "Rank $rank: [3c] u type = $(typeof(model_3c.velocities.u))"
-@info "Rank $rank: [3c] v type = $(typeof(model_3c.velocities.v))"
-flush(stdout); flush(stderr)
-
-if run_jld2writer_test(
-        "3c_FTS_velocities", model_3c,
-        Dict("age" => model_3c.tracers.age), 1.0
+    model_3c = HydrostaticFreeSurfaceModel(
+        ibg_baseline;
+        velocities = PrescribedVelocityFields(u = u_fts_3c, v = v_fts_3c),
+        tracers = (; age = CenterField(ibg_baseline)),
+        free_surface = nothing,
     )
-    global npass += 1
-else
+
+    @info "Rank $rank: [3c] u type = $(typeof(model_3c.velocities.u))"
+    @info "Rank $rank: [3c] v type = $(typeof(model_3c.velocities.v))"
+    flush(stdout); flush(stderr)
+
+    if run_jld2writer_test(
+            "3c_FTS_velocities", model_3c,
+            Dict("age" => model_3c.tracers.age), 1.0
+        )
+        global npass += 1
+    else
+        global nfail += 1
+    end
+catch e
+    @error "Rank $rank: [3c_FTS_velocities] — FAIL (setup)" exception = (e, catch_backtrace())
     global nfail += 1
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
 end
 
 # =========================================================================
 # Test 3d: FTS velocities + DiagnosticVerticalVelocity
 # =========================================================================
 
-u_fts_3d, v_fts_3d = make_velocity_fts(ibg_baseline)
+try
+    u_fts_3d, v_fts_3d = make_velocity_fts(ibg_baseline)
 
-model_3d = HydrostaticFreeSurfaceModel(
-    ibg_baseline;
-    velocities = PrescribedVelocityFields(
-        u = u_fts_3d, v = v_fts_3d,
-        formulation = DiagnosticVerticalVelocity(),
-    ),
-    tracers = (; age = CenterField(ibg_baseline)),
-    free_surface = nothing,
-)
-
-@info "Rank $rank: [3d] w type = $(typeof(model_3d.velocities.w))"
-flush(stdout); flush(stderr)
-
-if run_jld2writer_test(
-        "3d_DiagnosticW", model_3d,
-        Dict("age" => model_3d.tracers.age, "w" => model_3d.velocities.w), 1.0
+    model_3d = HydrostaticFreeSurfaceModel(
+        ibg_baseline;
+        velocities = PrescribedVelocityFields(
+            u = u_fts_3d, v = v_fts_3d,
+            formulation = DiagnosticVerticalVelocity(),
+        ),
+        tracers = (; age = CenterField(ibg_baseline)),
+        free_surface = nothing,
     )
-    global npass += 1
-else
+
+    @info "Rank $rank: [3d] w type = $(typeof(model_3d.velocities.w))"
+    flush(stdout); flush(stderr)
+
+    if run_jld2writer_test(
+            "3d_DiagnosticW", model_3d,
+            Dict("age" => model_3d.tracers.age, "w" => model_3d.velocities.w), 1.0
+        )
+        global npass += 1
+    else
+        global nfail += 1
+    end
+catch e
+    @error "Rank $rank: [3d_DiagnosticW] — FAIL (setup)" exception = (e, catch_backtrace())
     global nfail += 1
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
 end
 
 # =========================================================================
 # Test 3e: PrescribedFreeSurface with FTS η
 # =========================================================================
 
-η_fts_3e = make_eta_fts(ibg_baseline)
+try
+    η_fts_3e = make_eta_fts(ibg_baseline)
 
-model_3e = HydrostaticFreeSurfaceModel(
-    ibg_baseline;
-    velocities = PrescribedVelocityFields(),
-    tracers = (; age = CenterField(ibg_baseline)),
-    free_surface = PrescribedFreeSurface(displacement = η_fts_3e),
-)
-
-@info "Rank $rank: [3e] η type = $(typeof(model_3e.free_surface.displacement))"
-flush(stdout); flush(stderr)
-
-if run_jld2writer_test(
-        "3e_PrescribedFreeSurf", model_3e,
-        Dict("age" => model_3e.tracers.age), 1.0
+    model_3e = HydrostaticFreeSurfaceModel(
+        ibg_baseline;
+        velocities = PrescribedVelocityFields(),
+        tracers = (; age = CenterField(ibg_baseline)),
+        free_surface = PrescribedFreeSurface(displacement = η_fts_3e),
     )
-    global npass += 1
-else
+
+    @info "Rank $rank: [3e] η type = $(typeof(model_3e.free_surface.displacement))"
+    flush(stdout); flush(stderr)
+
+    if run_jld2writer_test(
+            "3e_PrescribedFreeSurf", model_3e,
+            Dict("age" => model_3e.tracers.age), 1.0
+        )
+        global npass += 1
+    else
+        global nfail += 1
+    end
+catch e
+    @error "Rank $rank: [3e_PrescribedFreeSurf] — FAIL (setup)" exception = (e, catch_backtrace())
     global nfail += 1
+    flush(stdout); flush(stderr)
+    MPI.Barrier(MPI.COMM_WORLD)
 end
 
 # =========================================================================
