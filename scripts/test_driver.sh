@@ -37,7 +37,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_RESOURCES=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare mpi"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi"
     echo ""
     echo "Examples:"
     echo "  GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -84,7 +84,7 @@ echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_
 echo ""
 
 STEP=0
-HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" DIAGCPU_JOB="" DIAGCPUSERIAL_JOB="" COMPARE_JOB="" MPI_JOB=""
+HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" DIAGCPU_JOB="" DIAGCPUSERIAL_JOB="" COMPARE_JOB="" GRIDTEST_JOB="" MPI_JOB=""
 
 # --- halofill: fill_halo_regions! MWE (GPU) ---
 if has_step halofill; then
@@ -165,6 +165,17 @@ if has_step compare; then
     echo "[$STEP] compare (CPU, GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG): $COMPARE_JOB"
 fi
 
+# --- gridtest: grid identity test (CPU, 4 ranks, express queue) ---
+if has_step gridtest; then
+    STEP=$((STEP + 1))
+    GRIDTEST_JOB=$(qsub \
+        -N "${MODEL_SHORT}_gridtest" -l walltime=00:30:00 \
+        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
+        -v ${COMMON_VARS} \
+        scripts/tests/run_grid_identity_test.sh)
+    echo "[$STEP] gridtest (CPU, 4 ranks): $GRIDTEST_JOB"
+fi
+
 # --- mpi: MPI smoke test ---
 if has_step mpi; then
     STEP=$((STEP + 1))
@@ -187,6 +198,7 @@ for label_job in \
     "diagcpu:$DIAGCPU_JOB" \
     "diagcpuserial:$DIAGCPUSERIAL_JOB" \
     "compare:$COMPARE_JOB" \
+    "gridtest:$GRIDTEST_JOB" \
     "mpi:$MPI_JOB" \
 ; do
     label="${label_job%%:*}"

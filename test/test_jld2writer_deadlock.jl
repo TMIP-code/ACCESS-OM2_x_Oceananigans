@@ -13,7 +13,7 @@ all ranks is unsafe.
 The fix is `including=[]`, which skips grid/model metadata serialization entirely.
 
 Run with 2 CPU ranks (no GPUs required to reproduce the deadlock path):
-    mpiexec -n 2 julia --project src/test_jld2writer_deadlock.jl
+    mpiexec -n 2 julia --project test/test_jld2writer_deadlock.jl
 
 In stock Oceananigans.jl the writer is called `JLD2OutputWriter`; in this fork
 it is `JLD2Writer`. The bug exists in both.

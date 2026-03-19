@@ -2,10 +2,10 @@
 MWE: Test fill_halo_regions! on distributed tripolar grid fields at all staggered locations.
 
 Run with 4 GPUs:
-    mpiexec --bind-to socket --map-by socket -n 4 julia --project src/test_distributed_halo_fill.jl
+    mpiexec --bind-to socket --map-by socket -n 4 julia --project test/test_distributed_halo_fill.jl
 
 Run with 4 CPUs (no GPUs):
-    mpiexec -n 4 julia --project src/test_distributed_halo_fill.jl
+    mpiexec -n 4 julia --project test/test_distributed_halo_fill.jl
 
 Expected: fill_halo_regions! should work for all (LX, LY, LZ) locations.
 Observed: BoundsError in _fill_north_send_buffer! for Face-located fields.

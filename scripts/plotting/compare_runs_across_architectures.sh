@@ -25,5 +25,5 @@ echo "Running compare_runs_across_architectures.jl on CPU (GPU_TAG=$GPU_TAG, DUR
 log_dir=logs/julia/$PARENT_MODEL/plot/compare
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
-julia --project src/compare_runs_across_architectures.jl &> "$log_dir/${MODEL_CONFIG}_${GPU_TAG}_${DURATION_TAG}_${job_id}.log"
+julia --project test/compare_runs_across_architectures.jl &> "$log_dir/${MODEL_CONFIG}_${GPU_TAG}_${DURATION_TAG}_${job_id}.log"
 echo "Done running compare_runs_across_architectures.jl (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"

@@ -9,7 +9,7 @@ Usage — interactive (CPU node):
 qsub -I -P y99 -l mem=47GB -q express -l walltime=01:00:00 -l ncpus=12 \\
      -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99 -o logs/PBS/ -j oe
 cd /home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
-GPU_TAG=2x2 DURATION_TAG=1year julia --project src/compare_runs_across_architectures.jl
+GPU_TAG=2x2 DURATION_TAG=1year julia --project test/compare_runs_across_architectures.jl
 ```
 
 Environment variables:
@@ -40,7 +40,7 @@ using TOML
 using JLD2
 using Printf
 
-include("shared_functions.jl")
+include("../src/shared_functions.jl")
 
 ################################################################################
 # Configuration

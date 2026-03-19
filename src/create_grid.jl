@@ -150,55 +150,12 @@ grid = ImmersedBoundaryGrid(
 flush(stdout); flush(stderr)
 
 code_to_reconstruct_the_grid = """
-    using Oceananigans
-    using Adapt
-
-    gd = load(grid_file) # gd for grid Dict
-    underlying_grid = OrthogonalSphericalShellGrid{Periodic, RightFaceFolded, Bounded}(
-        arch,
-        gd["Nx"], gd["Ny"], gd["Nz"],
-        gd["Hx"], gd["Hy"], gd["Hz"],
-        convert(FT, gd["Lz"]),
-        on_architecture(arch, map(FT, gd["λᶜᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["λᶠᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["λᶜᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["λᶠᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["φᶜᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["φᶠᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["φᶜᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["φᶠᶠᵃ"])),
-        on_architecture(arch, let
-            z_faces = gd["z_faces"]
-            _, z_mvd = Oceananigans.Grids.generate_coordinate(
-                FT,
-                (Periodic, RightFaceFolded, Bounded),
-                (gd["Nx"], gd["Ny"], gd["Nz"]),
-                (gd["Hx"], gd["Hy"], gd["Hz"]),
-                MutableVerticalDiscretization(z_faces),
-                :z, 3, CPU(),
-            )
-            z_mvd
-        end),
-        on_architecture(arch, map(FT, gd["Δxᶜᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Δxᶠᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Δxᶜᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["Δxᶠᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["Δyᶜᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Δyᶠᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Δyᶜᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["Δyᶠᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["Azᶜᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Azᶠᶜᵃ"])),
-        on_architecture(arch, map(FT, gd["Azᶜᶠᵃ"])),
-        on_architecture(arch, map(FT, gd["Azᶠᶠᵃ"])),
-        convert(FT, gd["radius"]),
-        Tripolar(gd["north_poles_latitude"], gd["first_pole_longitude"], gd["southernmost_latitude"])
-    )
-    grid = ImmersedBoundaryGrid(
-        underlying_grid, PartialCellBottom(gd["bottom"]);
-        active_cells_map = true,
-        active_z_columns = true,
-    )
+    # See src/shared_utils/grid.jl for load_tripolar_grid and build_underlying_grid.
+    # Usage:
+    #   include("src/shared_functions.jl")
+    #   grid = load_tripolar_grid(grid_file, arch)
+    # This handles both serial and distributed architectures, using the
+    # pre-computed coordinate/metric arrays saved in this JLD2 file.
 """
 
 grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")

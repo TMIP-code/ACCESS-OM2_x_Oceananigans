@@ -31,7 +31,7 @@ elif [ "$NGPUS" -eq 0 ] && [ "$NCPUS" -gt 1 ]; then
     JULIA_LAUNCHER="mpiexec -n $NCPUS $JULIA_LAUNCHER"
 fi
 
-echo "Running src/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS, NCPUS=$NCPUS)"
+echo "Running test/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS, NCPUS=$NCPUS)"
 echo "logging output in $log_file"
-$JULIA_LAUNCHER src/run_diagnostic_steps.jl &> "$log_file"
-echo "Done running src/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL"
+$JULIA_LAUNCHER test/run_diagnostic_steps.jl &> "$log_file"
+echo "Done running test/run_diagnostic_steps.jl for PARENT_MODEL=$PARENT_MODEL"

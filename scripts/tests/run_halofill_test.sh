@@ -31,7 +31,7 @@ elif [ "$NGPUS" -eq 0 ] && [ "$NCPUS" -gt 1 ]; then
     JULIA_LAUNCHER="mpiexec -n $NCPUS $JULIA_LAUNCHER"
 fi
 
-echo "Running src/test_distributed_halo_fill.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS, NCPUS=$NCPUS)"
+echo "Running test/test_distributed_halo_fill.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS, NCPUS=$NCPUS)"
 echo "logging output in $log_file"
-$JULIA_LAUNCHER src/test_distributed_halo_fill.jl &> "$log_file"
-echo "Done running src/test_distributed_halo_fill.jl"
+$JULIA_LAUNCHER test/test_distributed_halo_fill.jl &> "$log_file"
+echo "Done running test/test_distributed_halo_fill.jl"

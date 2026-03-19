@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #PBS -P y99
-#PBS -l mem=16GB
+#PBS -l mem=47GB
 #PBS -q express
 #PBS -l ngpus=0
-#PBS -l ncpus=2
+#PBS -l ncpus=4
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
 #PBS -o logs/PBS/
@@ -20,9 +20,11 @@ source scripts/env_defaults.sh
 job_id="${PBS_JOBID:-interactive}"
 log_dir=logs/julia/$PARENT_MODEL/test
 mkdir -p "$log_dir"
-log_file="$log_dir/jld2writer_${job_id}.log"
+log_file="$log_dir/grid_identity_${job_id}.log"
 
-echo "Running test/test_jld2writer_deadlock.jl (PARENT_MODEL=$PARENT_MODEL)"
+NCPUS="${PBS_NCPUS:-4}"
+
+echo "Running test/test_grid_identity.jl for PARENT_MODEL=$PARENT_MODEL (NCPUS=$NCPUS)"
 echo "logging output in $log_file"
-mpiexec -n 2 julia $JULIA_BOUNDS_FLAG --project test/test_jld2writer_deadlock.jl &> "$log_file"
-echo "Done running test/test_jld2writer_deadlock.jl"
+mpiexec -n $NCPUS julia $JULIA_BOUNDS_FLAG --project test/test_grid_identity.jl &> "$log_file"
+echo "Done running test/test_grid_identity.jl"

@@ -7,11 +7,11 @@ Output files: `age_diag_part1.jld2` ... `age_diag_part11.jld2`
 
 Usage:
 ```
-PARENT_MODEL=ACCESS-OM2-1 julia --project src/run_diagnostic_steps.jl
+PARENT_MODEL=ACCESS-OM2-1 julia --project test/run_diagnostic_steps.jl
 ```
 """
 
-include("setup_model.jl")
+include("../src/setup_model.jl")
 
 ################################################################################
 # Initial condition
