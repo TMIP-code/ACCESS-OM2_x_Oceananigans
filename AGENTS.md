@@ -127,11 +127,25 @@ PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
 ```
 Test steps: `halofill` (halo fill MWE), `diag` (10-step diagnostic), `mpi` (MPI smoke test)
 
-Monitor:
+### PBS Pro monitoring
+
+This project runs on NCI Gadi, which uses PBS Pro as its job scheduler. Use `/qstat` (custom skill) or the commands below.
+
+Common commands:
 ```bash
 qstat -u bp3051          # list all your running/queued jobs
 qstat -f <job_id>        # detailed status for one job
+qstat -x <job_id>        # include finished jobs (history)
+qdel <job_id>            # cancel a job
 ```
+
+PBS job states: `Q` = queued, `R` = running, `H` = held, `E` = exiting, `F` = finished.
+
+Job names in this project follow the pattern `{MODEL_SHORT}_{step}` (e.g., `OM21_run1yr`, `OM2025_NK`), set by `driver.sh` via `#PBS -N`.
+
+Log locations after a job completes:
+- PBS scheduler logs: `logs/PBS/` (stdout/stderr from `#PBS -o/-e`)
+- Julia script logs: `logs/julia/{PM}/` (organised by pipeline step, see directory tree above)
 
 ## Naming conventions
 
