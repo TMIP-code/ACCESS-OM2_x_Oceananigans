@@ -31,7 +31,11 @@ Run with 4 GPUs:
 using Oceananigans
 using Oceananigans: fill_halo_regions!
 using Oceananigans.Architectures: CPU
+using Oceananigans.DistributedComputations: Distributed
+using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: MutableVerticalDiscretization, RightFaceFolded
+using Oceananigans.OrthogonalSphericalShellGrids: fold_set!
+using Oceananigans.OutputReaders: InMemory
 using Oceananigans.Units: seconds
 using JLD2
 using Oceananigans.OutputWriters
@@ -67,6 +71,7 @@ Nx, Ny, Nz = 60, 61, 10
 z_faces = collect(range(-1000, 0; length = Nz + 1))
 halo = (7, 7, 7)
 grid_kw = (; first_pole_longitude = 75, north_poles_latitude = 55, fold_topology = RightFaceFolded)
+bottom_height_func(x, y) = -800  # shared bottom function for serial/distributed IB consistency
 
 # --- Helpers ---
 
@@ -74,33 +79,165 @@ function make_grid(arch; z = (-1000, 0))
     return TripolarGrid(arch, Float64; size = (Nx, Ny, Nz), z = z, halo = halo, grid_kw...)
 end
 
-function make_velocity_fts(ibg)
+"""
+    make_velocity_fts(ibg, z, ib_constructor)
+
+Create u, v FieldTimeSeries by saving to JLD2 from a serial grid then reloading,
+mimicking the real pipeline (create_velocities.jl → load_fts in data_loading.jl).
+On distributed grids, rank 0 creates the serial FTS file, all ranks load it.
+`z` is the z-specification for TripolarGrid (tuple or MutableVerticalDiscretization).
+`ib_constructor` is a function `grid -> immersed_boundary` (e.g. PartialCellBottom).
+"""
+function make_velocity_fts(ibg, z, ib_constructor)
     fts_times = [0.0, 1.0, 2.0, 3.0]
-    u_fts = FieldTimeSeries{Face, Center, Center}(ibg, fts_times)
-    v_fts = FieldTimeSeries{Center, Face, Center}(ibg, fts_times)
-    for n in eachindex(fts_times)
-        set!(u_fts[n], (x, y, z) -> 0.1 * cosd(y))
-        set!(v_fts[n], (x, y, z) -> 0.0)
+    grid_arch = Oceananigans.Architectures.architecture(ibg)
+
+    if grid_arch isa Distributed
+        u_file = "test_halofill_mwe_u.jld2"
+        v_file = "test_halofill_mwe_v.jld2"
+
+        # Rank 0 creates serial FTS and saves to JLD2
+        if rank == 0
+            serial_ibg = _make_serial_ibg(z, ib_constructor)
+            _save_fts_to_jld2(
+                serial_ibg, Face, Center, Center, "u",
+                (x, y, z) -> 0.1 * cosd(y), fts_times, u_file
+            )
+            _save_fts_to_jld2(
+                serial_ibg, Center, Face, Center, "v",
+                (x, y, z) -> 0.0, fts_times, v_file
+            )
+        end
+        MPI.Barrier(MPI.COMM_WORLD)
+
+        # All ranks: load via serial CPU grid then distribute (matches load_fts(::Distributed))
+        cpu_ibg = _make_serial_ibg(z, ib_constructor)
+        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        u_fts = _load_fts_distributed(u_file, "u", ibg, cpu_ibg, time_indexing)
+        v_fts = _load_fts_distributed(v_file, "v", ibg, cpu_ibg, time_indexing)
+
+        MPI.Barrier(MPI.COMM_WORLD)
+        rm(u_file; force = true)
+        rm(v_file; force = true)
+        return u_fts, v_fts
+    else
+        u_fts = FieldTimeSeries{Face, Center, Center}(ibg, fts_times)
+        v_fts = FieldTimeSeries{Center, Face, Center}(ibg, fts_times)
+        for n in eachindex(fts_times)
+            set!(u_fts[n], (x, y, z) -> 0.1 * cosd(y))
+            set!(v_fts[n], (x, y, z) -> 0.0)
+        end
+        return u_fts, v_fts
     end
-    return u_fts, v_fts
 end
 
-function make_w_fts(ibg)
+function make_w_fts(ibg, z, ib_constructor)
     fts_times = [0.0, 1.0, 2.0, 3.0]
-    w_fts = FieldTimeSeries{Center, Center, Face}(ibg, fts_times)
-    for n in eachindex(fts_times)
-        set!(w_fts[n], (x, y, z) -> 0.0)
+    grid_arch = Oceananigans.Architectures.architecture(ibg)
+
+    if grid_arch isa Distributed
+        w_file = "test_halofill_mwe_w.jld2"
+        if rank == 0
+            serial_ibg = _make_serial_ibg(z, ib_constructor)
+            _save_fts_to_jld2(
+                serial_ibg, Center, Center, Face, "w",
+                (x, y, z) -> 0.0, fts_times, w_file
+            )
+        end
+        MPI.Barrier(MPI.COMM_WORLD)
+
+        cpu_ibg = _make_serial_ibg(z, ib_constructor)
+        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        w_fts = _load_fts_distributed(w_file, "w", ibg, cpu_ibg, time_indexing)
+
+        MPI.Barrier(MPI.COMM_WORLD)
+        rm(w_file; force = true)
+        return w_fts
+    else
+        w_fts = FieldTimeSeries{Center, Center, Face}(ibg, fts_times)
+        for n in eachindex(fts_times)
+            set!(w_fts[n], (x, y, z) -> 0.0)
+        end
+        return w_fts
     end
-    return w_fts
 end
 
-function make_eta_fts(ibg)
+function make_eta_fts(ibg, z, ib_constructor)
     fts_times = [0.0, 1.0, 2.0, 3.0]
-    η_fts = FieldTimeSeries{Center, Center, Nothing}(ibg, fts_times)
-    for n in eachindex(fts_times)
-        set!(η_fts[n], (x, y) -> 0.0)
+    grid_arch = Oceananigans.Architectures.architecture(ibg)
+
+    if grid_arch isa Distributed
+        η_file = "test_halofill_mwe_eta.jld2"
+        if rank == 0
+            serial_ibg = _make_serial_ibg(z, ib_constructor)
+            _save_fts_to_jld2(
+                serial_ibg, Center, Center, Nothing, "η",
+                (x, y) -> 0.0, fts_times, η_file
+            )
+        end
+        MPI.Barrier(MPI.COMM_WORLD)
+
+        cpu_ibg = _make_serial_ibg(z, ib_constructor)
+        time_indexing = Oceananigans.OutputReaders.Cyclical(period = last(fts_times))
+        η_fts = _load_fts_distributed(η_file, "η", ibg, cpu_ibg, time_indexing)
+
+        MPI.Barrier(MPI.COMM_WORLD)
+        rm(η_file; force = true)
+        return η_fts
+    else
+        η_fts = FieldTimeSeries{Center, Center, Nothing}(ibg, fts_times)
+        for n in eachindex(fts_times)
+            set!(η_fts[n], (x, y) -> 0.0)
+        end
+        return η_fts
     end
-    return η_fts
+end
+
+# --- Internal helpers for save/load FTS pipeline ---
+
+"""Build a serial CPU ImmersedBoundaryGrid (used by rank 0 to save FTS and by all ranks to load)."""
+function _make_serial_ibg(z, ib_constructor)
+    serial_grid = TripolarGrid(CPU(), Float64; size = (Nx, Ny, Nz), z = z, halo = halo, grid_kw...)
+    return ImmersedBoundaryGrid(serial_grid, ib_constructor)
+end
+
+"""Save a FieldTimeSeries to JLD2 in the format that FieldTimeSeries(file, name; ...) can read."""
+function _save_fts_to_jld2(ibg, LX, LY, LZ, name, func, times, filepath)
+    fts = FieldTimeSeries{LX, LY, LZ}(ibg, times)
+    for n in eachindex(times)
+        set!(fts[n], func)
+    end
+    jldopen(filepath, "w") do f
+        for n in eachindex(times)
+            f["timeseries/$name/$n"] = Array(interior(fts[n]))
+            f["timeseries/t/$n"] = times[n]
+        end
+        f["serialized/grid"] = ibg
+        f["serialized/location"] = (LX, LY, LZ)
+    end
+    return nothing
+end
+
+"""Load FTS from JLD2 on distributed grid, mimicking load_fts(::Distributed, ...) in data_loading.jl."""
+function _load_fts_distributed(filepath, name, dist_ibg, cpu_ibg, time_indexing)
+    cpu_fts = FieldTimeSeries(
+        filepath, name;
+        architecture = CPU(), grid = cpu_ibg,
+        backend = InMemory(), time_indexing
+    )
+
+    dist_fts = FieldTimeSeries(
+        instantiated_location(cpu_fts), dist_ibg, cpu_fts.times;
+        backend = InMemory(), time_indexing
+    )
+
+    conformal_mapping = dist_ibg.underlying_grid.conformal_mapping
+    y_loc = instantiated_location(cpu_fts)[2]
+    for n in eachindex(cpu_fts.times)
+        fold_set!(dist_fts[n], Array(interior(cpu_fts[n])), conformal_mapping, typeof(y_loc))
+    end
+    fill_halo_regions!(dist_fts)
+    return dist_fts
 end
 
 function run_jld2writer_test(test_name, model, output_fields, Δt)
@@ -240,11 +377,13 @@ end
 # =========================================================================
 
 try
-    grid_4 = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4 = ImmersedBoundaryGrid(grid_4, PartialCellBottom((x, y) -> -800))
+    z_4 = MutableVerticalDiscretization(z_faces)
+    ib_4 = PartialCellBottom(bottom_height_func)
+    grid_4 = make_grid(arch; z = z_4)
+    ibg_4 = ImmersedBoundaryGrid(grid_4, ib_4)
 
-    u_fts_4, v_fts_4 = make_velocity_fts(ibg_4)
-    η_fts_4 = make_eta_fts(ibg_4)
+    u_fts_4, v_fts_4 = make_velocity_fts(ibg_4, z_4, ib_4)
+    η_fts_4 = make_eta_fts(ibg_4, z_4, ib_4)
 
     model_4 = HydrostaticFreeSurfaceModel(
         ibg_4;
@@ -284,11 +423,13 @@ end
 # =========================================================================
 
 try
-    grid_4a = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4a = ImmersedBoundaryGrid(grid_4a, GridFittedBottom((x, y) -> -800))
+    z_4a = MutableVerticalDiscretization(z_faces)
+    ib_4a = GridFittedBottom(bottom_height_func)
+    grid_4a = make_grid(arch; z = z_4a)
+    ibg_4a = ImmersedBoundaryGrid(grid_4a, ib_4a)
 
-    u_fts_4a, v_fts_4a = make_velocity_fts(ibg_4a)
-    η_fts_4a = make_eta_fts(ibg_4a)
+    u_fts_4a, v_fts_4a = make_velocity_fts(ibg_4a, z_4a, ib_4a)
+    η_fts_4a = make_eta_fts(ibg_4a, z_4a, ib_4a)
 
     model_4a = HydrostaticFreeSurfaceModel(
         ibg_4a;
@@ -325,11 +466,13 @@ end
 # =========================================================================
 
 try
-    grid_4b = make_grid(arch)  # static z = (-1000, 0)
-    ibg_4b = ImmersedBoundaryGrid(grid_4b, PartialCellBottom((x, y) -> -800))
+    z_4b = (-1000, 0)  # static z (no MVD)
+    ib_4b = PartialCellBottom(bottom_height_func)
+    grid_4b = make_grid(arch; z = z_4b)
+    ibg_4b = ImmersedBoundaryGrid(grid_4b, ib_4b)
 
-    u_fts_4b, v_fts_4b = make_velocity_fts(ibg_4b)
-    η_fts_4b = make_eta_fts(ibg_4b)
+    u_fts_4b, v_fts_4b = make_velocity_fts(ibg_4b, z_4b, ib_4b)
+    η_fts_4b = make_eta_fts(ibg_4b, z_4b, ib_4b)
 
     model_4b = HydrostaticFreeSurfaceModel(
         ibg_4b;
@@ -367,10 +510,12 @@ end
 # =========================================================================
 
 try
-    grid_4c = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4c = ImmersedBoundaryGrid(grid_4c, PartialCellBottom((x, y) -> -800))
+    z_4c = MutableVerticalDiscretization(z_faces)
+    ib_4c = PartialCellBottom(bottom_height_func)
+    grid_4c = make_grid(arch; z = z_4c)
+    ibg_4c = ImmersedBoundaryGrid(grid_4c, ib_4c)
 
-    η_fts_4c = make_eta_fts(ibg_4c)
+    η_fts_4c = make_eta_fts(ibg_4c, z_4c, ib_4c)
 
     model_4c = HydrostaticFreeSurfaceModel(
         ibg_4c;
@@ -401,12 +546,14 @@ end
 # =========================================================================
 
 try
-    grid_4d = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4d = ImmersedBoundaryGrid(grid_4d, PartialCellBottom((x, y) -> -800))
+    z_4d = MutableVerticalDiscretization(z_faces)
+    ib_4d = PartialCellBottom(bottom_height_func)
+    grid_4d = make_grid(arch; z = z_4d)
+    ibg_4d = ImmersedBoundaryGrid(grid_4d, ib_4d)
 
-    u_fts_4d, v_fts_4d = make_velocity_fts(ibg_4d)
-    w_fts_4d = make_w_fts(ibg_4d)
-    η_fts_4d = make_eta_fts(ibg_4d)
+    u_fts_4d, v_fts_4d = make_velocity_fts(ibg_4d, z_4d, ib_4d)
+    w_fts_4d = make_w_fts(ibg_4d, z_4d, ib_4d)
+    η_fts_4d = make_eta_fts(ibg_4d, z_4d, ib_4d)
 
     model_4d = HydrostaticFreeSurfaceModel(
         ibg_4d;
@@ -440,10 +587,12 @@ end
 # =========================================================================
 
 try
-    grid_4e = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4e = ImmersedBoundaryGrid(grid_4e, PartialCellBottom((x, y) -> -800))
+    z_4e = MutableVerticalDiscretization(z_faces)
+    ib_4e = PartialCellBottom(bottom_height_func)
+    grid_4e = make_grid(arch; z = z_4e)
+    ibg_4e = ImmersedBoundaryGrid(grid_4e, ib_4e)
 
-    u_fts_4e, v_fts_4e = make_velocity_fts(ibg_4e)
+    u_fts_4e, v_fts_4e = make_velocity_fts(ibg_4e, z_4e, ib_4e)
 
     model_4e = HydrostaticFreeSurfaceModel(
         ibg_4e;
@@ -479,11 +628,13 @@ end
 # =========================================================================
 
 try
-    grid_4f = make_grid(arch; z = MutableVerticalDiscretization(z_faces))
-    ibg_4f = ImmersedBoundaryGrid(grid_4f, PartialCellBottom((x, y) -> -800))
+    z_4f = MutableVerticalDiscretization(z_faces)
+    ib_4f = PartialCellBottom(bottom_height_func)
+    grid_4f = make_grid(arch; z = z_4f)
+    ibg_4f = ImmersedBoundaryGrid(grid_4f, ib_4f)
 
-    u_fts_4f, v_fts_4f = make_velocity_fts(ibg_4f)
-    η_fts_4f = make_eta_fts(ibg_4f)
+    u_fts_4f, v_fts_4f = make_velocity_fts(ibg_4f, z_4f, ib_4f)
+    η_fts_4f = make_eta_fts(ibg_4f, z_4f, ib_4f)
 
     model_4f = HydrostaticFreeSurfaceModel(
         ibg_4f;
