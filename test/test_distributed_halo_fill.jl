@@ -212,8 +212,11 @@ function _save_fts_to_jld2(ibg, LX, LY, LZ, name, func, times, filepath)
             f["timeseries/$name/$n"] = Array(interior(fts[n]))
             f["timeseries/t/$n"] = times[n]
         end
+        # FieldTimeSeries loader expects these serialized metadata keys
+        f["timeseries/$name/serialized/location"] = (LX, LY, LZ)
+        f["timeseries/$name/serialized/indices"] = (:, :, :)
+        f["timeseries/$name/serialized/boundary_conditions"] = fts[1].boundary_conditions
         f["serialized/grid"] = ibg
-        f["serialized/location"] = (LX, LY, LZ)
     end
     return nothing
 end
