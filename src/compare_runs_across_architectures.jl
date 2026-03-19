@@ -205,7 +205,7 @@ n_levels = 11
 diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
 plot_age_diagnostics(
     age_diff_yr, grid, wet3D, vol_3D, plot_output_dir, "diff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-    colorrange = diff_range, levels = diff_levels, colormap = :balance,
+    colorrange = diff_range, levels = diff_levels, colormap = cgrad(:balance, n_levels - 1, categorical = true),
 )
 
 # Plot relative difference (skip if all values near zero)
@@ -216,7 +216,7 @@ if !isempty(wet_reldiff)
     reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
     plot_age_diagnostics(
         age_reldiff, grid, wet3D, vol_3D, plot_output_dir, "reldiff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-        colorrange = reldiff_range, levels = reldiff_levels, colormap = :balance,
+        colorrange = reldiff_range, levels = reldiff_levels, colormap = cgrad(:balance, n_levels - 1, categorical = true),
     )
 end
 
