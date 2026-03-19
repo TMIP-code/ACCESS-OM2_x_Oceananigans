@@ -1,0 +1,58 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gh-module-load.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/format-julia.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read(//g/data/y99/bp3051/.julia/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/outputs/**)",
+      "Read(//home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/debug/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/debug/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/logs/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/archive/**)",
+      "Read(//home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/archive/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/preprocessed_inputs/**)",
+      "Read(//apps/julia/**)",
+      "Read(//home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/run_ACCESS-OM2/**)",
+      "Read(//scratch/y99/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/run_ACCESS-OM2/**)",
+      "Read(//home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/**)",
+      "Read(//home/561/bp3051/.julia/**)",
+      "Read(//home/561/.julia/**)",
+      "Read(//home/561/bp3051/**)",
+      "Read(//home/561/**)",
+      "Read(//home/**)",
+      "Read(//tmp/**)",
+      "WebFetch(domain:opus.nci.org.au)",
+      "WebFetch(domain:nci.org.au)",
+      "Bash(git status -u)",
+      "Bash(julia:*)",
+      "Read(//g/data/ik11/outputs/access-om2/1deg_jra55_iaf_omip2_cycle6/output305/**)",
+      "Read(//g/data/ik11/outputs/access-om2-025/025deg_jra55_iaf_omip2_cycle6/**)"
+    ],
+    "additionalDirectories": [
+      "/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/$base",
+      "/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans"
+    ]
+  }
+}
