@@ -92,8 +92,8 @@ metric_names = [
 
 all_pass = true
 for name in metric_names
-    serial_arr = Array(getproperty(serial_grid, name))
-    dist_arr = Array(getproperty(dist_grid, name))
+    serial_arr = parent(getproperty(serial_grid, name))
+    dist_arr = parent(getproperty(dist_grid, name))
 
     # Extract matching interior regions
     serial_slice = serial_arr[iglobal, jglobal]
@@ -103,7 +103,7 @@ for name in metric_names
 
     if maxdiff > 0
         @error "Rank $rank: $name MISMATCH — max|diff| = $maxdiff"
-        all_pass = false
+        global all_pass = false
     else
         @info "Rank $rank: $name — OK (max|diff| = 0)"
     end

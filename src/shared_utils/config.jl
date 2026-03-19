@@ -60,7 +60,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     profile = get(get(cfg, "models", Dict()), parentmodel, nothing)
     if profile === nothing
         @warn "Profile for $parentmodel not found in $cfg_file; using sensible defaults"
-        outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
+        outputdir = normpath(joinpath(@__DIR__, "..", "..", "outputs", parentmodel))
         Δt = parentmodel == "ACCESS-OM2-1" ? 5400.0 :
             parentmodel == "ACCESS-OM2-025" ? 1800.0 : 400.0
     else
