@@ -99,10 +99,10 @@ for loc in locations
     try
         fill_halo_regions!(f)
         @info "Rank $rank: ($LX, $LY, $LZ) — PASS"
-        npass += 1
+        global npass += 1
     catch e
         @error "Rank $rank: ($LX, $LY, $LZ) — FAIL" exception = (e, catch_backtrace())
-        nfail += 1
+        global nfail += 1
     end
 
     flush(stdout); flush(stderr)
@@ -126,10 +126,10 @@ end
 try
     fill_halo_regions!(fts)
     @info "Rank $rank: FTS (Center, Face, Center) — PASS"
-    npass += 1
+    global npass += 1
 catch e
     @error "Rank $rank: FTS (Center, Face, Center) — FAIL" exception = (e, catch_backtrace())
-    nfail += 1
+    global nfail += 1
 end
 
 flush(stdout); flush(stderr)
@@ -165,10 +165,10 @@ try
     )
     run!(simulation)
     @info "Rank $rank: JLD2Writer with Face field — PASS"
-    npass += 1
+    global npass += 1
 catch e
     @error "Rank $rank: JLD2Writer with Face field — FAIL" exception = (e, catch_backtrace())
-    nfail += 1
+    global nfail += 1
 end
 
 # Cleanup
