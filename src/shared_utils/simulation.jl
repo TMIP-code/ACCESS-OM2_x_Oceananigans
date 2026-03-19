@@ -92,12 +92,15 @@ function setup_age_simulation(
         iter = iteration(sim)
         for (name, field) in output_fields
             data = Array(interior(field))
+            # Also save full data with halos for diagnostic plotting
+            data_with_halos = Array(parent(field.data))
             filepath = joinpath(
                 age_output_dir,
                 "$(name)_$(duration_tag)$(rank_suffix)_part$(part_counter[]).jld2"
             )
             jldopen(filepath, "w") do f
                 f["timeseries/$(name)/$(iter)"] = data
+                f["timeseries/$(name)_with_halos/$(iter)"] = data_with_halos
                 f["timeseries/t/$(iter)"] = t
             end
         end

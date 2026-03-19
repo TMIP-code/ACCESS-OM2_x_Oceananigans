@@ -392,5 +392,126 @@ else
 end
 flush(stdout); flush(stderr)
 
+################################################################################
+# Halo-inclusive plots (fold diagnostic)
+################################################################################
+
+# Plot fields WITH halos to visualize fold behavior at the north boundary.
+# Data is saved as "timeseries/{name}_with_halos/{iter}" in each JLD2 part file.
+
+halo_fields = ["u", "v", "w", "age"]
+halo_part = 2  # first timestep
+
+@info "Checking for halo-inclusive data in part $halo_part files"
+flush(stdout); flush(stderr)
+
+serial_halo_file = joinpath(serial_dir, "u_$(DURATION_TAG)_part$(halo_part).jld2")
+has_halo_data = false
+if isfile(serial_halo_file)
+    jldopen(serial_halo_file, "r") do f
+        keys_at_root = keys(f["timeseries"])
+        global has_halo_data = any(endswith(k, "_with_halos") for k in keys_at_root)
+    end
+end
+
+if has_halo_data
+    @info "Plotting halo-inclusive fields (fold diagnostic)"
+    flush(stdout); flush(stderr)
+
+    for field_name in halo_fields
+        serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG)_part$(halo_part).jld2")
+        if !isfile(serial_file)
+            @warn "Skipping $field_name: no serial file"
+            continue
+        end
+
+        # Load serial halo data
+        serial_halo = nothing
+        t_yr = 0.0
+        jldopen(serial_file, "r") do f
+            ts = f["timeseries"]
+            halo_key = "$(field_name)_with_halos"
+            if !haskey(ts, halo_key)
+                @warn "No halo data for $field_name in serial file"
+                return
+            end
+            iter_key = first(keys(ts[halo_key]))
+            serial_halo = ts[halo_key][iter_key]
+            t_yr = ts["t"][iter_key] / year
+        end
+        isnothing(serial_halo) && continue
+
+        # Load and stitch distributed halo data
+        dist_halo_parts = []
+        for ry in 0:(py - 1), rx in 0:(px - 1)
+            r = ry * px + rx
+            dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank$(r)_part$(halo_part).jld2")
+            if !isfile(dist_file)
+                @warn "Missing distributed halo file: $dist_file"
+                @goto skip_field
+            end
+            jldopen(dist_file, "r") do f
+                ts = f["timeseries"]
+                halo_key = "$(field_name)_with_halos"
+                if !haskey(ts, halo_key)
+                    @warn "No halo data for $field_name in rank $r"
+                    return
+                end
+                iter_key = first(keys(ts[halo_key]))
+                push!(dist_halo_parts, (rx = rx, ry = ry, data = ts[halo_key][iter_key]))
+            end
+        end
+
+        # Determine k-slice for plotting
+        nz_halo = size(serial_halo, 3)
+        if field_name == "eta"
+            k_halo = 1
+        elseif field_name == "w"
+            k_halo = nz_halo  # top face
+        else
+            k_halo = nz_halo - 7  # near-surface interior (avoid top halo)
+        end
+
+        # Plot serial with halos
+        nx_h, ny_h = size(serial_halo, 1), size(serial_halo, 2)
+        fig = Figure(; size = (1000, 600))
+        ax = Axis(
+            fig[1, 1];
+            title = "$field_name serial WITH HALOS (t=$(@sprintf("%.5f", t_yr)) yr, k=$k_halo)",
+            xlabel = "i (with halos)", ylabel = "j (with halos)",
+            backgroundcolor = :lightgray,
+        )
+        hm = heatmap!(ax, 1:nx_h, 1:ny_h, serial_halo[:, :, k_halo]; nan_color = :lightgray)
+        Colorbar(fig[1, 2], hm; label = field_name)
+        save(joinpath(plot_output_dir, "$(field_name)_serial_halos_$(DURATION_TAG)_k$(k_halo).png"), fig)
+
+        # Plot each distributed rank with halos
+        for part in dist_halo_parts
+            rx, ry, data = part.rx, part.ry, part.data
+            r = ry * px + rx
+            nxr, nyr = size(data, 1), size(data, 2)
+            k_r = min(k_halo, size(data, 3))
+            fig = Figure(; size = (1000, 600))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name rank $r ($(rx),$(ry)) WITH HALOS (k=$k_r)",
+                xlabel = "i (with halos)", ylabel = "j (with halos)",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(ax, 1:nxr, 1:nyr, data[:, :, k_r]; nan_color = :lightgray)
+            Colorbar(fig[1, 2], hm; label = field_name)
+            save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_halos_$(DURATION_TAG)_k$(k_r).png"), fig)
+        end
+
+        @info "  $field_name: halo plots saved (serial + $(length(dist_halo_parts)) ranks)"
+        flush(stdout); flush(stderr)
+        @label skip_field
+    end
+else
+    @info "No halo-inclusive data found — skipping fold diagnostic plots"
+    @info "  (rerun diagnostic simulations with updated save_fields callback to generate halo data)"
+end
+flush(stdout); flush(stderr)
+
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 flush(stdout); flush(stderr)
