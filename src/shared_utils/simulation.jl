@@ -8,6 +8,7 @@
 using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
 using Oceananigans.Grids: znodes
+using Oceananigans.OutputWriters: JLD2Writer
 using Adapt: adapt
 using Statistics: mean
 using Printf: @sprintf
@@ -65,16 +66,12 @@ function setup_age_simulation(
         joinpath(outputdir, "standardrun", model_config, gpu_tag)
     mkpath(age_output_dir)
 
-    # Manual JLD2 output for all fields, following the jldopen pattern from
-    # Oceananigans' test_mpi_tripolar. This avoids JLD2Writer entirely, which
-    # calls fill_halo_regions! and triggers BoundsError in _fill_north_send_buffer!
-    # for Face-located fields on distributed tripolar grids (both CPU and GPU).
-    is_distributed = !isempty(gpu_tag)
     grid_arch = Oceananigans.Architectures.architecture(model.grid)
-    rank = grid_arch isa Distributed ? grid_arch.local_rank : 0
-    rank_suffix = is_distributed ? "_rank$(rank)" : ""
-    part_counter = Ref(0)
-    output_fields = if child_architecture(grid_arch) isa GPU
+    is_gpu = child_architecture(grid_arch) isa GPU
+
+    # On GPU, only output age (prescribed velocity TSI fields can't be converted to Array).
+    # On CPU, output all fields including velocities and eta for diagnostics.
+    output_fields = if is_gpu
         Dict("age" => model.tracers.age)
     else
         Dict(
@@ -86,27 +83,13 @@ function setup_age_simulation(
         )
     end
 
-    function save_fields(sim)
-        part_counter[] += 1
-        t = time(sim)
-        iter = iteration(sim)
-        for (name, field) in output_fields
-            data = Array(interior(field))
-            # Also save full data with halos for diagnostic plotting
-            data_with_halos = Array(parent(field.data))
-            filepath = joinpath(
-                age_output_dir,
-                "$(name)_$(duration_tag)$(rank_suffix)_part$(part_counter[]).jld2"
-            )
-            jldopen(filepath, "w") do f
-                f["timeseries/$(name)/$(iter)"] = data
-                f["timeseries/$(name)_with_halos/$(iter)"] = data_with_halos
-                f["timeseries/t/$(iter)"] = t
-            end
-        end
-        return
-    end
-    add_callback!(simulation, save_fields, TimeInterval(output_interval))
+    simulation.output_writers[:fields] = JLD2Writer(
+        model, output_fields;
+        schedule = TimeInterval(output_interval),
+        filename = joinpath(age_output_dir, "fields_$(duration_tag)"),
+        overwrite_existing = true,
+        with_halos = true,
+    )
 
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
