@@ -3,7 +3,7 @@ Check the status of PBS Pro jobs on Gadi. Run the appropriate qstat command and 
 ## Behaviour
 
 - If an argument is provided (`$ARGUMENTS`), treat it as a job ID and run `qstat -f $ARGUMENTS` for detailed info on that specific job.
-- If no argument is provided, run `qstat -u bp3051` to list all current jobs.
+- If no argument is provided, run `qstat -u bp3051 -wx` to list all current jobs (the `-wx` flag gives wide output with full job names).
 
 ## After showing status
 
