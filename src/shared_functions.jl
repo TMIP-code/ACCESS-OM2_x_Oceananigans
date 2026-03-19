@@ -858,37 +858,41 @@ function setup_age_simulation(
         joinpath(outputdir, "standardrun", model_config, gpu_tag)
     mkpath(age_output_dir)
 
-    # One output writer per field (separate files for each).
-    # Distributed GPU: only output age (Center,Center,Center) — Face-located
-    # fields (u,v,w,eta) trigger a BoundsError in _fill_north_send_buffer!
-    # on distributed tripolar grids (upstream Oceananigans bug).
-    # Distributed CPU: output all fields (bug may be GPU-specific).
+    # Manual JLD2 output for all fields, following the jldopen pattern from
+    # Oceananigans' test_mpi_tripolar. This avoids JLD2Writer entirely, which
+    # calls fill_halo_regions! and triggers BoundsError in _fill_north_send_buffer!
+    # for Face-located fields on distributed tripolar grids (both CPU and GPU).
+    is_distributed = !isempty(gpu_tag)
     grid_arch = Oceananigans.Architectures.architecture(model.grid)
-    is_distributed_gpu = grid_arch isa Distributed &&
-        Oceananigans.Architectures.child_architecture(grid_arch) isa GPU
-    output_defs = if is_distributed_gpu
-        Dict("age" => model.tracers.age)
-    else
-        Dict(
-            "age" => model.tracers.age,
-            "u" => model.velocities.u,
-            "v" => model.velocities.v,
-            "w" => model.velocities.w,
-            "eta" => model.free_surface.displacement,
-        )
+    rank = grid_arch isa Distributed ? grid_arch.local_rank : 0
+    rank_suffix = is_distributed ? "_rank$(rank)" : ""
+    part_counter = Ref(0)
+    output_fields = Dict(
+        "age" => model.tracers.age,
+        "u" => model.velocities.u,
+        "v" => model.velocities.v,
+        "w" => model.velocities.w,
+        "eta" => model.free_surface.displacement,
+    )
+
+    function save_fields(sim)
+        part_counter[] += 1
+        t = time(sim)
+        iter = iteration(sim)
+        for (name, field) in output_fields
+            data = Array(interior(field))
+            filepath = joinpath(
+                age_output_dir,
+                "$(name)_$(duration_tag)$(rank_suffix)_part$(part_counter[]).jld2"
+            )
+            jldopen(filepath, "w") do f
+                f["timeseries/$(name)/$(iter)"] = data
+                f["timeseries/t/$(iter)"] = t
+            end
+        end
+        return
     end
-    for (name, field) in output_defs
-        output_prefix = joinpath(age_output_dir, "$(name)_$(duration_tag)")
-        simulation.output_writers[Symbol(name)] = JLD2Writer(
-            model, Dict(name => field);
-            schedule = TimeInterval(output_interval),
-            filename = output_prefix,
-            file_splitting = TimeInterval(output_interval),
-            with_halos = false,
-            overwrite_existing = true,
-            including = [],
-        )
-    end
+    add_callback!(simulation, save_fields, TimeInterval(output_interval))
 
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
