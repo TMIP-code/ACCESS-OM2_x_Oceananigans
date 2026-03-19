@@ -31,7 +31,7 @@ Run with 4 GPUs:
 using Oceananigans
 using Oceananigans: fill_halo_regions!
 using Oceananigans.Architectures: CPU
-using Oceananigans.Grids: MutableVerticalDiscretization
+using Oceananigans.Grids: MutableVerticalDiscretization, RightFaceFolded
 using Oceananigans.Units: seconds
 using JLD2
 using Oceananigans.OutputWriters
@@ -66,7 +66,7 @@ arch = Distributed(child_arch, partition = Partition(px, py))
 Nx, Ny, Nz = 60, 61, 10
 z_faces = collect(range(-1000, 0; length = Nz + 1))
 halo = (7, 7, 7)
-grid_kw = (; first_pole_longitude = 75, north_poles_latitude = 55)
+grid_kw = (; first_pole_longitude = 75, north_poles_latitude = 55, fold_topology = RightFaceFolded)
 
 # --- Helpers ---
 
