@@ -1,5 +1,5 @@
 """
-MWE: JLD2Writer deadlock when serializing a distributed grid.
+MWE: JLD2Writer deadlock when serializing a distributed tripolar grid.
 
 `JLD2Writer` saves grid metadata by calling `serializeproperty!` on each field
 of the model's grid. For a `DistributedGrid`, this internally constructs a fresh
@@ -18,14 +18,14 @@ Run with 2 CPU ranks (no GPUs required to reproduce the deadlock path):
 In stock Oceananigans.jl the writer is called `JLD2OutputWriter`; in this fork
 it is `JLD2Writer`. The bug exists in both.
 
-Expected: simulation completes and writes output files.
-Observed: simulation hangs at the first output write (MPI deadlock inside
+Expected: simulation hangs at the first output write (MPI deadlock inside
           `JLD2HDF5.serializeproperty!` → `Distributed(CPU(); ...)` constructor).
 """
 
 using MPI
 using Oceananigans
 using Oceananigans.OutputWriters
+using Oceananigans.OrthogonalSphericalShellGrids: TripolarGrid
 
 MPI.Init()
 
@@ -34,23 +34,28 @@ MPI.Init()
 arch = Distributed(CPU(), partition = Partition(1, 2))
 rank = MPI.Comm_rank(MPI.COMM_WORLD)
 
-grid = RectilinearGrid(
+grid = TripolarGrid(
     arch, Float64;
-    size = (10, 10, 2),
-    x = (0, 1),
-    y = (0, 1),
-    z = (-1, 0),
-    topology = (Periodic, Bounded, Bounded),
+    size = (20, 21, 2),
+    z = (-100, 0),
+    halo = (7, 7, 7),
+    first_pole_longitude = 75,
+    north_poles_latitude = 55,
 )
 
-@info "Rank $rank: grid built"
+@info "Rank $rank: TripolarGrid built"
 flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
 
-model = NonhydrostaticModel(grid; tracers = :c)
-simulation = Simulation(model; Δt = 0.1, stop_time = 0.3)
+model = HydrostaticFreeSurfaceModel(
+    grid;
+    velocities = PrescribedVelocityFields(),
+    tracers = (; c = CenterField(grid)),
+    free_surface = nothing,
+)
+simulation = Simulation(model; Δt = 1.0, stop_time = 3.0)
 
-@info "Rank $rank: adding JLD2Writer..."
+@info "Rank $rank: model + simulation built"
 flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
 
