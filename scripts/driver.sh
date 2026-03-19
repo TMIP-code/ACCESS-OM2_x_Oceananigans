@@ -53,6 +53,15 @@ export PARENT_MODEL
 # Source model config for MODEL_SHORT and walltimes
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd "$repo_root"
+
+# Require clean git status before submitting jobs
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
+    git status --short >&2
+    exit 1
+fi
+GIT_COMMIT=$(git rev-parse HEAD)
+
 MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
 if [ ! -f "$MODEL_CONF" ]; then
     echo "ERROR: Model config not found: $MODEL_CONF" >&2
@@ -204,11 +213,12 @@ LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-yes}
 INITIAL_AGE=${INITIAL_AGE:-0}
 
 # --- Common -v vars passed to all jobs ---
-COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
+COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},GIT_COMMIT=${GIT_COMMIT}"
 
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "JOB_CHAIN=$JOB_CHAIN"
+echo "GIT_COMMIT=$GIT_COMMIT"
 echo "TM_SOURCE=$TM_SOURCE"
 echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_X}x${GPU_PARTITION_Y}, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, INITIAL_AGE=$INITIAL_AGE"

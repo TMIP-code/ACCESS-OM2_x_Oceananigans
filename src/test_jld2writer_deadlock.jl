@@ -29,6 +29,8 @@ using Oceananigans.OutputWriters
 
 MPI.Init()
 
+@info "GIT_COMMIT = $(get(ENV, "GIT_COMMIT", "unknown"))"
+
 arch = Distributed(CPU(), partition = Partition(1, 2))
 rank = MPI.Comm_rank(MPI.COMM_WORLD)
 
@@ -45,8 +47,12 @@ grid = RectilinearGrid(
 flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
 
-model = NonhydrostaticModel(; grid, tracers = :c)
+model = NonhydrostaticModel(grid; tracers = :c)
 simulation = Simulation(model; Δt = 0.1, stop_time = 0.3)
+
+@info "Rank $rank: adding JLD2Writer..."
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
 
 # BUG: hangs at first write because JLD2Writer calls serializeproperty! on
 # the DistributedGrid, which internally constructs Distributed(CPU(); ...)
@@ -61,11 +67,19 @@ simulation.output_writers[:c] = JLD2Writer(
     # including = [],  # ← uncomment to fix the deadlock
 )
 
-@info "Rank $rank: starting simulation (will hang here without including=[])"
+@info "Rank $rank: JLD2Writer added (construction did not hang)"
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
+
+@info "Rank $rank: calling run!() — hang expected inside first JLD2 write (iteration 0)"
 flush(stdout); flush(stderr)
 MPI.Barrier(MPI.COMM_WORLD)
 
 run!(simulation)
+
+@info "Rank $rank: run!() returned — this should NOT print without including=[]"
+flush(stdout); flush(stderr)
+MPI.Barrier(MPI.COMM_WORLD)
 
 rm("test_jld2_deadlock_rank$(rank).jld2"; force = true)
 @info "Rank $rank: done"

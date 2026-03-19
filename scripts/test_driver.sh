@@ -17,6 +17,15 @@ set -euo pipefail
 
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd "$repo_root"
+
+# Require clean git status before submitting jobs
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
+    git status --short >&2
+    exit 1
+fi
+GIT_COMMIT=$(git rev-parse HEAD)
+
 source scripts/env_defaults.sh
 
 # --- Validate JOB_CHAIN ---
@@ -60,12 +69,13 @@ GPU_NCPUS=$(( GPU_NGPUS * 12 ))
 
 export GPU_PARTITION_X GPU_PARTITION_Y
 
-COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
+COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},GIT_COMMIT=${GIT_COMMIT}"
 WALLTIME=00:30:00
 
 echo "=== ${PARENT_MODEL} test driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "JOB_CHAIN=$JOB_CHAIN"
+echo "GIT_COMMIT=$GIT_COMMIT"
 echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_X}x${GPU_PARTITION_Y}, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 echo ""
 

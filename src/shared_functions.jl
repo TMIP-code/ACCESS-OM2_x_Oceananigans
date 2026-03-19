@@ -84,6 +84,8 @@ function load_project_config(; parentmodel_arg_index = 1)
         Δt = Float64(profile["dt_seconds"])
     end
 
+    @info "GIT_COMMIT = $(get(ENV, "GIT_COMMIT", "unknown"))"
+
     return (; parentmodel, outputdir, Δt_seconds = Δt, profile)
 end
 

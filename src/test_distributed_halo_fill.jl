@@ -21,6 +21,8 @@ using MPI
 
 MPI.Init()
 
+@info "GIT_COMMIT = $(get(ENV, "GIT_COMMIT", "unknown"))"
+
 # Dynamic architecture: GPU if available and PBS_NGPUS > 0, else CPU
 ngpus = parse(Int, get(ENV, "PBS_NGPUS", "0"))
 if ngpus > 0

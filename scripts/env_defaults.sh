@@ -86,3 +86,9 @@ source "$MODEL_CONF"
 export MODEL_SHORT GPU_RESOURCES
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "GPU_RESOURCES=$GPU_RESOURCES"
+
+# Git commit tracking (passed from driver via qsub -v)
+if [ -n "${GIT_COMMIT:-}" ]; then
+    export GIT_COMMIT
+fi
+echo "GIT_COMMIT=${GIT_COMMIT:-unknown}"
