@@ -1141,7 +1141,9 @@ function plot_age_diagnostics(
         age_3D, grid, wet3D, vol_3D, output_dir, label;
         colorrange = (0, 1500),
         levels = 0:100:1500,
-        colormap = cgrad(:viridis, length(levels) - 1, categorical = true)
+        colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
+        lowclip = colormap[1],
+        highclip = colormap[end],
     )
     mkpath(output_dir)
 
@@ -1212,7 +1214,7 @@ function plot_age_diagnostics(
             title = "$label at $depth m (k=$k, z=$actual_depth m)",
         )
 
-        hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip = colormap[1], highclip = colormap[end])
+        hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip, highclip)
         Colorbar(fig[1, 2], hm; label = "Age (years)")
 
         outputfile = joinpath(output_dir, "$(label)_slice_$(depth)m.png")
@@ -1348,6 +1350,8 @@ function animate_depth_slices(
         colorrange = (0, 1500),
         levels = 0:100:1500,
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
+        lowclip = colormap[1],
+        highclip = colormap[end],
         n_frames = 144,
         framerate = 24,
     )
@@ -1378,7 +1382,7 @@ function animate_depth_slices(
 
     hm = heatmap!(
         ax, slice_obs; colorrange, colormap, nan_color = :black,
-        lowclip = colormap[1], highclip = colormap[end]
+        lowclip, highclip
     )
     Colorbar(fig[1, 2], hm; label = "Age (years)")
 
