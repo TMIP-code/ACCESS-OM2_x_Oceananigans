@@ -880,13 +880,17 @@ function setup_age_simulation(
     rank = grid_arch isa Distributed ? grid_arch.local_rank : 0
     rank_suffix = is_distributed ? "_rank$(rank)" : ""
     part_counter = Ref(0)
-    output_fields = Dict(
-        "age" => model.tracers.age,
-        "u" => model.velocities.u,
-        "v" => model.velocities.v,
-        "w" => model.velocities.w,
-        "eta" => model.free_surface.displacement,
-    )
+    output_fields = if child_architecture(grid_arch) isa GPU
+        Dict("age" => model.tracers.age)
+    else
+        Dict(
+            "age" => model.tracers.age,
+            "u" => model.velocities.u,
+            "v" => model.velocities.v,
+            "w" => model.velocities.w,
+            "eta" => model.free_surface.displacement,
+        )
+    end
 
     function save_fields(sim)
         part_counter[] += 1
