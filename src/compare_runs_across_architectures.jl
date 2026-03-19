@@ -115,10 +115,9 @@ vol_norm = make_vol_norm(v1D, year)
 @info @sprintf("  %5s  %10s  %14s  %14s", "part", "time(yr)", "vol_norm(yr)", "max|diff|(yr)")
 flush(stdout); flush(stderr)
 
-# These will hold the last-loaded data for final diagnostic plots
-age_serial_yr = nothing
-age_dist_yr = nothing
-age_diff_yr = nothing
+# Store snapshots for plotting: parts 1, 2, and NPARTS
+plot_parts = sort(unique([1, 2, NPARTS]))
+snapshots = Dict{Int, @NamedTuple{age_serial_yr::Array{Float64,3}, age_dist_yr::Array{Float64,3}, age_diff_yr::Array{Float64,3}, t_yr::Float64}}()
 
 for part in 1:NPARTS
     age_serial_full, t_serial = load_serial_part(serial_dir, "age", DURATION_TAG, part)
@@ -136,14 +135,21 @@ for part in 1:NPARTS
 
     @info @sprintf("  %5d  %10.5f  %14.2e  %14.2e", part, t_yr, vn, maxdiff)
 
-    # Keep last snapshot for plotting
-    if part == NPARTS
-        global age_serial_yr = Array(age_serial_raw) ./ year
-        global age_dist_yr = age_dist_raw ./ year
-        global age_diff_yr = age_dist_yr .- age_serial_yr
+    if part ∈ plot_parts
+        snapshots[part] = (
+            age_serial_yr = Array(age_serial_raw) ./ year,
+            age_dist_yr = age_dist_raw ./ year,
+            age_diff_yr = (age_dist_raw .- Array(age_serial_raw)) ./ year,
+            t_yr = t_yr,
+        )
     end
 end
 flush(stdout); flush(stderr)
+
+# Use final snapshot for summary statistics
+age_serial_yr = snapshots[NPARTS].age_serial_yr
+age_dist_yr = snapshots[NPARTS].age_dist_yr
+age_diff_yr = snapshots[NPARTS].age_diff_yr
 
 ################################################################################
 # Summary statistics for final snapshot (wet cells only)
@@ -175,7 +181,7 @@ end
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Generate diagnostic plots for final snapshot
+# Generate diagnostic plots for stored snapshots
 ################################################################################
 
 plot_output_dir = joinpath(serial_dir, "plots", "compare_$(GPU_TAG)_$(DURATION_TAG)")
@@ -183,43 +189,67 @@ mkpath(plot_output_dir)
 @info "Saving comparison plots to $plot_output_dir"
 flush(stdout); flush(stderr)
 
-# Plot serial age (reference)
-@info "Plotting serial age (reference)"
-plot_age_diagnostics(
-    age_serial_yr, grid, wet3D, vol_3D, plot_output_dir, "serial_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-    colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
-)
-
-# Plot distributed age
-@info "Plotting distributed age ($(GPU_TAG))"
-plot_age_diagnostics(
-    age_dist_yr, grid, wet3D, vol_3D, plot_output_dir, "distributed_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-    colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
-)
-
-# Plot absolute difference
-@info "Plotting absolute difference"
-max_abs_diff = maximum(abs, wet_diff)
-diff_range = max_abs_diff > 0 ? (-max_abs_diff, max_abs_diff) : (-1.0e-10, 1.0e-10)
 n_levels = 11
-diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
-plot_age_diagnostics(
-    age_diff_yr, grid, wet3D, vol_3D, plot_output_dir, "diff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-    colorrange = diff_range, levels = diff_levels, colormap = cgrad(:balance, n_levels - 1, categorical = true),
-    lowclip = :blue, highclip = :red,
-)
 
-# Plot relative difference (skip if all values near zero)
-if !isempty(wet_reldiff)
-    @info "Plotting relative difference"
-    max_abs_reldiff = maximum(abs, wet_reldiff)
-    reldiff_range = max_abs_reldiff > 0 ? (-max_abs_reldiff, max_abs_reldiff) : (-1.0e-10, 1.0e-10)
-    reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
+for part in plot_parts
+    snap = snapshots[part]
+    part_label = "part$(part)"
+    @info "Plotting $part_label (t = $(@sprintf("%.5f", snap.t_yr)) yr)"
+
+    # Serial age (reference)
     plot_age_diagnostics(
-        age_reldiff, grid, wet3D, vol_3D, plot_output_dir, "reldiff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)";
-        colorrange = reldiff_range, levels = reldiff_levels, colormap = cgrad(:balance, n_levels - 1, categorical = true),
+        snap.age_serial_yr, grid, wet3D, vol_3D, plot_output_dir,
+        "serial_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
+    )
+
+    # Distributed age
+    plot_age_diagnostics(
+        snap.age_dist_yr, grid, wet3D, vol_3D, plot_output_dir,
+        "distributed_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
+    )
+
+    # Absolute difference — colorscale based on mean|diff|
+    wet_diff_part = snap.age_diff_yr[wet3D]
+    mean_abs_diff = mean(abs, wet_diff_part)
+    diff_scale = mean_abs_diff > 0 ? 3 * mean_abs_diff : 1.0e-10
+    diff_range = (-diff_scale, diff_scale)
+    diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
+    plot_age_diagnostics(
+        snap.age_diff_yr, grid, wet3D, vol_3D, plot_output_dir,
+        "diff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        colorrange = diff_range, levels = diff_levels,
+        colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
     )
+
+    # Relative difference (skip if age too small)
+    age_reldiff_part = similar(snap.age_diff_yr)
+    for i in eachindex(snap.age_diff_yr)
+        if wet3D[i] && abs(snap.age_serial_yr[i]) > 1.0e-10
+            age_reldiff_part[i] = snap.age_diff_yr[i] / snap.age_serial_yr[i]
+        else
+            age_reldiff_part[i] = NaN
+        end
+    end
+    wet_reldiff_part = filter(!isnan, age_reldiff_part[wet3D])
+
+    if !isempty(wet_reldiff_part)
+        mean_abs_reldiff = mean(abs, wet_reldiff_part)
+        reldiff_scale = mean_abs_reldiff > 0 ? 3 * mean_abs_reldiff : 1.0e-10
+        reldiff_range = (-reldiff_scale, reldiff_scale)
+        reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
+        plot_age_diagnostics(
+            age_reldiff_part, grid, wet3D, vol_3D, plot_output_dir,
+            "reldiff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+            colorrange = reldiff_range, levels = reldiff_levels,
+            colormap = cgrad(:balance, n_levels - 1, categorical = true),
+            lowclip = :blue, highclip = :red,
+        )
+    end
+
+    flush(stdout); flush(stderr)
 end
 
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
