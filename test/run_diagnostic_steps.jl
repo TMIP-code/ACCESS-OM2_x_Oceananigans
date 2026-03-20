@@ -64,19 +64,19 @@ if model.grid isa ImmersedBoundaryGrid
 end
 flush(stdout); flush(stderr)
 
-# Watchdog: dump backtrace if simulation appears stuck after 10 minutes
-watchdog = @async begin
-    sleep(600)
-    @error "WATCHDOG: simulation appears hung after 10 minutes — dumping backtrace"
-    flush(stdout); flush(stderr)
-    ccall(:jlbacktrace, Cvoid, ())
-    flush(stdout); flush(stderr)
-end
+# Watchdog: use OS-level alarm to interrupt even if blocked in MPI.
+# SIGALRM (signal 14) will interrupt the MPI call and Julia will dump a backtrace.
+# The @async watchdog doesn't work because Julia's cooperative scheduler can't
+# preempt a thread blocked in a C-level MPI_Recv call.
+ccall(:alarm, Cuint, (Cuint,), 600)  # 10 minutes
+@info "Watchdog alarm set: SIGALRM in 600 seconds"
+flush(stdout); flush(stderr)
 
 run!(simulation)
 
-# Cancel watchdog on success
-Base.throwto(watchdog, InterruptException())
+# Cancel alarm on success
+ccall(:alarm, Cuint, (Cuint,), 0)
+@info "Watchdog alarm cancelled (simulation completed)"
 
 @info "Diagnostic simulation complete"
 @info "Output saved to $age_output_dir"
