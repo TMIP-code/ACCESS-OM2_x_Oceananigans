@@ -64,7 +64,19 @@ if model.grid isa ImmersedBoundaryGrid
 end
 flush(stdout); flush(stderr)
 
+# Watchdog: dump backtrace if simulation appears stuck after 10 minutes
+watchdog = @async begin
+    sleep(600)
+    @error "WATCHDOG: simulation appears hung after 10 minutes — dumping backtrace"
+    flush(stdout); flush(stderr)
+    ccall(:jlbacktrace, Cvoid, ())
+    flush(stdout); flush(stderr)
+end
+
 run!(simulation)
+
+# Cancel watchdog on success
+Base.throwto(watchdog, InterruptException())
 
 @info "Diagnostic simulation complete"
 @info "Output saved to $age_output_dir"
