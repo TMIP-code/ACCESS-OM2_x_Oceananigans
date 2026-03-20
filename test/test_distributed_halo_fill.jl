@@ -261,7 +261,18 @@ function run_jld2writer_test(test_name, model, output_fields, Δt)
             with_halos = true,
             including = [],
         )
-        @info "Rank $rank: [$test_name] JLD2Writer created, running..."
+        @info "Rank $rank: [$test_name] JLD2Writer created"
+        if rank == 0
+            @info "Rank 0: [$test_name] Model:"
+            show(stdout, MIME"text/plain"(), model)
+            println(stdout)
+            @info "Rank 0: [$test_name] Simulation:"
+            show(stdout, MIME"text/plain"(), sim)
+            println(stdout)
+        end
+        flush(stdout); flush(stderr)
+        MPI.Barrier(MPI.COMM_WORLD)
+        @info "Rank $rank: [$test_name] running..."
         flush(stdout); flush(stderr)
         run!(sim)
         @info "Rank $rank: [$test_name] — PASS"
