@@ -134,7 +134,7 @@ fi
 if has_step diagcpu; then
     STEP=$((STEP + 1))
     DIAGCPU_JOB=$(qsub \
-        -N "${MODEL_SHORT}_diagcpu" -l walltime=01:00:00 \
+        -N "${MODEL_SHORT}_diagcpu" -l walltime=00:30:00 \
         -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
         -v ${COMMON_VARS},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
         scripts/tests/run_diagnostic_steps.sh)
@@ -145,7 +145,7 @@ fi
 if has_step diagcpuserial; then
     STEP=$((STEP + 1))
     DIAGCPUSERIAL_JOB=$(qsub \
-        -N "${MODEL_SHORT}_diagcpuser" -l walltime=01:00:00 \
+        -N "${MODEL_SHORT}_diagcpuser" -l walltime=00:30:00 \
         -q express -l ngpus=0 -l ncpus=1 -l mem=47GB \
         -v ${COMMON_VARS} \
         scripts/tests/run_diagnostic_steps.sh)
