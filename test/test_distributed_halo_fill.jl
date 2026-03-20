@@ -292,7 +292,6 @@ function run_jld2writer_test(test_name, model, output_fields, Δt)
             filename = filename,
             overwrite_existing = true,
             with_halos = true,
-            including = [],
         )
         @info "Rank $rank: [$test_name] JLD2Writer created"
         if rank == 0

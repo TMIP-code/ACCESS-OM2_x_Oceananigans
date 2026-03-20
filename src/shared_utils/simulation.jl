@@ -89,6 +89,7 @@ function setup_age_simulation(
         filename = joinpath(age_output_dir, "fields_$(duration_tag)"),
         overwrite_existing = true,
         with_halos = true,
+        including = [],  # workaround for #5410: serializeproperty! deadlocks on distributed
     )
 
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"

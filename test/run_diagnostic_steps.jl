@@ -64,19 +64,7 @@ if model.grid isa ImmersedBoundaryGrid
 end
 flush(stdout); flush(stderr)
 
-# Watchdog: use OS-level alarm to interrupt even if blocked in MPI.
-# SIGALRM (signal 14) will interrupt the MPI call and Julia will dump a backtrace.
-# The @async watchdog doesn't work because Julia's cooperative scheduler can't
-# preempt a thread blocked in a C-level MPI_Recv call.
-ccall(:alarm, Cuint, (Cuint,), 600)  # 10 minutes
-@info "Watchdog alarm set: SIGALRM in 600 seconds"
-flush(stdout); flush(stderr)
-
 run!(simulation)
-
-# Cancel alarm on success
-ccall(:alarm, Cuint, (Cuint,), 0)
-@info "Watchdog alarm cancelled (simulation completed)"
 
 @info "Diagnostic simulation complete"
 @info "Output saved to $age_output_dir"
