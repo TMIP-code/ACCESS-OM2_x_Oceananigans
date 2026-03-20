@@ -53,7 +53,7 @@ include("shared_functions.jl")
 # Configuration
 ################################################################################
 
-(; parentmodel, outputdir) = load_project_config()
+(; parentmodel, experiment_dir, outputdir) = load_project_config()
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
@@ -83,8 +83,7 @@ isfile(output_filepath) || error("Output file not found: $output_filepath")
 # Load grid
 ################################################################################
 
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 
 @info "Loading grid from $grid_file"
 flush(stdout); flush(stderr)

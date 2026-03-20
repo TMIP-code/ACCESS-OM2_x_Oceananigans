@@ -10,28 +10,32 @@ use transport matrices to solve for periodic state using a Newon–Krylov solver
 The full pipeline is managed by a unified `scripts/driver.sh` that submits chained PBS jobs with `afterok` dependencies. All scripts are model-agnostic — `PARENT_MODEL` selects the model. Run from the login node:
 
 ```bash
-# Run the full ACCESS-OM2-1 pipeline
+# Run the full ACCESS-OM2-1 pipeline (default experiment and time window)
 JOB_CHAIN=full bash scripts/driver.sh
 
 # Run the full ACCESS-OM2-025 pipeline
 PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
+
+# Specify experiment and time window
+EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
 ```
 
 ### Dependency DAG
 
 ```
-grid
- └── vel
-      ├── run1yr
-      │    └── TMsnapshot (TM_SOURCE=avg)
-      │         ├── TMsolve(avg) ── Pardiso(CPU) + CUDSS(GPU)
-      │         └── NK(avg) ── run1yrNK(avg)
-      ├── run10yr ── plot10yr
-      ├── run100yr ── plot100yr
-      ├── runlong
-      └── TMbuild (TM_SOURCE=const)
-           ├── TMsolve(const) ── Pardiso(CPU) + CUDSS(GPU)
-           └── NK(const) ── run1yrNK(const) ── plotNK
+prep ──┐
+grid ──┤
+       └── vel
+            ├── run1yr
+            │    └── TMsnapshot (TM_SOURCE=avg)
+            │         ├── TMsolve(avg) ── Pardiso(CPU) + CUDSS(GPU)
+            │         └── NK(avg) ── run1yrNK(avg)
+            ├── run10yr ── plot10yr
+            ├── run100yr ── plot100yr
+            ├── runlong
+            └── TMbuild (TM_SOURCE=const)
+                 ├── TMsolve(const) ── Pardiso(CPU) + CUDSS(GPU)
+                 └── NK(const) ── run1yrNK(const) ── plotNK
 ```
 
 ### Selecting steps with `JOB_CHAIN`
@@ -39,12 +43,12 @@ grid
 Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in the chain are skipped (their outputs are assumed to already exist). `JOB_CHAIN` is required — the driver prints usage help if not set.
 
 **Steps** (topological order):
-`grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
+`prep grid vel run1yr run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
 
 **Shortcuts:**
 | Shortcut | Expands to |
 |---|---|
-| `preprocessing` | `grid-vel` |
+| `preprocessing` | `prep-grid-vel` |
 | `standardruns` | `run1yr-run10yr-run100yr-runlong` |
 | `TMall` | `TMbuild-TMsnapshot-TMsolve` |
 | `plotall` | `plot1yr-plot10yr-plot100yr-plotNK` |
@@ -74,6 +78,9 @@ TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh
 # Run preprocessing only
 JOB_CHAIN=preprocessing bash scripts/driver.sh
 
+# Specify experiment and time window
+EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
+
 # ACCESS-OM2-025 with specific GPU queue
 PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts/driver.sh
 ```
@@ -90,7 +97,7 @@ PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts
 
 ### GPU preprocessing with `PREPROCESS_ARCH`
 
-Velocity creation can run on GPU for faster processing (grid creation always runs on CPU):
+Velocity creation can run on GPU for faster processing (grid creation and Python `prep` always run on CPU):
 
 ```bash
 # Run velocities on GPU
@@ -110,6 +117,7 @@ scripts/
 ├── driver.sh                  # Unified pipeline entry point
 ├── test_driver.sh             # Test/diagnostic driver (halofill, diag, mpi)
 ├── env_defaults.sh            # Common env var defaults
+├── prepreprocessing/          # Python preprocessing (periodicaverage.py PBS wrapper)
 ├── preprocessing/             # Grid, velocities, transport matrices
 ├── standard_runs/             # Age simulations (1yr, 10yr, 100yr, long, benchmark)
 ├── solvers/                   # Newton-Krylov + TM age solvers
@@ -117,8 +125,7 @@ scripts/
 ├── tests/                     # Test PBS wrappers (halofill, diag, mpi)
 ├── benchmarks/                # Parameter sweep submitters
 ├── maintenance/               # Package management, MPI setup, archiving
-├── debugging/                 # Debug/check scripts
-└── prepreprocessing/          # CDO periodic averaging (external)
+└── debugging/                 # Debug/check scripts
 ```
 
 ## Multi-GPU (MPI) runs
@@ -150,7 +157,20 @@ Gadi compute nodes don't have access to the internet, so the project dependencie
 
 ## Configuration
 
-Simulations are configured via environment variables. The 4 core config variables determine the model setup and output directory paths:
+Simulations are configured via environment variables.
+
+### Experiment and time window
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EXPERIMENT` | `1deg_jra55_iaf_omip2_cycle6` (OM2-1) or `025deg_jra55_iaf_omip2_cycle6` (OM2-025) | Intake catalog key for ACCESS-OM2 experiment |
+| `TIME_WINDOW` | `1960-1979` | Year range `YYYY-YYYY` or single year `YYYY` |
+
+These determine the input data source and the directory structure for preprocessed inputs, outputs, and logs.
+
+### Model config
+
+The 4 core config variables determine the model setup and output directory paths:
 
 | Variable | Valid values | Default | Description |
 |----------|-------------|---------|-------------|
@@ -232,21 +252,30 @@ qsub scripts/debugging/check_snapshot_matrices_job.sh
 
 Preprocessing writes data and images under:
 
-`preprocessed_inputs/<PARENT_MODEL>/`
+`preprocessed_inputs/<PARENT_MODEL>/<EXPERIMENT>/`
 
-Data files:
+Grid file (shared across time windows):
 
-- `u_interpolated.jld2`
-- `v_interpolated.jld2`
-- `w.jld2`
-- `eta.jld2`
-- `u_from_mass_transport.jld2`
-- `v_from_mass_transport.jld2`
-- `w_from_mass_transport.jld2`
+- `grid.jld2`
+
+Per-time-window data files under `<TIME_WINDOW>/monthly/` and `<TIME_WINDOW>/yearly/`:
+
+- `u_interpolated_monthly.jld2` / `u_interpolated_yearly.jld2`
+- `v_interpolated_monthly.jld2` / `v_interpolated_yearly.jld2`
+- `w_monthly.jld2` / `w_yearly.jld2`
+- `eta_monthly.jld2` / `eta_yearly.jld2`
+- `u_from_mass_transport_monthly.jld2` / `u_from_mass_transport_yearly.jld2`
+- `v_from_mass_transport_monthly.jld2` / `v_from_mass_transport_yearly.jld2`
+- `w_from_mass_transport_monthly.jld2` / `w_from_mass_transport_yearly.jld2`
+
+NetCDF climatologies from `periodicaverage.py`:
+
+- `<TIME_WINDOW>/monthly/*_monthly.nc`
+- `<TIME_WINDOW>/yearly/*_yearly.nc`
 
 Plots are colocated under:
 
-`preprocessed_inputs/<PARENT_MODEL>/plots/`
+`preprocessed_inputs/<PARENT_MODEL>/<EXPERIMENT>/<TIME_WINDOW>/monthly/plots/`
 
 with subdirectories for each plotted field family:
 

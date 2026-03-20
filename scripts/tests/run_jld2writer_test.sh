@@ -18,7 +18,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
-log_dir=logs/julia/$PARENT_MODEL/test
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/test
 mkdir -p "$log_dir"
 log_file="$log_dir/jld2writer_${job_id}.log"
 

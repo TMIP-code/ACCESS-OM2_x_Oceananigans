@@ -65,7 +65,7 @@ using SparseMatrixColorings
 
 include("shared_functions.jl")
 
-(; parentmodel, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
@@ -79,8 +79,6 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 @info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- model_config     = $model_config"
 flush(stdout); flush(stderr)
-
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 matrices_dir = joinpath(outputdir, "TM", model_config)
 matrix_plots_dir = joinpath(matrices_dir, "plots")
 const_dir = joinpath(matrices_dir, "const")
@@ -99,7 +97,7 @@ flush(stdout); flush(stderr)
 
 @info "Reconstructing grid (loading data from JLD2)"
 flush(stdout); flush(stderr)
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
@@ -110,25 +108,25 @@ flush(stdout); flush(stderr)
 # Load time-averaged (constant) velocity fields
 ################################################################################
 
-@info "Loading time-averaged (constant) velocity and η fields"
+@info "Loading time-averaged (yearly) velocity and η fields"
 flush(stdout); flush(stderr)
 
 if VELOCITY_SOURCE == "cgridtransports"
-    u_constant_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_constant.jld2")
-    v_constant_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_constant.jld2")
-    @info """Loading constant velocities from mass-transport files:
+    u_constant_file = joinpath(yearly_dir, "u_from_mass_transport_yearly.jld2")
+    v_constant_file = joinpath(yearly_dir, "v_from_mass_transport_yearly.jld2")
+    @info """Loading yearly velocities from mass-transport files:
     - $(u_constant_file)
     - $(v_constant_file)
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
-    u_constant_file = joinpath(preprocessed_inputs_dir, "u_interpolated_constant.jld2")
-    v_constant_file = joinpath(preprocessed_inputs_dir, "v_interpolated_constant.jld2")
-    @info """Loading constant velocities from B-grid interpolated files:
+    u_constant_file = joinpath(yearly_dir, "u_interpolated_yearly.jld2")
+    v_constant_file = joinpath(yearly_dir, "v_interpolated_yearly.jld2")
+    @info """Loading yearly velocities from B-grid interpolated files:
     - $(u_constant_file)
     - $(v_constant_file)
     """
 end
-η_constant_file = joinpath(preprocessed_inputs_dir, "eta_constant.jld2")
+η_constant_file = joinpath(yearly_dir, "eta_yearly.jld2")
 flush(stdout); flush(stderr)
 
 # Re-use the same boundary conditions as create_velocities.jl
@@ -159,8 +157,8 @@ flush(stdout); flush(stderr)
 
 if W_FORMULATION == "wprescribed"
     w_constant_file = VELOCITY_SOURCE == "cgridtransports" ?
-        joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2") :
-        joinpath(preprocessed_inputs_dir, "w_constant.jld2")
+        joinpath(yearly_dir, "w_from_mass_transport_yearly.jld2") :
+        joinpath(yearly_dir, "w_yearly.jld2")
     @info "Using prescribed w field from: $w_constant_file"
     flush(stdout); flush(stderr)
     w_constant = CenterField(grid)
@@ -181,16 +179,11 @@ free_surface = PrescribedFreeSurface(displacement = η_constant)
 @info "Creating closures"
 flush(stdout); flush(stderr)
 
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
-
 # Vertical diffusivity parameters (match run_ACCESS-OM2.jl)
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
+mld_ds = open_dataset(joinpath(monthly_dir, "mld_monthly.nc"))
 mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
 z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data

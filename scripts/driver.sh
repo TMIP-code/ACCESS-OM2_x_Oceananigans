@@ -7,17 +7,18 @@ set -euo pipefail
 # Usage:
 #   PARENT_MODEL=ACCESS-OM2-1   JOB_CHAIN=preprocessing-run1yr bash scripts/driver.sh
 #   PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
+#   EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
 #   JOB_CHAIN=vel..NK bash scripts/driver.sh                      # range notation
 #   GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
 #   TM_SOURCE=both JOB_CHAIN=NK bash scripts/driver.sh            # run both const+avg
 #
 # Steps:
-#   grid vel run1yr run10yr run100yr runlong
+#   prep grid vel run1yr run10yr run100yr runlong
 #   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
 #   plot1yr plot10yr plot100yr
 #
 # Shortcuts:
-#   preprocessing  = grid-vel
+#   preprocessing  = prep-grid-vel
 #   standardruns   = run1yr-run10yr-run100yr-runlong
 #   TMall          = TMbuild-TMsnapshot-TMsolve
 #   plotall         = plot1yr-plot10yr-plot100yr-plotNK-plotTM
@@ -34,13 +35,14 @@ set -euo pipefail
 #   TM_SOURCE=both   — both branches
 #
 # Dependency DAG:
-#   grid → vel → run1yr    (afterok vel)
-#            │ → run10yr   (afterok vel, parallel)
-#            │ → run100yr  (afterok vel, parallel)
-#            │ → runlong   (afterok vel, parallel)
-#            │ → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
-#            │                          └→ plotTM (afterok TMbuild + TMsnapshot)
-#            └→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
+#   prep ─┐
+#   grid ─┤→ vel → run1yr    (afterok vel)
+#          │     → run10yr   (afterok vel, parallel)
+#          │     → run100yr  (afterok vel, parallel)
+#          │     → runlong   (afterok vel, parallel)
+#          │     → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
+#          │                             └→ plotTM (afterok TMbuild + TMsnapshot)
+#          └─────→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
 #   plot10yr    (afterok run10yr)
@@ -49,6 +51,17 @@ set -euo pipefail
 
 PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
 export PARENT_MODEL
+
+# Experiment and time window
+if [ -z "${EXPERIMENT:-}" ]; then
+    case "$PARENT_MODEL" in
+        ACCESS-OM2-1)   EXPERIMENT="1deg_jra55_iaf_omip2_cycle6" ;;
+        ACCESS-OM2-025) EXPERIMENT="025deg_jra55_iaf_omip2_cycle6" ;;
+        *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
+    esac
+fi
+TIME_WINDOW=${TIME_WINDOW:-1960-1979}
+export EXPERIMENT TIME_WINDOW
 
 # Source model config for MODEL_SHORT and walltimes
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
@@ -74,15 +87,17 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "Usage: PARENT_MODEL=... JOB_CHAIN=... bash scripts/driver.sh"
     echo ""
     echo "  PARENT_MODEL  Model to run (default: ACCESS-OM2-1)"
+    echo "  EXPERIMENT    Intake catalog key (default: based on PARENT_MODEL)"
+    echo "  TIME_WINDOW   Year range YYYY-YYYY or single year (default: 1960-1979)"
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
-    echo "    grid vel run1yr run1yrfast run10yr run100yr runlong"
+    echo "    prep grid vel run1yr run1yrfast run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plot1yr plot10yr plot100yr"
     echo ""
     echo "  Shortcuts:"
-    echo "    preprocessing  = grid-vel"
+    echo "    preprocessing  = prep-grid-vel"
     echo "    standardruns   = run1yr-run10yr-run100yr-runlong"
     echo "    TMall          = TMbuild-TMsnapshot-TMsolve"
     echo "    plotall         = plot1yr-plot10yr-plot100yr-plotNK"
@@ -99,10 +114,11 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
+ALL_STEPS=(prep grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
 
 # --- Dependency DAG (step → space-separated children) ---
 declare -A DAG
+DAG[prep]="vel"
 DAG[grid]="vel"
 DAG[vel]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
 DAG[run1yr]="TMsnapshot plot1yr"
@@ -167,7 +183,7 @@ JOB_CHAIN="$expanded"
 
 # Expand shortcuts (order matters: expand 'full' before its sub-shortcuts)
 JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr}"
-JOB_CHAIN="${JOB_CHAIN//preprocessing/grid-vel}"
+JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
 JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
@@ -213,10 +229,12 @@ LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-yes}
 INITIAL_AGE=${INITIAL_AGE:-0}
 
 # --- Common -v vars passed to all jobs ---
-COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},GIT_COMMIT=${GIT_COMMIT}"
+COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},EXPERIMENT=${EXPERIMENT},TIME_WINDOW=${TIME_WINDOW},GIT_COMMIT=${GIT_COMMIT}"
 
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
+echo "EXPERIMENT=$EXPERIMENT"
+echo "TIME_WINDOW=$TIME_WINDOW"
 echo "JOB_CHAIN=$JOB_CHAIN"
 echo "GIT_COMMIT=$GIT_COMMIT"
 echo "TM_SOURCE=$TM_SOURCE"
@@ -225,7 +243,7 @@ echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP
 echo ""
 
 STEP=0
-GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
+PREP_JOB="" GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
@@ -236,7 +254,17 @@ PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 # 1. Preprocessing
 # ============================================================
 
-# 1a. grid
+# 1a. prep — Python preprocessing (monthly climatologies + yearly averages)
+if has_step prep; then
+    STEP=$((STEP + 1))
+    PREP_JOB=$(qsub \
+        -N "${MODEL_SHORT}_prep" -l walltime=${WALLTIME_PREP} \
+        -v ${COMMON_VARS} \
+        scripts/prepreprocessing/periodicaverage.sh)
+    echo "[$STEP] Prep: $PREP_JOB"
+fi
+
+# 1b. grid
 if has_step grid; then
     STEP=$((STEP + 1))
     GRID_JOB=$(qsub \
@@ -246,10 +274,13 @@ if has_step grid; then
     echo "[$STEP] Grid: $GRID_JOB"
 fi
 
-# 1b. vel (depends on: grid)
+# 1c. vel (depends on: grid + prep)
 if has_step vel; then
     STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$GRID_JOB" ] && dep_flag=(-W "depend=afterok:${GRID_JOB}")
+    deps=""
+    [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
+    [ -n "$PREP_JOB" ] && deps="${deps:+$deps:}$PREP_JOB"
+    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
     gpu_flags=()
     PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
     if [ "$PREPROCESS_ARCH" = "GPU" ]; then
@@ -259,7 +290,7 @@ if has_step vel; then
         -N "${MODEL_SHORT}_vel" -l walltime=${WALLTIME_VEL} \
         -v ${COMMON_VARS} \
         scripts/preprocessing/build_velocities.sh)
-    echo "[$STEP] Velocities: $VEL_JOB${GRID_JOB:+ (afterok $GRID_JOB)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
+    echo "[$STEP] Velocities: $VEL_JOB${deps:+ (afterok $deps)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
 fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
@@ -556,6 +587,7 @@ echo ""
 # Flat summary — only shows submitted jobs, grouped by section
 has_any=false
 for label_job in \
+    "prep:$PREP_JOB" \
     "grid:$GRID_JOB" \
     "vel:$VEL_JOB" \
     "run1yr:$RUN1YR_JOB" \

@@ -22,7 +22,7 @@ DURATION_TAG=${DURATION_TAG:-1year}
 export GPU_TAG DURATION_TAG
 
 echo "Running compare_runs_across_architectures.jl on CPU (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
-log_dir=logs/julia/$PARENT_MODEL/plot/compare
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/compare
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project test/compare_runs_across_architectures.jl &> "$log_dir/${MODEL_CONFIG}_${GPU_TAG}_${DURATION_TAG}_${job_id}.log"

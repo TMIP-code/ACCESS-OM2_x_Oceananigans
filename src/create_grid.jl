@@ -27,16 +27,10 @@ flush(stdout); flush(stderr)
 
 # Configuration
 include("shared_functions.jl")
-(; parentmodel) = load_project_config()
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-mkpath(preprocessed_inputs_dir)
+(; parentmodel, experiment, experiment_dir) = load_project_config()
+mkpath(experiment_dir)
 
-# Load parent simulation config (default based on parentmodel)
-default_parentsimulation = Dict(
-    "ACCESS-OM2-1" => "1deg_jra55_iaf_omip2_cycle6",
-    "ACCESS-OM2-025" => "025deg_jra55_iaf_omip2_cycle6",
-)[parentmodel]
-parentsimulation = get(ENV, "PARENT_SIMULATION", default_parentsimulation)
+parentsimulation = experiment
 @show parentsimulation
 configs = YAML.load_file("ACCESS-OM2_configs.yaml")
 @show config_path = configs[parentsimulation]
@@ -158,7 +152,7 @@ code_to_reconstruct_the_grid = """
     # pre-computed coordinate/metric arrays saved in this JLD2 file.
 """
 
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 
 save(
     joinpath(grid_file),

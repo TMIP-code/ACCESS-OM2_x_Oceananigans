@@ -22,7 +22,7 @@ lumpspray_tag="prec"
 solver_tag="${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}"
 
 job_id="${PBS_JOBID:-interactive}"
-run_log_dir=logs/julia/$PARENT_MODEL/periodic/1year
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/periodic/1year
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_${solver_tag}_${job_id}.log"
 

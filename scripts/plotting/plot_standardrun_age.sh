@@ -20,7 +20,7 @@ DURATION=${DURATION:-1year}
 export DURATION
 
 echo "Running plot_standardrun_age.jl on CPU (DURATION=$DURATION)"
-log_dir=logs/julia/$PARENT_MODEL/plot/standardrun
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/standardrun
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_standardrun_age.jl &> "$log_dir/${MODEL_CONFIG}_${DURATION}_${job_id}.log"

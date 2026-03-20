@@ -18,7 +18,7 @@ source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
 
-log_dir=logs/julia/$PARENT_MODEL/preprocess
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/preprocess
 mkdir -p "$log_dir"
 
 echo "Running create_velocities.jl for PARENT_MODEL=$PARENT_MODEL"

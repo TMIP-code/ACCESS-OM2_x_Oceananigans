@@ -2,6 +2,18 @@
 # Sourced (not executed), so variables are set in the caller's scope.
 
 PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
+
+# Experiment and time window (parent model forcing)
+if [ -z "${EXPERIMENT:-}" ]; then
+    case "$PARENT_MODEL" in
+        ACCESS-OM2-1)   EXPERIMENT="1deg_jra55_iaf_omip2_cycle6" ;;
+        ACCESS-OM2-025) EXPERIMENT="025deg_jra55_iaf_omip2_cycle6" ;;
+        *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
+    esac
+fi
+TIME_WINDOW=${TIME_WINDOW:-1960-1979}
+export EXPERIMENT TIME_WINDOW
+
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
@@ -25,6 +37,8 @@ export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION ADVECTION_SCHEME TIMESTEPPER T
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
 
 echo "PARENT_MODEL=$PARENT_MODEL"
+echo "EXPERIMENT=$EXPERIMENT"
+echo "TIME_WINDOW=$TIME_WINDOW"
 echo "VELOCITY_SOURCE=$VELOCITY_SOURCE"
 echo "W_FORMULATION=$W_FORMULATION"
 echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"

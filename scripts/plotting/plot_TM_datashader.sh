@@ -20,7 +20,7 @@ TM_LABEL_X="${TM_LABEL_X:-const}"
 TM_LABEL_Y="${TM_LABEL_Y:-avg}"
 
 echo "Running plot_TM_datashader.jl on CPU: $TM_LABEL_Y vs $TM_LABEL_X"
-log_dir=logs/julia/$PARENT_MODEL/TM/plot
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/TM/plot
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_TM_datashader.jl &> "$log_dir/datashader_${TM_LABEL_Y}_vs_${TM_LABEL_X}_${MODEL_CONFIG}_${job_id}.log"

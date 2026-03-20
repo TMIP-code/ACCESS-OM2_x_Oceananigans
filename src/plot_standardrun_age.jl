@@ -59,7 +59,7 @@ duration_configs = Dict(
 haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be one of: $(join(keys(duration_configs), ", "))")
 (; colorrange, levels) = duration_configs[DURATION]
 
-(; parentmodel, outputdir) = load_project_config(; parentmodel_arg_index = 2)
+(; parentmodel, experiment_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
@@ -88,8 +88,7 @@ isfile(output_filepath) || error("Output file not found: $output_filepath")
 # Load grid
 ################################################################################
 
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 
 @info "Loading grid from $grid_file"
 flush(stdout); flush(stderr)

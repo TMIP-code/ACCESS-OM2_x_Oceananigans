@@ -56,7 +56,7 @@ length(gpu_tag_parts) == 2 || error("GPU_TAG must be in format PxQ (e.g., 2x2), 
 px = parse(Int, gpu_tag_parts[1])
 py = parse(Int, gpu_tag_parts[2])
 
-(; parentmodel, outputdir) = load_project_config(; parentmodel_arg_index = 2)
+(; parentmodel, experiment_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
@@ -87,8 +87,7 @@ NPARTS = length(filter(f -> startswith(f, "age_$(DURATION_TAG)_part") && endswit
 # Load grid, masks, volumes
 ################################################################################
 
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 
 @info "Loading grid from $grid_file"
 flush(stdout); flush(stderr)

@@ -51,7 +51,7 @@ using Printf
 
 include("shared_functions.jl")
 
-(; parentmodel, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
@@ -72,12 +72,10 @@ mkpath(outputdir)
 # Load grid from JLD2
 ################################################################################
 
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-
 @info "Reconstructing grid (loading data from JLD2)"
 flush(stdout); flush(stderr)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
@@ -100,9 +98,9 @@ flush(stdout); flush(stderr)
 
 if VELOCITY_SOURCE == "cgridtransports"
     flush(stdout); flush(stderr)
-    u_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_periodic.jld2")
-    v_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_periodic.jld2")
-    w_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_periodic.jld2")
+    u_file = joinpath(monthly_dir, "u_from_mass_transport_monthly.jld2")
+    v_file = joinpath(monthly_dir, "v_from_mass_transport_monthly.jld2")
+    w_file = joinpath(monthly_dir, "w_from_mass_transport_monthly.jld2")
     @info """Loading velocities from MOM mass transport outputs files:
     - $(u_file)
     - $(v_file)
@@ -110,9 +108,9 @@ if VELOCITY_SOURCE == "cgridtransports"
     """
 elseif VELOCITY_SOURCE == "bgridvelocities"
     flush(stdout); flush(stderr)
-    u_file = joinpath(preprocessed_inputs_dir, "u_interpolated_periodic.jld2")
-    v_file = joinpath(preprocessed_inputs_dir, "v_interpolated_periodic.jld2")
-    w_file = joinpath(preprocessed_inputs_dir, "w_periodic.jld2")
+    u_file = joinpath(monthly_dir, "u_interpolated_monthly.jld2")
+    v_file = joinpath(monthly_dir, "v_interpolated_monthly.jld2")
+    w_file = joinpath(monthly_dir, "w_monthly.jld2")
     @info """Loading velocities from MOM velocity outputs files:
     - $(u_file)
     - $(v_file)
@@ -132,7 +130,7 @@ v_ts = load_fts(arch, v_file, "v", grid; backend, time_indexing, fts_kw...)
 @show v_ts
 @info "Loading sea surface height from MOM output"
 flush(stdout); flush(stderr)
-η_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
+η_file = joinpath(monthly_dir, "eta_monthly.jld2")
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 η_ts = load_fts(arch, η_file, "η", grid; backend, time_indexing, fts_kw...)
 @show η_ts
@@ -170,18 +168,13 @@ free_surface = PrescribedFreeSurface(displacement = η_ts)
 @info "Creating closures"
 flush(stdout); flush(stderr)
 
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
-
 # Vertical diffusivity parameters
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
 # Load MLD to add strong vertical diffusion in the mixed layer
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
-mld_file = joinpath(inputdir, "mld.nc")
+mld_file = joinpath(monthly_dir, "mld_monthly.nc")
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
 implicit_vertical_diffusion = VerticalScalarDiffusivity(

@@ -39,9 +39,8 @@ arch = Distributed(CPU(), partition = Partition(px, py))
 include("../src/shared_functions.jl")
 
 # Load project config to find grid file
-(; parentmodel) = load_project_config()
-preprocessed_inputs_dir = joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel)
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+(; parentmodel, experiment_dir) = load_project_config()
+grid_file = joinpath(experiment_dir, "grid.jld2")
 
 @info "Rank $rank: Loading grid from $grid_file"
 flush(stdout); flush(stderr)

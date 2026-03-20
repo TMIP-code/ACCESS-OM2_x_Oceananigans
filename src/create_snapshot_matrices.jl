@@ -78,7 +78,7 @@ using SparseMatrixColorings
 
 include("shared_functions.jl")
 
-(; parentmodel, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment_dir, monthly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
@@ -93,7 +93,6 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 @info "- model_config     = $model_config"
 flush(stdout); flush(stderr)
 
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
 matrices_dir = joinpath(outputdir, "TM", model_config)
 snapshot_matrices_dir = joinpath(matrices_dir, "snapshots")
 mkpath(snapshot_matrices_dir)
@@ -108,7 +107,7 @@ flush(stdout); flush(stderr)
 
 @info "Reconstructing grid (loading data from JLD2)"
 flush(stdout); flush(stderr)
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
@@ -193,15 +192,10 @@ free_surface = PrescribedFreeSurface(displacement = η_constant)
 @info "Creating closures"
 flush(stdout); flush(stderr)
 
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
-
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
+mld_ds = open_dataset(joinpath(monthly_dir, "mld_monthly.nc"))
 mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
 z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data

@@ -37,16 +37,15 @@ include("select_architecture.jl")
 include("shared_functions.jl")
 
 # Configuration
-(; parentmodel) = load_project_config()
-
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-mkpath(preprocessed_inputs_dir)
+(; parentmodel, experiment_dir, monthly_dir, yearly_dir) = load_project_config()
+mkpath(monthly_dir)
+mkpath(yearly_dir)
 
 make_plots = lowercase(get(ENV, "MAKE_PLOTS", "no")) ∈ ("yes", "true", "1")
 @info "Plotting enabled: $make_plots"
 
 if make_plots
-    plots_dir = joinpath(preprocessed_inputs_dir, "plots")
+    plots_dir = joinpath(experiment_dir, "plots")
     bgrid_u_plot_dir = joinpath(plots_dir, "u")
     bgrid_v_plot_dir = joinpath(plots_dir, "v")
     u_interpolated_plot_dir = joinpath(plots_dir, "u_interpolated")
@@ -74,7 +73,7 @@ end
 ################################################################################
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 
 Nx, Ny, Nz = size(grid)
@@ -257,66 +256,63 @@ end
 
 @info "Creating velocity and sea surface height field time series"
 
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
+@info "Reading NetCDF inputs from monthly_dir=$monthly_dir"
 
-u_ds = open_dataset(joinpath(inputdir, "u_periodic.nc"))
-v_ds = open_dataset(joinpath(inputdir, "v_periodic.nc"))
-wt_ds = open_dataset(joinpath(inputdir, "wt_periodic.nc"))
-η_ds = open_dataset(joinpath(inputdir, "eta_t_periodic.nc"))
-dht_ds = open_dataset(joinpath(inputdir, "dht_periodic.nc"))
-tx_ds = open_dataset(joinpath(inputdir, "tx_trans_periodic.nc"))
-ty_ds = open_dataset(joinpath(inputdir, "ty_trans_periodic.nc"))
-dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_periodic.nc")
-wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_periodic.nc")
+u_ds = open_dataset(joinpath(monthly_dir, "u_monthly.nc"))
+v_ds = open_dataset(joinpath(monthly_dir, "v_monthly.nc"))
+wt_ds = open_dataset(joinpath(monthly_dir, "wt_monthly.nc"))
+η_ds = open_dataset(joinpath(monthly_dir, "eta_t_monthly.nc"))
+dht_ds = open_dataset(joinpath(monthly_dir, "dht_monthly.nc"))
+tx_ds = open_dataset(joinpath(monthly_dir, "tx_trans_monthly.nc"))
+ty_ds = open_dataset(joinpath(monthly_dir, "ty_trans_monthly.nc"))
+dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_monthly.nc")
+wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_monthly.nc")
 
 # prescribed_Δt = 1Δt
 prescribed_Δt = 1month
 fts_times = ((1:12) .- 0.5) * prescribed_Δt
 stop_time = 12 * prescribed_Δt
 
-u_periodic_file = joinpath(preprocessed_inputs_dir, "u_interpolated_periodic.jld2")
-v_periodic_file = joinpath(preprocessed_inputs_dir, "v_interpolated_periodic.jld2")
-w_periodic_file = joinpath(preprocessed_inputs_dir, "w_periodic.jld2")
-η_periodic_file = joinpath(preprocessed_inputs_dir, "eta_periodic.jld2")
-u_mt_periodic_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_periodic.jld2")
-v_mt_periodic_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_periodic.jld2")
-w_mt_periodic_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_periodic.jld2")
+u_monthly_file = joinpath(monthly_dir, "u_interpolated_monthly.jld2")
+v_monthly_file = joinpath(monthly_dir, "v_interpolated_monthly.jld2")
+w_monthly_file = joinpath(monthly_dir, "w_monthly.jld2")
+η_monthly_file = joinpath(monthly_dir, "eta_monthly.jld2")
+u_mt_monthly_file = joinpath(monthly_dir, "u_from_mass_transport_monthly.jld2")
+v_mt_monthly_file = joinpath(monthly_dir, "v_from_mass_transport_monthly.jld2")
+w_mt_monthly_file = joinpath(monthly_dir, "w_from_mass_transport_monthly.jld2")
 
-u_constant_file = joinpath(preprocessed_inputs_dir, "u_interpolated_constant.jld2")
-v_constant_file = joinpath(preprocessed_inputs_dir, "v_interpolated_constant.jld2")
-w_constant_file = joinpath(preprocessed_inputs_dir, "w_constant.jld2")
-η_constant_file = joinpath(preprocessed_inputs_dir, "eta_constant.jld2")
-u_mt_constant_file = joinpath(preprocessed_inputs_dir, "u_from_mass_transport_constant.jld2")
-v_mt_constant_file = joinpath(preprocessed_inputs_dir, "v_from_mass_transport_constant.jld2")
-w_mt_constant_file = joinpath(preprocessed_inputs_dir, "w_from_mass_transport_constant.jld2")
+u_yearly_file = joinpath(yearly_dir, "u_interpolated_yearly.jld2")
+v_yearly_file = joinpath(yearly_dir, "v_interpolated_yearly.jld2")
+w_yearly_file = joinpath(yearly_dir, "w_yearly.jld2")
+η_yearly_file = joinpath(yearly_dir, "eta_yearly.jld2")
+u_mt_yearly_file = joinpath(yearly_dir, "u_from_mass_transport_yearly.jld2")
+v_mt_yearly_file = joinpath(yearly_dir, "v_from_mass_transport_yearly.jld2")
+w_mt_yearly_file = joinpath(yearly_dir, "w_from_mass_transport_yearly.jld2")
 
 # remove old files if they exist
-rm(u_periodic_file; force = true)
-rm(v_periodic_file; force = true)
-rm(w_periodic_file; force = true)
-rm(η_periodic_file; force = true)
-rm(u_mt_periodic_file; force = true)
-rm(v_mt_periodic_file; force = true)
-rm(w_mt_periodic_file; force = true)
-rm(u_constant_file; force = true)
-rm(v_constant_file; force = true)
-rm(w_constant_file; force = true)
-rm(η_constant_file; force = true)
-rm(u_mt_constant_file; force = true)
-rm(v_mt_constant_file; force = true)
-rm(w_mt_constant_file; force = true)
+rm(u_monthly_file; force = true)
+rm(v_monthly_file; force = true)
+rm(w_monthly_file; force = true)
+rm(η_monthly_file; force = true)
+rm(u_mt_monthly_file; force = true)
+rm(v_mt_monthly_file; force = true)
+rm(w_mt_monthly_file; force = true)
+rm(u_yearly_file; force = true)
+rm(v_yearly_file; force = true)
+rm(w_yearly_file; force = true)
+rm(η_yearly_file; force = true)
+rm(u_mt_yearly_file; force = true)
+rm(v_mt_yearly_file; force = true)
+rm(w_mt_yearly_file; force = true)
 
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
-u_periodic_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_periodic_file, name = "u", time_indexing = Cyclical(stop_time))
-v_periodic_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_periodic_file, name = "v", time_indexing = Cyclical(stop_time))
-w_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_periodic_file, name = "w", time_indexing = Cyclical(stop_time))
-u_mt_periodic_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_periodic_file, name = "u", time_indexing = Cyclical(stop_time))
-v_mt_periodic_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_periodic_file, name = "v", time_indexing = Cyclical(stop_time))
-w_mt_periodic_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_periodic_file, name = "w", time_indexing = Cyclical(stop_time))
-η_periodic_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_periodic_file, name = "η", time_indexing = Cyclical(stop_time))
+u_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
+v_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
+w_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
+u_mt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
+v_mt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
+w_mt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
+η_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_monthly_file, name = "η", time_indexing = Cyclical(stop_time))
 
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
@@ -379,7 +375,7 @@ for month in 1:12
     set!(η, η_data)
     mask_immersed_field!(η, 0.0)
     fill_halo_regions!(η)
-    set!(η_periodic_ts, η, month)
+    set!(η_monthly_ts, η, month)
 
     # Update z-star grid scaling (before dht check so Δzstar reflects current η)
     launch!(architecture(grid), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η, grid)
@@ -419,8 +415,8 @@ for month in 1:12
     fill_halo_regions!(u)
     fill_halo_regions!(v)
     println("  - Set FieldTimeSeries for u and v")
-    set!(u_periodic_ts, u, month)
-    set!(v_periodic_ts, v, month)
+    set!(u_monthly_ts, u, month)
+    set!(v_monthly_ts, v, month)
 
     # ── u, v, w from mass transports ────────────────────────────────────────
     println("- u, v, w from mass transports")
@@ -450,9 +446,9 @@ for month in 1:12
     fill_halo_regions!(v_mt)
     fill_halo_regions!(w_mt)
 
-    set!(u_mt_periodic_ts, u_mt, month)
-    set!(v_mt_periodic_ts, v_mt, month)
-    set!(w_mt_periodic_ts, w_mt, month)
+    set!(u_mt_monthly_ts, u_mt, month)
+    set!(v_mt_monthly_ts, v_mt, month)
+    set!(w_mt_monthly_ts, w_mt, month)
 
     # ── w ────────────────────────────────────────────────────────────────────
     println("- w")
@@ -466,7 +462,7 @@ for month in 1:12
     println("  - Filling halo regions for w")
     fill_halo_regions!(w)
     println("  - Set FieldTimeSeries for w")
-    set!(w_periodic_ts, w, month)
+    set!(w_monthly_ts, w, month)
 
     if make_plots
         println("  - Plot B grid u and v")
@@ -519,28 +515,28 @@ for month in 1:12
 end
 println("Done!")
 
-@show u_periodic_ts
-@info "saved to $(u_periodic_file)"
+@show u_monthly_ts
+@info "saved to $(u_monthly_file)"
 
-@show v_periodic_ts
-@info "saved to $(v_periodic_file)"
+@show v_monthly_ts
+@info "saved to $(v_monthly_file)"
 
-@show w_periodic_ts
-@info "saved to $(w_periodic_file)"
+@show w_monthly_ts
+@info "saved to $(w_monthly_file)"
 
-@show u_mt_periodic_ts
-@info "saved to $(u_mt_periodic_file)"
+@show u_mt_monthly_ts
+@info "saved to $(u_mt_monthly_file)"
 
-@show v_mt_periodic_ts
-@info "saved to $(v_mt_periodic_file)"
+@show v_mt_monthly_ts
+@info "saved to $(v_mt_monthly_file)"
 
-@show w_mt_periodic_ts
-@info "saved to $(w_mt_periodic_file)"
+@show w_mt_monthly_ts
+@info "saved to $(w_mt_monthly_file)"
 
-@show η_periodic_ts
-@info "saved to $(η_periodic_file)"
+@show η_monthly_ts
+@info "saved to $(η_monthly_file)"
 
-@info "Computing time-averaged (constant) fields"
+@info "Computing time-averaged (yearly) fields"
 u_acc ./= 12
 v_acc ./= 12
 w_acc ./= 12
@@ -549,7 +545,7 @@ v_mt_acc ./= 12
 w_mt_acc ./= 12
 η_acc ./= 12
 
-@info "Filling halo regions for time-averaged (constant) fields"
+@info "Filling halo regions for time-averaged (yearly) fields"
 fill_halo_regions!(u_acc)
 fill_halo_regions!(v_acc)
 fill_halo_regions!(w_acc)
@@ -558,18 +554,18 @@ fill_halo_regions!(v_mt_acc)
 fill_halo_regions!(w_mt_acc)
 fill_halo_regions!(η_acc)
 
-@info "Saving time-averaged (constant) fields"
-jldsave(u_constant_file; u = Array(interior(u_acc)))
-jldsave(v_constant_file; v = Array(interior(v_acc)))
-jldsave(w_constant_file; w = Array(interior(w_acc)))
-jldsave(u_mt_constant_file; u = Array(interior(u_mt_acc)))
-jldsave(v_mt_constant_file; v = Array(interior(v_mt_acc)))
-jldsave(w_mt_constant_file; w = Array(interior(w_mt_acc)))
-jldsave(η_constant_file; η = Array(interior(η_acc, :, :, 1)))
-@info "saved constant u to $(u_constant_file)"
-@info "saved constant v to $(v_constant_file)"
-@info "saved constant w to $(w_constant_file)"
-@info "saved constant u_mt to $(u_mt_constant_file)"
-@info "saved constant v_mt to $(v_mt_constant_file)"
-@info "saved constant w_mt to $(w_mt_constant_file)"
-@info "saved constant η to $(η_constant_file)"
+@info "Saving time-averaged (yearly) fields"
+jldsave(u_yearly_file; u = Array(interior(u_acc)))
+jldsave(v_yearly_file; v = Array(interior(v_acc)))
+jldsave(w_yearly_file; w = Array(interior(w_acc)))
+jldsave(u_mt_yearly_file; u = Array(interior(u_mt_acc)))
+jldsave(v_mt_yearly_file; v = Array(interior(v_mt_acc)))
+jldsave(w_mt_yearly_file; w = Array(interior(w_mt_acc)))
+jldsave(η_yearly_file; η = Array(interior(η_acc, :, :, 1)))
+@info "saved yearly u to $(u_yearly_file)"
+@info "saved yearly v to $(v_yearly_file)"
+@info "saved yearly w to $(w_yearly_file)"
+@info "saved yearly u_mt to $(u_mt_yearly_file)"
+@info "saved yearly v_mt to $(v_mt_yearly_file)"
+@info "saved yearly w_mt to $(w_mt_yearly_file)"
+@info "saved yearly η to $(η_yearly_file)"

@@ -24,13 +24,8 @@ using JLD2
 include("select_architecture.jl")
 
 # Configuration
-parentmodel = "ACCESS-OM2-1"
-# parentmodel = "ACCESS-OM2-025"
-# parentmodel = "ACCESS-OM2-01"
-outputdir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel))
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-
 include("shared_functions.jl")
+(; parentmodel, experiment_dir, monthly_dir, outputdir) = load_project_config()
 
 ################################################################################
 # Load grid from JLD2
@@ -46,7 +41,7 @@ error(
 )
 
 @info "Loading and reconstructing grid from JLD2 data"
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file)
 
 Nx, Ny, Nz = size(grid)
@@ -58,17 +53,12 @@ Nx, Ny, Nz = size(grid)
 
 @info "Creating closures"
 
-resolution_str = split(parentmodel, "-")[end]
-experiment = "$(resolution_str)deg_jra55_iaf_omip2_cycle6"
-time_window = "Jan1960-Dec1979"
-@show inputdir = "/scratch/y99/TMIP/data/$parentmodel/$experiment/$time_window"
-
 # Vertical diffusivity parameters
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
 # Load MLD to add strong vertical diffusion in the mixed layer
-mld_ds = open_dataset(joinpath(inputdir, "mld.nc"))
+mld_ds = open_dataset(joinpath(monthly_dir, "mld_monthly.nc"))
 mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
 z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data

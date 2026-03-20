@@ -60,7 +60,7 @@ flush(stdout); flush(stderr)
 
 include("shared_functions.jl")
 
-(; parentmodel, outputdir) = load_project_config()
+(; parentmodel, experiment_dir, outputdir) = load_project_config()
 
 year = years = 365.25 * 86400  # seconds
 
@@ -111,8 +111,7 @@ flush(stdout); flush(stderr)
 
 @info "Loading grid"
 flush(stdout); flush(stderr)
-preprocessed_inputs_dir = normpath(joinpath(@__DIR__, "..", "preprocessed_inputs", parentmodel))
-grid_file = joinpath(preprocessed_inputs_dir, "grid.jld2")
+grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, CPU())
 @info "Grid loaded: $(size(grid))"
 flush(stdout); flush(stderr)

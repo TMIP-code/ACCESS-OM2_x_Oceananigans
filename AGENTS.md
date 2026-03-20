@@ -11,8 +11,9 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── run_100years.jl           # Standalone 100-year age simulation → outputs/{model}/age/
 │   ├── solve_periodic_NK.jl      # Newton-GMRES periodic steady-state solver
 │   ├── periodic_solver_common.jl # Shared solver infrastructure (simulation, wet mask, Φ!, G!)
-│   ├── create_grid.jl            # Build tripolar grid → preprocessed_inputs/{model}/{model}_grid.jld2
-│   ├── create_velocities.jl      # Preprocess MOM velocities → *_periodic.jld2 + *_constant.jld2
+│   ├── periodicaverage.py         # Python preprocessing: monthly climatologies + yearly averages from ACCESS-OM2 output
+│   ├── create_grid.jl            # Build tripolar grid → preprocessed_inputs/{model}/{experiment}/grid.jld2
+│   ├── create_velocities.jl      # Preprocess MOM velocities → *_monthly.jld2 + *_yearly.jld2
 │   ├── run_1year_benchmark.jl    # Benchmark 1-year run (no output writers, precompile + time)
 │   ├── run_diagnostic_steps.jl  # 10-step diagnostic run saving every step (serial/distributed)
 │   ├── compare_runs_across_architectures.jl  # Compare serial vs distributed age output
@@ -33,27 +34,26 @@ ACCESS-OM2_x_Oceananigans/
 │   ├── env_defaults.sh              # Common env var defaults (sourced by all job scripts)
 │   ├── driver.sh                    # Unified pipeline driver (PARENT_MODEL, JOB_CHAIN)
 │   ├── test_driver.sh               # Test/diagnostic driver (halofill, diag, mpi)
-│   ├── build_grid.sh               # PBS: grid build (CPU, express)
-│   ├── build_velocities.sh         # PBS: velocity preprocessing (CPU/GPU, express)
-│   ├── run_1year.sh                # PBS: 1-year GPU simulation
-│   ├── run_10years.sh              # PBS: 10-year GPU simulation
-│   ├── run_100years.sh             # PBS: 100-year GPU simulation
-│   ├── run_long.sh                 # PBS: long GPU simulation (NYEARS env var)
-│   ├── run_1year_from_periodic_sol.sh  # PBS: 1-year run from periodic solution
-│   ├── solve_periodic_NK.sh        # PBS: Newton-GMRES GPU solver
-│   ├── build_TMconst.sh            # PBS: Jacobian build from constant fields (CPU, normal)
-│   ├── build_TMavg.sh              # PBS: snapshot + average matrices (CPU, normal)
-│   ├── solve_TM_age_CPU.sh         # PBS: solve age from matrix (CPU, Pardiso/ParU/UMFPACK)
-│   ├── solve_TM_age_GPU.sh         # PBS: solve age from matrix (GPU, CUDSS)
-│   ├── plot_1year_age.sh           # PBS: plot 1-year age diagnostics (CPU)
-│   ├── plot_10years_age.sh         # PBS: plot 10-year age diagnostics (CPU)
-│   ├── plot_100years_age.sh        # PBS: plot 100-year age diagnostics (CPU)
-│   ├── plot_1year_from_periodic_sol.sh  # PBS: plot periodic solution diagnostics (CPU)
-│   ├── submit_all_solver_modes.sh  # Submit NK solver variants
-│   ├── submit_all_matrix_jobs.sh   # Submit matrix build for all configs
-│   ├── submit_all_solve_matrix_age.sh  # Submit all solver × coarsening combos
-│   ├── pkg_instantiate_project_CPU.sh
-│   ├── pkg_instantiate_project_GPU.sh
+│   ├── prepreprocessing/
+│   │   └── periodicaverage.sh       # PBS: Python preprocessing (monthly climatologies + yearly averages)
+│   ├── preprocessing/
+│   │   ├── build_grid.sh            # PBS: grid build (CPU, express)
+│   │   ├── build_velocities.sh      # PBS: velocity preprocessing (CPU/GPU, express)
+│   │   ├── build_TMconst.sh         # PBS: Jacobian build from constant fields (CPU, normal)
+│   │   └── build_TMavg.sh           # PBS: snapshot + average matrices (CPU, normal)
+│   ├── standard_runs/
+│   │   ├── run_1year.sh             # PBS: 1-year GPU simulation
+│   │   ├── run_10years.sh           # PBS: 10-year GPU simulation
+│   │   ├── run_100years.sh          # PBS: 100-year GPU simulation
+│   │   ├── run_long.sh              # PBS: long GPU simulation (NYEARS env var)
+│   │   └── run_1year_from_periodic_sol.sh  # PBS: 1-year run from periodic solution
+│   ├── solvers/
+│   │   ├── solve_periodic_NK.sh     # PBS: Newton-GMRES GPU solver
+│   │   ├── solve_TM_age_CPU.sh      # PBS: solve age from matrix (CPU, Pardiso/ParU/UMFPACK)
+│   │   └── solve_TM_age_GPU.sh      # PBS: solve age from matrix (GPU, CUDSS)
+│   ├── plotting/
+│   │   ├── plot_standardrun_age.sh  # PBS: plot standard run age diagnostics (CPU, DURATION env var)
+│   │   └── plot_1year_from_periodic_sol.sh  # PBS: plot periodic solution diagnostics (CPU)
 │   └── tests/                         # Test PBS wrappers (used by test_driver.sh)
 │       ├── run_halofill_test.sh       # fill_halo_regions! MWE on distributed GPU
 │       ├── run_diagnostic_steps.sh    # 10-step diagnostic run
@@ -61,29 +61,30 @@ ACCESS-OM2_x_Oceananigans/
 ├── test/                                     # Julia test scripts (matrix regression)
 ├── archive/scripts/                       # Archived/obsolete PBS scripts
 ├── preprocessed_inputs/{parentmodel}/  # symlink → /scratch/y99/TMIP/…/preprocessed_inputs/
-│   ├── {parentmodel}_grid.jld2
-│   ├── u_interpolated_periodic.jld2    # B-grid → C-grid interpolated, monthly FTS
-│   ├── u_interpolated_constant.jld2    # time-averaged constant Field
-│   ├── u_from_mass_transport_periodic.jld2
-│   ├── u_from_mass_transport_constant.jld2
-│   ├── (v_*, w_*, eta_* analogues)
-│   └── plots/                          # diagnostic plots from create_velocities.jl
+│   └── {experiment}/
+│       ├── grid.jld2                   # tripolar grid (shared across time windows)
+│       └── {time_window}/
+│           ├── monthly/
+│           │   ├── u_interpolated_monthly.jld2    # B-grid → C-grid interpolated, monthly FTS
+│           │   ├── u_from_mass_transport_monthly.jld2
+│           │   ├── (v_*, w_*, eta_* analogues)
+│           │   ├── *_monthly.nc         # NetCDF climatologies from periodicaverage.py
+│           │   └── plots/               # diagnostic plots from create_velocities.jl
+│           └── yearly/
+│               ├── u_interpolated_yearly.jld2     # time-averaged constant Field
+│               ├── u_from_mass_transport_yearly.jld2
+│               ├── (v_*, w_*, eta_* analogues)
+│               └── *_yearly.nc          # NetCDF yearly averages from periodicaverage.py
 ├── outputs/{parentmodel}/              # symlink → /scratch/y99/TMIP/…/outputs/
-│   ├── age/{model_config}/            # offline simulation outputs (model_config = VS_WF_AS_TS)
-│   └── matrices/{model_config}/       # Jacobian M.jld2, steady_age_*.jld2, plots/
+│   └── {experiment}/{time_window}/
+│       ├── age/{model_config}/            # offline simulation outputs (model_config = VS_WF_AS_TS)
+│       └── matrices/{model_config}/       # Jacobian M.jld2, steady_age_*.jld2, plots/
 ├── logs/                               # symlink → /scratch/y99/TMIP/…/logs/
 │   ├── PBS/                            # PBS scheduler stdout/stderr (set via #PBS -o/-e)
-│   └── julia/                          # Julia script stdout/stderr, organised by script name
-│       ├── create_grid/
-│       │   └── create_grid_{parentmodel}_{job_id}.{out,err}
-│       ├── create_velocities/
-│       │   └── create_velocities_{parentmodel}_{job_id}.{out,err}
-│       ├── run_ACCESS-OM2/
-│       │   └── run_ACCESS-OM2_{MODEL_CONFIG}_{NONLINEAR_SOLVER}_{job_id}.log
-│       ├── create_matrix/
-│       │   └── create_matrix_{MODEL_CONFIG}_{job_id}.{out,err}
-│       └── solve_matrix_age/
-│           └── solve_matrix_age_{MODEL_CONFIG}_{LINEAR_SOLVER}_{lumpspray_tag}_{job_id}.log
+│   ├── python/{parentmodel}/{experiment}/{time_window}/  # Python preprocessing logs
+│   └── julia/{parentmodel}/{experiment}/
+│       ├── preprocess/                 # grid + velocity preprocessing logs
+│       └── {time_window}/              # per-time-window Julia logs (runs, solvers, plots, etc.)
 ├── Project.toml
 ├── LocalPreferences.toml               # CUDA version pin (local = true, version = "12.9")
 └── AGENTS.md
@@ -110,15 +111,18 @@ Submit via the unified driver (JOB_CHAIN is required):
 ```bash
 JOB_CHAIN=full bash scripts/driver.sh                                    # full OM2-1 pipeline
 PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=preprocessing-run1yr bash scripts/driver.sh
+EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
 JOB_CHAIN=vel..NK bash scripts/driver.sh                                 # range: vel through NK
 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh                          # single run + plot
 GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Volta GPUs
 ```
 
-JOB_CHAIN steps: `grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plot1yr plot10yr plot100yr`
-Shortcuts: `preprocessing` `standardruns` `TMall` `plotall` `full`
+JOB_CHAIN steps: `prep grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr`
+Shortcuts: `preprocessing` (= `prep-grid-vel`) `standardruns` `TMall` `plotall` `full`
 Range notation: `A..B` follows the dependency DAG (e.g., `run1yrNK..plotNK` = `run1yrNK-plotNK`)
 TM_SOURCE: `const` (default), `avg`, or `both` — filters TMsolve/NK/run1yrNK branches
+
+DAG dependencies: `prep → vel`, `grid → vel`, `vel → run*`, `vel → TMbuild`, etc.
 
 Tests use a separate driver:
 ```bash
@@ -145,30 +149,34 @@ Job names in this project follow the pattern `{MODEL_SHORT}_{step}` (e.g., `OM21
 
 Log locations after a job completes:
 - PBS scheduler logs: `logs/PBS/` (stdout/stderr from `#PBS -o/-e`)
-- Julia script logs: `logs/julia/{PM}/` (organised by pipeline step, see directory tree above)
+- Python preprocessing logs: `logs/python/{PM}/{EXP}/{TW}/`
+- Julia script logs: `logs/julia/{PM}/{EXP}/` (grid/vel in `preprocess/`, others under `{TW}/`)
 
 ## Naming conventions
 
-### Preprocessed velocity files (in `preprocessed_inputs/{parentmodel}/`)
-- Monthly `FieldTimeSeries`: `*_periodic.jld2` (e.g. `u_from_mass_transport_periodic.jld2`)
-- Time-averaged constant `Field`: `*_constant.jld2` (e.g. `u_from_mass_transport_constant.jld2`)
-- Full file list:
-  - `u_interpolated_periodic.jld2` / `u_interpolated_constant.jld2`
-  - `v_interpolated_periodic.jld2` / `v_interpolated_constant.jld2`
-  - `w_periodic.jld2` / `w_constant.jld2`
-  - `u_from_mass_transport_periodic.jld2` / `u_from_mass_transport_constant.jld2`
-  - `v_from_mass_transport_periodic.jld2` / `v_from_mass_transport_constant.jld2`
-  - `w_from_mass_transport_periodic.jld2` / `w_from_mass_transport_constant.jld2`
-  - `eta_periodic.jld2` / `eta_constant.jld2`
-  - `{parentmodel}_grid.jld2` (grid; no periodic/constant distinction)
+### Preprocessed velocity files (in `preprocessed_inputs/{PM}/{EXP}/{TW}/`)
+- Monthly `FieldTimeSeries`: `monthly/*_monthly.jld2` (e.g. `u_from_mass_transport_monthly.jld2`)
+- Time-averaged constant `Field`: `yearly/*_yearly.jld2` (e.g. `u_from_mass_transport_yearly.jld2`)
+- Grid file: `preprocessed_inputs/{PM}/{EXP}/grid.jld2` (shared across time windows)
+- Full file list (under `monthly/` and `yearly/` respectively):
+  - `u_interpolated_monthly.jld2` / `u_interpolated_yearly.jld2`
+  - `v_interpolated_monthly.jld2` / `v_interpolated_yearly.jld2`
+  - `w_monthly.jld2` / `w_yearly.jld2`
+  - `u_from_mass_transport_monthly.jld2` / `u_from_mass_transport_yearly.jld2`
+  - `v_from_mass_transport_monthly.jld2` / `v_from_mass_transport_yearly.jld2`
+  - `w_from_mass_transport_monthly.jld2` / `w_from_mass_transport_yearly.jld2`
+  - `eta_monthly.jld2` / `eta_yearly.jld2`
 
 ### Output directories (unified 4-part tag: `{VS}_{WF}_{AS}_{TS}` = `model_config`)
-- Age simulation outputs: `outputs/{parentmodel}/age/{model_config}/`
-- Matrix outputs: `outputs/{parentmodel}/matrices/{model_config}/`
-- Matrix plots: `outputs/{parentmodel}/matrices/{model_config}/plots/`
+- Age simulation outputs: `outputs/{PM}/{EXP}/{TW}/age/{model_config}/`
+- Matrix outputs: `outputs/{PM}/{EXP}/{TW}/matrices/{model_config}/`
+- Matrix plots: `outputs/{PM}/{EXP}/{TW}/matrices/{model_config}/plots/`
 
-### Log directories (`logs/julia/`)
+### Log directories
 - `MODEL_CONFIG` = `{VELOCITY_SOURCE}_{W_FORMULATION}_{ADVECTION_SCHEME}_{TIMESTEPPER}`
+- Python preprocessing logs: `logs/python/{PM}/{EXP}/{TW}/`
+- Grid/velocity logs: `logs/julia/{PM}/{EXP}/preprocess/`
+- Per-time-window Julia logs: `logs/julia/{PM}/{EXP}/{TW}/...` (runs, solvers, plots, TM, etc.)
 
 ## Script overview
 | Script | Purpose | Key env vars |
@@ -178,8 +186,9 @@ Log locations after a job completes:
 | `src/run_10years.jl` | Standalone 10-year age simulation | (inherits from setup_model.jl) |
 | `src/run_100years.jl` | Standalone 100-year age simulation | (inherits from setup_model.jl) |
 | `src/solve_periodic_NK.jl` | Newton-GMRES periodic steady-state solver | JVP_METHOD, LINEAR_SOLVER, LUMP_AND_SPRAY |
-| `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL |
-| `src/create_velocities.jl` | Preprocess MOM velocities → periodic FTS + constant Fields | PARENT_MODEL |
+| `src/periodicaverage.py` | Python preprocessing: monthly climatologies + yearly averages from ACCESS-OM2 output | PARENT_MODEL, EXPERIMENT, TIME_WINDOW |
+| `src/create_grid.jl` | Build and save the tripolar grid | PARENT_MODEL, EXPERIMENT |
+| `src/create_velocities.jl` | Preprocess MOM velocities → monthly FTS + yearly Fields | PARENT_MODEL, EXPERIMENT, TIME_WINDOW |
 | `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/create_matrix.jl` | Build transport matrix from constant fields | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/create_snapshot_matrices.jl` | Build snapshot Jacobians + inline averages from 1-year velocity snapshots | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
@@ -220,9 +229,19 @@ The unified `scripts/driver.sh` is the single interface for submitting jobs.
 - `scripts/maintenance/archive.sh` — copy outputs to archive storage
 - `scripts/debugging/check_snapshot_matrices_job.sh` — regression test: check snapshot matrices
 - `scripts/debugging/test_mpi.sh` — MPI connectivity test
-- `scripts/prepreprocessing/` — CDO periodic averaging scripts (copied from external project)
+- `scripts/prepreprocessing/periodicaverage.sh` — PBS: Python preprocessing (monthly climatologies + yearly averages)
+- `scripts/prepreprocessing/write_ACCESS-OM2_configs.sh` — write ACCESS-OM2 intake catalog configs (utility)
 
 ## Configuration environment variables
+
+### Experiment/time-window variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EXPERIMENT` | Intake catalog key for ACCESS-OM2 experiment | `1deg_jra55_iaf_omip2_cycle6` (OM2-1) or `025deg_jra55_iaf_omip2_cycle6` (OM2-025) |
+| `TIME_WINDOW` | Year range `YYYY-YYYY` or single year `YYYY` | `1960-1979` |
+
+### Model config variables
 
 The 4 core config env vars are parsed by `parse_config_env()` in `shared_functions.jl`:
 
@@ -284,9 +303,10 @@ Required modules for MPI jobs: `cuda/12.9.0` + `openmpi/5.0.8`.
 - Model setup is shared via `setup_model.jl` (include'd by downstream scripts)
 - `setup_model.jl` creates the model but NOT the simulation — each downstream script creates its own
 - Matrix build always on CPU (sparsity detection/coloring incompatible with GPU)
-- `create_matrix.jl` uses time-averaged constant Fields (not FieldTimeSeries) → single Jacobian call
-- Simulation scripts use periodic FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
-- Constant fields for matrix build use same BCs (`FPivotZipperBoundaryCondition`) as the per-month fields in `create_velocities.jl`
+- `periodicaverage.py` (Python prep step) computes monthly climatologies and yearly averages from ACCESS-OM2 output NetCDF files, parameterized by `EXPERIMENT` and `TIME_WINDOW`
+- `create_matrix.jl` uses time-averaged yearly Fields (not FieldTimeSeries) → single Jacobian call
+- Simulation scripts use monthly FieldTimeSeries (12 monthly snapshots, Cyclical indexing)
+- Yearly fields for matrix build use same BCs (`FPivotZipperBoundaryCondition`) as the per-month fields in `create_velocities.jl`
 - zstar initialisation before Jacobian: `_update_zstar_scaling!(η_constant, grid)`
 - Age solving is factored out into `solve_matrix_age.jl` (runs on saved M.jld2)
 - Newton solver loads M from `create_matrix.jl` output; LUMP_AND_SPRAY controls preconditioner coarsening
