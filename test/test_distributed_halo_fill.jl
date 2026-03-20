@@ -207,9 +207,11 @@ function _save_fts_to_jld2(ibg, LX, LY, LZ, name, func, times, filepath)
     for n in eachindex(times)
         set!(fts[n], func)
     end
+    fill_halo_regions!(fts)
     jldopen(filepath, "w") do f
         for n in eachindex(times)
-            f["timeseries/$name/$n"] = Array(interior(fts[n]))
+            # Save full parent data with halos (matches JLD2Writer format)
+            f["timeseries/$name/$n"] = Array(parent(fts[n].data))
             f["timeseries/t/$n"] = times[n]
         end
         # FieldTimeSeries loader expects these serialized metadata keys
