@@ -35,6 +35,9 @@ simulation, age_output_dir = setup_age_simulation(
 )
 
 @info "Running 10-step diagnostic simulation (stop_time = $(diag_stop_time / year) yr)"
+@info "Grid:"
+show(stdout, MIME"text/plain"(), model.grid)
+println(stdout)
 @info "Model:"
 show(stdout, MIME"text/plain"(), model)
 println(stdout)

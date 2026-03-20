@@ -36,6 +36,8 @@ using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: MutableVerticalDiscretization, RightFaceFolded
 using Oceananigans.OrthogonalSphericalShellGrids: fold_set!
 using Oceananigans.OutputReaders: InMemory
+using Oceananigans.TurbulenceClosures: HorizontalScalarDiffusivity, VerticalScalarDiffusivity,
+    VerticallyImplicitTimeDiscretization
 using Oceananigans.Units: seconds
 using JLD2
 using Oceananigans.OutputWriters
@@ -263,6 +265,9 @@ function run_jld2writer_test(test_name, model, output_fields, Δt)
         )
         @info "Rank $rank: [$test_name] JLD2Writer created"
         if rank == 0
+            @info "Rank 0: [$test_name] Grid:"
+            show(stdout, MIME"text/plain"(), model.grid)
+            println(stdout)
             @info "Rank 0: [$test_name] Model:"
             show(stdout, MIME"text/plain"(), model)
             println(stdout)
@@ -404,6 +409,16 @@ try
     u_fts_4, v_fts_4 = make_velocity_fts(ibg_4, z_4, ib_4)
     η_fts_4 = make_eta_fts(ibg_4, z_4, ib_4)
 
+    # Match real model closure: horizontal + implicit vertical diffusivity with Field κ
+    κV_field = CenterField(ibg_4)
+    set!(κV_field, (x, y, z) -> 1.0e-4)  # uniform for simplicity
+    implicit_vertical_diffusion = VerticalScalarDiffusivity(
+        VerticallyImplicitTimeDiscretization();
+        κ = κV_field,
+    )
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+    closure = (horizontal_diffusion, implicit_vertical_diffusion)
+
     model_4 = HydrostaticFreeSurfaceModel(
         ibg_4;
         velocities = PrescribedVelocityFields(
@@ -412,6 +427,7 @@ try
         ),
         tracers = (; age = CenterField(ibg_4)),
         free_surface = PrescribedFreeSurface(displacement = η_fts_4),
+        closure = closure,
     )
 
     @info "Rank $rank: [4_full] u=$(typeof(model_4.velocities.u)), w=$(typeof(model_4.velocities.w))"
