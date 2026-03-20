@@ -68,12 +68,12 @@ end
 
 arch = Distributed(child_arch, partition = Partition(px, py))
 
-# --- Shared grid parameters ---
-Nx, Ny, Nz = 60, 61, 10
-z_faces = collect(range(-1000, 0; length = Nz + 1))
+# --- Shared grid parameters (match real model: 360×301×50) ---
+Nx, Ny, Nz = 360, 301, 50
+z_faces = collect(range(-5500, 0; length = Nz + 1))
 halo = (7, 7, 7)
 grid_kw = (; first_pole_longitude = 75, north_poles_latitude = 55, fold_topology = RightFaceFolded)
-bottom_height_func(x, y) = -800  # shared bottom function for serial/distributed IB consistency
+bottom_height_func(x, y) = -4000  # shared bottom function for serial/distributed IB consistency
 
 # --- Helpers ---
 

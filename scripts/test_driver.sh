@@ -102,7 +102,7 @@ if has_step halofillcpu; then
     STEP=$((STEP + 1))
     HALOFILLCPU_JOB=$(qsub \
         -N "${MODEL_SHORT}_halofillcpu" -l walltime=$WALLTIME \
-        -q express -l ngpus=0 -l ncpus=4 -l mem=16GB \
+        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
         -v ${COMMON_VARS} \
         scripts/tests/run_halofill_test.sh)
     echo "[$STEP] halofill (CPU): $HALOFILLCPU_JOB"
