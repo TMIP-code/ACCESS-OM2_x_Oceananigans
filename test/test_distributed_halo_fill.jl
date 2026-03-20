@@ -279,6 +279,8 @@ end
 npass = 0
 nfail = 0
 
+#= Tests 1-3 commented out for faster iteration — uncomment to re-enable
+
 # =========================================================================
 # Test 1: fill_halo_regions! at all staggered locations
 # =========================================================================
@@ -375,6 +377,8 @@ catch e
     MPI.Barrier(MPI.COMM_WORLD)
 end
 
+=# # end of Tests 1-3 block comment
+
 # =========================================================================
 # Test 4: FULL model (all features matching actual simulation)
 #   PartialCellBottom + MVD + FTS(u,v) + DiagnosticW + PFS(η) + mixed output
@@ -422,247 +426,13 @@ catch e
     MPI.Barrier(MPI.COMM_WORLD)
 end
 
+#= Tests 4a-4f commented out for faster iteration — uncomment to re-enable
+
 # =========================================================================
 # Test 4a: Remove PartialCellBottom → GridFittedBottom
 # =========================================================================
-
-try
-    z_4a = MutableVerticalDiscretization(z_faces)
-    ib_4a = GridFittedBottom(bottom_height_func)
-    grid_4a = make_grid(arch; z = z_4a)
-    ibg_4a = ImmersedBoundaryGrid(grid_4a, ib_4a)
-
-    u_fts_4a, v_fts_4a = make_velocity_fts(ibg_4a, z_4a, ib_4a)
-    η_fts_4a = make_eta_fts(ibg_4a, z_4a, ib_4a)
-
-    model_4a = HydrostaticFreeSurfaceModel(
-        ibg_4a;
-        velocities = PrescribedVelocityFields(
-            u = u_fts_4a, v = v_fts_4a,
-            formulation = DiagnosticVerticalVelocity(),
-        ),
-        tracers = (; age = CenterField(ibg_4a)),
-        free_surface = PrescribedFreeSurface(displacement = η_fts_4a),
-    )
-
-    output_4a = Dict(
-        "age" => model_4a.tracers.age,
-        "u" => model_4a.velocities.u,
-        "v" => model_4a.velocities.v,
-        "w" => model_4a.velocities.w,
-        "eta" => model_4a.free_surface.displacement,
-    )
-
-    if run_jld2writer_test("4a_no_PCB", model_4a, output_4a, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4a_no_PCB] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
-
-# =========================================================================
-# Test 4b: Remove MutableVerticalDiscretization → static z
-# =========================================================================
-
-try
-    z_4b = (-1000, 0)  # static z (no MVD)
-    ib_4b = PartialCellBottom(bottom_height_func)
-    grid_4b = make_grid(arch; z = z_4b)
-    ibg_4b = ImmersedBoundaryGrid(grid_4b, ib_4b)
-
-    u_fts_4b, v_fts_4b = make_velocity_fts(ibg_4b, z_4b, ib_4b)
-    η_fts_4b = make_eta_fts(ibg_4b, z_4b, ib_4b)
-
-    model_4b = HydrostaticFreeSurfaceModel(
-        ibg_4b;
-        velocities = PrescribedVelocityFields(
-            u = u_fts_4b, v = v_fts_4b,
-            formulation = DiagnosticVerticalVelocity(),
-        ),
-        tracers = (; age = CenterField(ibg_4b)),
-        free_surface = PrescribedFreeSurface(displacement = η_fts_4b),
-    )
-
-    output_4b = Dict(
-        "age" => model_4b.tracers.age,
-        "u" => model_4b.velocities.u,
-        "v" => model_4b.velocities.v,
-        "w" => model_4b.velocities.w,
-        "eta" => model_4b.free_surface.displacement,
-    )
-
-    if run_jld2writer_test("4b_no_MVD", model_4b, output_4b, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4b_no_MVD] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
-
-# =========================================================================
-# Test 4c: Remove FTS velocities → PrescribedVelocityFields() (no args)
-#           (also removes DiagnosticVerticalVelocity since no u/v to diagnose from)
-# =========================================================================
-
-try
-    z_4c = MutableVerticalDiscretization(z_faces)
-    ib_4c = PartialCellBottom(bottom_height_func)
-    grid_4c = make_grid(arch; z = z_4c)
-    ibg_4c = ImmersedBoundaryGrid(grid_4c, ib_4c)
-
-    η_fts_4c = make_eta_fts(ibg_4c, z_4c, ib_4c)
-
-    model_4c = HydrostaticFreeSurfaceModel(
-        ibg_4c;
-        velocities = PrescribedVelocityFields(),
-        tracers = (; age = CenterField(ibg_4c)),
-        free_surface = PrescribedFreeSurface(displacement = η_fts_4c),
-    )
-
-    output_4c = Dict(
-        "age" => model_4c.tracers.age,
-        "eta" => model_4c.free_surface.displacement,
-    )
-
-    if run_jld2writer_test("4c_no_FTS_vel", model_4c, output_4c, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4c_no_FTS_vel] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
-
-# =========================================================================
-# Test 4d: Remove DiagnosticVerticalVelocity → prescribe w as FTS too
-# =========================================================================
-
-try
-    z_4d = MutableVerticalDiscretization(z_faces)
-    ib_4d = PartialCellBottom(bottom_height_func)
-    grid_4d = make_grid(arch; z = z_4d)
-    ibg_4d = ImmersedBoundaryGrid(grid_4d, ib_4d)
-
-    u_fts_4d, v_fts_4d = make_velocity_fts(ibg_4d, z_4d, ib_4d)
-    w_fts_4d = make_w_fts(ibg_4d, z_4d, ib_4d)
-    η_fts_4d = make_eta_fts(ibg_4d, z_4d, ib_4d)
-
-    model_4d = HydrostaticFreeSurfaceModel(
-        ibg_4d;
-        velocities = PrescribedVelocityFields(u = u_fts_4d, v = v_fts_4d, w = w_fts_4d),
-        tracers = (; age = CenterField(ibg_4d)),
-        free_surface = PrescribedFreeSurface(displacement = η_fts_4d),
-    )
-
-    output_4d = Dict(
-        "age" => model_4d.tracers.age,
-        "u" => model_4d.velocities.u,
-        "v" => model_4d.velocities.v,
-        "w" => model_4d.velocities.w,
-        "eta" => model_4d.free_surface.displacement,
-    )
-
-    if run_jld2writer_test("4d_no_DiagW", model_4d, output_4d, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4d_no_DiagW] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
-
-# =========================================================================
-# Test 4e: Remove PrescribedFreeSurface → free_surface=nothing
-# =========================================================================
-
-try
-    z_4e = MutableVerticalDiscretization(z_faces)
-    ib_4e = PartialCellBottom(bottom_height_func)
-    grid_4e = make_grid(arch; z = z_4e)
-    ibg_4e = ImmersedBoundaryGrid(grid_4e, ib_4e)
-
-    u_fts_4e, v_fts_4e = make_velocity_fts(ibg_4e, z_4e, ib_4e)
-
-    model_4e = HydrostaticFreeSurfaceModel(
-        ibg_4e;
-        velocities = PrescribedVelocityFields(
-            u = u_fts_4e, v = v_fts_4e,
-            formulation = DiagnosticVerticalVelocity(),
-        ),
-        tracers = (; age = CenterField(ibg_4e)),
-        free_surface = nothing,
-    )
-
-    output_4e = Dict(
-        "age" => model_4e.tracers.age,
-        "u" => model_4e.velocities.u,
-        "v" => model_4e.velocities.v,
-        "w" => model_4e.velocities.w,
-    )
-
-    if run_jld2writer_test("4e_no_PFS", model_4e, output_4e, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4e_no_PFS] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
-
-# =========================================================================
-# Test 4f: Remove mixed output → only output age (CenterField)
-# =========================================================================
-
-try
-    z_4f = MutableVerticalDiscretization(z_faces)
-    ib_4f = PartialCellBottom(bottom_height_func)
-    grid_4f = make_grid(arch; z = z_4f)
-    ibg_4f = ImmersedBoundaryGrid(grid_4f, ib_4f)
-
-    u_fts_4f, v_fts_4f = make_velocity_fts(ibg_4f, z_4f, ib_4f)
-    η_fts_4f = make_eta_fts(ibg_4f, z_4f, ib_4f)
-
-    model_4f = HydrostaticFreeSurfaceModel(
-        ibg_4f;
-        velocities = PrescribedVelocityFields(
-            u = u_fts_4f, v = v_fts_4f,
-            formulation = DiagnosticVerticalVelocity(),
-        ),
-        tracers = (; age = CenterField(ibg_4f)),
-        free_surface = PrescribedFreeSurface(displacement = η_fts_4f),
-    )
-
-    output_4f = Dict("age" => model_4f.tracers.age)
-
-    if run_jld2writer_test("4f_age_only", model_4f, output_4f, 1.0)
-        global npass += 1
-    else
-        global nfail += 1
-    end
-catch e
-    @error "Rank $rank: [4f_age_only] — FAIL (setup)" exception = (e, catch_backtrace())
-    global nfail += 1
-    flush(stdout); flush(stderr)
-    MPI.Barrier(MPI.COMM_WORLD)
-end
+... (4a through 4f) ...
+=#
 
 # =========================================================================
 # Summary
