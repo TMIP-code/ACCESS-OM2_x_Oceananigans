@@ -77,8 +77,39 @@ bottom_height_func(x, y) = -4000  # shared bottom function for serial/distribute
 
 # --- Helpers ---
 
-function make_grid(arch; z = (-1000, 0))
+function make_grid(arch; z = (-5500, 0))
     return TripolarGrid(arch, Float64; size = (Nx, Ny, Nz), z = z, halo = halo, grid_kw...)
+end
+
+"""Print sizes and types of grid coordinates and metrics for diagnostic comparison."""
+function show_grid_metrics(grid, label)
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    fields = [
+        ("λᶜᶜᵃ", ug.λᶜᶜᵃ), ("λᶠᶜᵃ", ug.λᶠᶜᵃ), ("λᶜᶠᵃ", ug.λᶜᶠᵃ), ("λᶠᶠᵃ", ug.λᶠᶠᵃ),
+        ("φᶜᶜᵃ", ug.φᶜᶜᵃ), ("φᶠᶜᵃ", ug.φᶠᶜᵃ), ("φᶜᶠᵃ", ug.φᶜᶠᵃ), ("φᶠᶠᵃ", ug.φᶠᶠᵃ),
+        ("z", ug.z),
+        ("Δxᶜᶜᵃ", ug.Δxᶜᶜᵃ), ("Δxᶠᶜᵃ", ug.Δxᶠᶜᵃ), ("Δxᶜᶠᵃ", ug.Δxᶜᶠᵃ), ("Δxᶠᶠᵃ", ug.Δxᶠᶠᵃ),
+        ("Δyᶜᶜᵃ", ug.Δyᶜᶜᵃ), ("Δyᶠᶜᵃ", ug.Δyᶠᶜᵃ), ("Δyᶜᶠᵃ", ug.Δyᶜᶠᵃ), ("Δyᶠᶠᵃ", ug.Δyᶠᶠᵃ),
+        ("Azᶜᶜᵃ", ug.Azᶜᶜᵃ), ("Azᶠᶜᵃ", ug.Azᶠᶜᵃ), ("Azᶜᶠᵃ", ug.Azᶜᶠᵃ), ("Azᶠᶠᵃ", ug.Azᶠᶠᵃ),
+    ]
+    @info "$label grid metrics:"
+    for (name, f) in fields
+        @info "  $name: $(typeof(f)), size=$(size(f))"
+    end
+    if grid isa ImmersedBoundaryGrid
+        ib = grid.immersed_boundary
+        @info "  immersed_boundary: $(typeof(ib))"
+        if hasproperty(ib, :bottom_height)
+            bh = ib.bottom_height
+            @info "  bottom_height: $(typeof(bh)), size=$(size(bh))"
+        end
+        if hasproperty(grid, :active_cells_map)
+            acm = grid.active_cells_map
+            @info "  active_cells_map: $(typeof(acm))"
+        end
+    end
+    flush(stdout)
+    return flush(stderr)
 end
 
 """
@@ -200,7 +231,7 @@ end
 """Build a serial CPU ImmersedBoundaryGrid (used by rank 0 to save FTS and by all ranks to load)."""
 function _make_serial_ibg(z, ib_constructor)
     serial_grid = TripolarGrid(CPU(), Float64; size = (Nx, Ny, Nz), z = z, halo = halo, grid_kw...)
-    return ImmersedBoundaryGrid(serial_grid, ib_constructor)
+    return ImmersedBoundaryGrid(serial_grid, ib_constructor; active_cells_map = true, active_z_columns = true)
 end
 
 """
@@ -404,7 +435,7 @@ try
     z_4 = MutableVerticalDiscretization(z_faces)
     ib_4 = PartialCellBottom(bottom_height_func)
     grid_4 = make_grid(arch; z = z_4)
-    ibg_4 = ImmersedBoundaryGrid(grid_4, ib_4)
+    ibg_4 = ImmersedBoundaryGrid(grid_4, ib_4; active_cells_map = true, active_z_columns = true)
 
     u_fts_4, v_fts_4 = make_velocity_fts(ibg_4, z_4, ib_4)
     η_fts_4 = make_eta_fts(ibg_4, z_4, ib_4)
@@ -432,6 +463,11 @@ try
 
     @info "Rank $rank: [4_full] u=$(typeof(model_4.velocities.u)), w=$(typeof(model_4.velocities.w))"
     flush(stdout); flush(stderr)
+
+    if rank == 0
+        show_grid_metrics(ibg_4, "[4_full] Rank 0")
+    end
+    MPI.Barrier(MPI.COMM_WORLD)
 
     output_4 = Dict(
         "age" => model_4.tracers.age,

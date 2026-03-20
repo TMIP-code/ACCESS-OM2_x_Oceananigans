@@ -44,6 +44,24 @@ println(stdout)
 @info "Simulation:"
 show(stdout, MIME"text/plain"(), simulation)
 println(stdout)
+
+# Print grid metric sizes/types for diagnostic comparison
+ug = model.grid isa ImmersedBoundaryGrid ? model.grid.underlying_grid : model.grid
+@info "Grid metric diagnostics:"
+for (name, f) in [
+        ("λᶜᶜᵃ", ug.λᶜᶜᵃ), ("φᶜᶜᵃ", ug.φᶜᶜᵃ), ("z", ug.z),
+        ("Δxᶜᶜᵃ", ug.Δxᶜᶜᵃ), ("Δyᶜᶜᵃ", ug.Δyᶜᶜᵃ), ("Azᶜᶜᵃ", ug.Azᶜᶜᵃ),
+    ]
+    @info "  $name: $(typeof(f)), size=$(size(f))"
+end
+if model.grid isa ImmersedBoundaryGrid
+    ib = model.grid.immersed_boundary
+    @info "  immersed_boundary: $(typeof(ib))"
+    if hasproperty(ib, :bottom_height)
+        @info "  bottom_height: $(typeof(ib.bottom_height)), size=$(size(ib.bottom_height))"
+    end
+    @info "  active_cells_map: $(typeof(model.grid.active_cells_map))"
+end
 flush(stdout); flush(stderr)
 
 run!(simulation)
