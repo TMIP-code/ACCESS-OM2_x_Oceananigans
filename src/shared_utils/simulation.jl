@@ -66,31 +66,24 @@ function setup_age_simulation(
         joinpath(outputdir, "standardrun", model_config, gpu_tag)
     mkpath(age_output_dir)
 
-    grid_arch = Oceananigans.Architectures.architecture(model.grid)
-    is_gpu = child_architecture(grid_arch) isa GPU
-
-    # On GPU, only output age (prescribed velocity TSI fields can't be converted to Array).
-    # On CPU, output all fields including velocities and eta for diagnostics.
-    output_fields = if is_gpu
-        Dict("age" => model.tracers.age)
-    else
-        Dict(
-            "age" => model.tracers.age,
-            "u" => model.velocities.u,
-            "v" => model.velocities.v,
-            "w" => model.velocities.w,
-            "eta" => model.free_surface.displacement,
+    # One JLD2Writer per field → one file per variable per rank
+    output_fields = Dict(
+        :age => model.tracers.age,
+        :u => model.velocities.u,
+        :v => model.velocities.v,
+        :w => model.velocities.w,
+        :eta => model.free_surface.displacement,
+    )
+    for (name, field) in output_fields
+        simulation.output_writers[name] = JLD2Writer(
+            model, Dict(string(name) => field);
+            schedule = TimeInterval(output_interval),
+            filename = joinpath(age_output_dir, "$(name)_$(duration_tag)"),
+            overwrite_existing = true,
+            with_halos = true,
+            including = [],  # workaround for #5410: serializeproperty! deadlocks on distributed
         )
     end
-
-    simulation.output_writers[:fields] = JLD2Writer(
-        model, output_fields;
-        schedule = TimeInterval(output_interval),
-        filename = joinpath(age_output_dir, "fields_$(duration_tag)"),
-        overwrite_existing = true,
-        with_halos = true,
-        including = [],  # workaround for #5410: serializeproperty! deadlocks on distributed
-    )
 
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
