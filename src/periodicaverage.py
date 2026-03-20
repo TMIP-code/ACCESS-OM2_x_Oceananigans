@@ -20,6 +20,7 @@ from pathlib import Path
 
 os.environ["PYTHONWARNINGS"] = "ignore"
 
+from dask.distributed import Client
 import intake
 import numpy as np
 import xarray as xr
@@ -193,58 +194,68 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         print(traceback.format_exc())
 
 
-# ── Load catalog ────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────
 
-print("\nLoading intake catalog")
-catalogs = intake.cat.access_nri
-print(catalogs)
-print(catalogs.keys())
-cat = catalogs[EXPERIMENT]
-print(cat)
+if __name__ == "__main__":
+    # Dask distributed client is required for parallel NetCDF I/O.
+    # Without it, dask falls back to the threaded scheduler and netCDF4
+    # segfaults because it is not thread-safe.
+    client = Client(n_workers=48, threads_per_worker=1)
+    print(f"Dask client: {client}")
 
-# Search for all required variables
-all_variables = [
-    "u", "v", "wt", "tx_trans", "ty_trans", "tx_trans_gm", "ty_trans_gm",
-    "mld", "area_t", "dht", "eta_t",
-]
-searched_cat = cat.search(variable=all_variables)
-print(searched_cat)
+    # ── Load catalog ────────────────────────────────────────────────────
 
-# Find config.yaml by walking up from first catalog path
-_p = Path(searched_cat.df.path.iloc[0])
-while _p != _p.parent:
-    _config = _p / "config.yaml"
-    if _config.exists():
-        print(f"\nFound config: {_config}")
-        break
-    _p = _p.parent
-else:
-    print("\nconfig.yaml not found in any parent directory")
+    print("\nLoading intake catalog")
+    catalogs = intake.cat.access_nri
+    print(catalogs)
+    print(catalogs.keys())
+    cat = catalogs[EXPERIMENT]
+    print(cat)
 
+    # Search for all required variables
+    all_variables = [
+        "u", "v", "wt", "tx_trans", "ty_trans", "tx_trans_gm", "ty_trans_gm",
+        "mld", "area_t", "dht", "eta_t",
+    ]
+    searched_cat = cat.search(variable=all_variables)
+    print(searched_cat)
 
-# ── Process each variable ──────────────────────────────────────────────────
+    # Find config.yaml by walking up from first catalog path
+    _p = Path(searched_cat.df.path.iloc[0])
+    while _p != _p.parent:
+        _config = _p / "config.yaml"
+        if _config.exists():
+            print(f"\nFound config: {_config}")
+            break
+        _p = _p.parent
+    else:
+        print("\nconfig.yaml not found in any parent directory")
 
-# Time-invariant field
-process_variable(searched_cat, "area_t", CHUNKS_2D, frequency="fx", is_time_invariant=True)
+    # ── Process each variable ──────────────────────────────────────────
 
-# 3D velocity fields
-process_variable(searched_cat, "u", CHUNKS_3D_U)
-process_variable(searched_cat, "v", CHUNKS_3D_V)
-process_variable(searched_cat, "wt", CHUNKS_3D_W)
+    # Time-invariant field
+    process_variable(searched_cat, "area_t", CHUNKS_2D, frequency="fx", is_time_invariant=True)
 
-# Mass transports
-process_variable(searched_cat, "tx_trans", CHUNKS_TX)
-process_variable(searched_cat, "ty_trans", CHUNKS_TY)
-process_variable(searched_cat, "tx_trans_gm", CHUNKS_TX_GM)
-process_variable(searched_cat, "ty_trans_gm", CHUNKS_TY_GM)
+    # 3D velocity fields
+    process_variable(searched_cat, "u", CHUNKS_3D_U)
+    process_variable(searched_cat, "v", CHUNKS_3D_V)
+    process_variable(searched_cat, "wt", CHUNKS_3D_W)
 
-# 2D / mixed-layer fields
-process_variable(searched_cat, "mld", CHUNKS_MLD)
-process_variable(searched_cat, "dht", CHUNKS_DHT)
-process_variable(searched_cat, "eta_t", CHUNKS_ETA)
+    # Mass transports
+    process_variable(searched_cat, "tx_trans", CHUNKS_TX)
+    process_variable(searched_cat, "ty_trans", CHUNKS_TY)
+    process_variable(searched_cat, "tx_trans_gm", CHUNKS_TX_GM)
+    process_variable(searched_cat, "ty_trans_gm", CHUNKS_TY_GM)
 
-print("\n" + "=" * 60)
-print("All variables processed successfully")
-print(f"Monthly output: {monthly_dir}")
-print(f"Yearly output:  {yearly_dir}")
-print("=" * 60)
+    # 2D / mixed-layer fields
+    process_variable(searched_cat, "mld", CHUNKS_MLD)
+    process_variable(searched_cat, "dht", CHUNKS_DHT)
+    process_variable(searched_cat, "eta_t", CHUNKS_ETA)
+
+    print("\n" + "=" * 60)
+    print("All variables processed successfully")
+    print(f"Monthly output: {monthly_dir}")
+    print(f"Yearly output:  {yearly_dir}")
+    print("=" * 60)
+
+    client.close()
