@@ -78,7 +78,7 @@ using SparseMatrixColorings
 
 include("shared_functions.jl")
 
-(; parentmodel, experiment_dir, monthly_dir, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
@@ -195,7 +195,8 @@ flush(stdout); flush(stderr)
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-mld_ds = open_dataset(joinpath(monthly_dir, "mld_monthly.nc"))
+# TODO: replace with monthly MLD (time-dependent κ) once implemented
+mld_ds = open_dataset(joinpath(yearly_dir, "mld_yearly.nc"))
 mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
 z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data

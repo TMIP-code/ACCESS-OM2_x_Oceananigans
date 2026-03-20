@@ -173,8 +173,9 @@ flush(stdout); flush(stderr)
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
 # Load MLD to add strong vertical diffusion in the mixed layer
+# TODO: replace with monthly MLD (time-dependent κ) once implemented
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
-mld_file = joinpath(monthly_dir, "mld_monthly.nc")
+mld_file = joinpath(yearly_dir, "mld_yearly.nc")
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
 implicit_vertical_diffusion = VerticalScalarDiffusivity(

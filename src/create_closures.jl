@@ -25,7 +25,7 @@ include("select_architecture.jl")
 
 # Configuration
 include("shared_functions.jl")
-(; parentmodel, experiment_dir, monthly_dir, outputdir) = load_project_config()
+(; parentmodel, experiment_dir, monthly_dir, yearly_dir, outputdir) = load_project_config()
 
 ################################################################################
 # Load grid from JLD2
@@ -58,7 +58,8 @@ Nx, Ny, Nz = size(grid)
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
 # Load MLD to add strong vertical diffusion in the mixed layer
-mld_ds = open_dataset(joinpath(monthly_dir, "mld_monthly.nc"))
+# TODO: replace with monthly MLD (time-dependent κ) once implemented
+mld_ds = open_dataset(joinpath(yearly_dir, "mld_yearly.nc"))
 mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
 z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
