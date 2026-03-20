@@ -201,24 +201,23 @@ function _make_serial_ibg(z, ib_constructor)
     return ImmersedBoundaryGrid(serial_grid, ib_constructor)
 end
 
-"""Save a FieldTimeSeries to JLD2 in the format that FieldTimeSeries(file, name; ...) can read."""
+"""
+Save a FieldTimeSeries to JLD2 using the OnDisk backend, matching the pipeline
+in create_velocities.jl: create FTS with OnDisk(), then set! each snapshot.
+"""
 function _save_fts_to_jld2(ibg, LX, LY, LZ, name, func, times, filepath)
-    fts = FieldTimeSeries{LX, LY, LZ}(ibg, times)
+    time_indexing = Oceananigans.OutputReaders.Cyclical(last(times))
+    ondisk_fts = FieldTimeSeries{LX, LY, LZ}(
+        ibg, times;
+        backend = Oceananigans.OutputReaders.OnDisk(),
+        path = filepath, name = name,
+        time_indexing = time_indexing,
+    )
+    field = Field{LX, LY, LZ}(ibg)
     for n in eachindex(times)
-        set!(fts[n], func)
-    end
-    fill_halo_regions!(fts)
-    jldopen(filepath, "w") do f
-        for n in eachindex(times)
-            # Save full parent data with halos (matches JLD2Writer format)
-            f["timeseries/$name/$n"] = Array(parent(fts[n].data))
-            f["timeseries/t/$n"] = times[n]
-        end
-        # FieldTimeSeries loader expects these serialized metadata keys
-        f["timeseries/$name/serialized/location"] = (LX, LY, LZ)
-        f["timeseries/$name/serialized/indices"] = (:, :, :)
-        f["timeseries/$name/serialized/boundary_conditions"] = fts[1].boundary_conditions
-        f["serialized/grid"] = ibg
+        set!(field, func)
+        fill_halo_regions!(field)
+        set!(ondisk_fts, field, n)
     end
     return nothing
 end
