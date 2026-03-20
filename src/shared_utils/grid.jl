@@ -225,7 +225,7 @@ function tripolargrid_from_supergrid(
         nx, nxp, ny, nyp,
         halosize = (7, 7, 7),
         radius = Oceananigans.defaults.planet_radius,
-        z = (0, 1), # Maybe z can be 3D array here?
+        z = (0, 1), # z can be a MutableVerticalDiscretization or a tuple of (zmin, zmax)
         Nz = 1,
     )
 
