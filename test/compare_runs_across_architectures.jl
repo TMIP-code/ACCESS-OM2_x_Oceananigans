@@ -453,7 +453,11 @@ for field_name in halo_fields
     Colorbar(fig[1, 2], hm; label = field_name)
     save(joinpath(plot_output_dir, "$(field_name)_serial_halos_$(DURATION_TAG)_k$(k_halo).png"), fig)
 
-    # Plot each distributed rank with halos
+    # Compute per-rank interior sizes (needed for diff slicing)
+    # Load rank 0 to get Hx, Hy from the size difference between parent and interior
+    rank_halos = Dict{Int, Array}()
+    rank_interior_nx = zeros(Int, px)
+    rank_interior_ny = zeros(Int, py)
     for ry in 0:(py - 1), rx in 0:(px - 1)
         r = ry * px + rx
         dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank$(r)_part$(halo_part).jld2")
@@ -462,9 +466,38 @@ for field_name in halo_fields
             continue
         end
         rank_halo, _ = load_with_halos(dist_file, field_name)
+        rank_halos[r] = rank_halo
+    end
+
+    # Infer halo size: serial parent size = Nx + 2*Hx, interior = Nx
+    Hx = (nx_h - Nx) ÷ 2
+    Hy = (ny_h - (Ny + 1)) ÷ 2  # Ny+1 for fold row in tripolar grid
+
+    # Determine interior sizes per rank from parent sizes
+    for rx in 0:(px - 1)
+        r0 = rx * py  # first rank in this x-column (using Oceananigans ordering: r = i*Ry + j)
+        if haskey(rank_halos, r0)
+            rank_interior_nx[rx + 1] = size(rank_halos[r0], 1) - 2 * Hx
+        end
+    end
+    for ry in 0:(py - 1)
+        if haskey(rank_halos, ry)
+            rank_interior_ny[ry + 1] = size(rank_halos[ry], 2) - 2 * Hy
+        end
+    end
+    x_offsets = cumsum([0; rank_interior_nx[1:(end - 1)]])
+    y_offsets = cumsum([0; rank_interior_ny[1:(end - 1)]])
+
+    # Plot each rank with halos + diff against serial
+    for ry in 0:(py - 1), rx in 0:(px - 1)
+        r = rx * py + ry  # Oceananigans rank ordering: i * Ry + j
+        haskey(rank_halos, r) || continue
+        rank_halo = rank_halos[r]
         nxr, nyr = size(rank_halo, 1), size(rank_halo, 2)
         k_r = min(k_halo, size(rank_halo, 3))
-        @info "  $field_name rank $r: parent size=$(size(rank_halo)), plotting k=$k_r"
+        @info "  $field_name rank $r ($(rx),$(ry)): parent size=$(size(rank_halo)), plotting k=$k_r"
+
+        # Rank value plot
         fig = Figure(; size = (1000, 600))
         ax = Axis(
             fig[1, 1];
@@ -475,9 +508,44 @@ for field_name in halo_fields
         hm = heatmap!(ax, 1:nxr, 1:nyr, rank_halo[:, :, k_r]; nan_color = :lightgray)
         Colorbar(fig[1, 2], hm; label = field_name)
         save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_halos_$(DURATION_TAG)_k$(k_r).png"), fig)
+
+        # Diff: slice serial parent to match rank's parent (including halos).
+        # Rank parent[1..nxr] maps to serial parent[x_offsets[rx]+1 .. x_offsets[rx]+nxr].
+        # This works because both parent arrays have Hx halo columns on each side.
+        i_start = x_offsets[rx + 1] + 1
+        j_start = y_offsets[ry + 1] + 1
+        i_end = i_start + nxr - 1
+        j_end = j_start + nyr - 1
+
+        if i_end <= nx_h && j_end <= ny_h
+            serial_slice = serial_halo[i_start:i_end, j_start:j_end, k_r]
+            diff_slice = rank_halo[:, :, k_r] .- serial_slice
+            max_abs = maximum(abs, diff_slice)
+            mean_abs = mean(abs, diff_slice)
+            @info "  $field_name rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
+
+            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            fig = Figure(; size = (1000, 600))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name rank $r DIFF (dist-serial) WITH HALOS (k=$k_r, max=$(@sprintf("%.2e", max_abs)))",
+                xlabel = "i (with halos)", ylabel = "j (with halos)",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, diff_slice;
+                colorrange = (-diff_scale, diff_scale),
+                colormap = :balance, nan_color = :lightgray,
+                lowclip = :blue, highclip = :red,
+            )
+            Colorbar(fig[1, 2], hm; label = "$field_name diff")
+            save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_diff_halos_$(DURATION_TAG)_k$(k_r).png"), fig)
+        else
+            @warn "  $field_name rank $r: serial slice out of bounds ($(i_start):$(i_end), $(j_start):$(j_end)) vs serial size $(nx_h)×$(ny_h)"
+        end
     end
 
-    @info "  $field_name: halo plots saved (serial + $(px * py) ranks)"
+    @info "  $field_name: halo plots saved (serial + $(px * py) ranks, with diffs)"
     flush(stdout); flush(stderr)
 end
 
