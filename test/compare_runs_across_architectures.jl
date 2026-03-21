@@ -119,12 +119,23 @@ flush(stdout); flush(stderr)
 plot_indices = sort(unique([1, 2, NITERS]))
 snapshots = Dict{Int, @NamedTuple{age_serial_yr::Array{Float64, 3}, age_dist_yr::Array{Float64, 3}, age_diff_yr::Array{Float64, 3}, t_yr::Float64}}()
 
+# Infer halo size from serial data: parent_size = interior + 2*H
+age_sample, _ = load_serial_snapshot(serial_dir, "age", DURATION_TAG, iter_keys[1])
+Hx = (size(age_sample, 1) - Nx) ÷ 2
+Hy = (size(age_sample, 2) - Ny) ÷ 2
+Hz = (size(age_sample, 3) - Nz) ÷ 2
+@info "Inferred halo size: Hx=$Hx, Hy=$Hy, Hz=$Hz"
+
+"""Extract interior from halo-inclusive parent data."""
+extract_interior(data, Hx, Hy, Hz, Nx, Ny, Nz) =
+    data[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)]
+
 for (idx_i, iter_key) in enumerate(iter_keys)
     age_serial_full, t_serial = load_serial_snapshot(serial_dir, "age", DURATION_TAG, iter_key)
-    age_dist_raw, t_dist = load_distributed_snapshot(distributed_dir, "age", DURATION_TAG, iter_key, px, py, Nx, Ny)
+    age_dist_raw, t_dist = load_distributed_snapshot(distributed_dir, "age", DURATION_TAG, iter_key, px, py, Nx, Ny; halo = (Hx, Hy, Hz))
 
-    # Trim serial data to interior size (fold row may be included in serial output)
-    age_serial_raw = @view age_serial_full[1:Nx, 1:Ny, 1:Nz]
+    # Extract interior from halo-inclusive serial data
+    age_serial_raw = extract_interior(age_serial_full, Hx, Hy, Hz, Nx, Ny, Nz)
 
     diff_raw = age_dist_raw .- age_serial_raw
     diff_1D = diff_raw[idx]
@@ -286,14 +297,15 @@ if serial_vel_exists && dist_vel_exists
             continue
         end
 
-        field_serial, t_s = load_serial_snapshot(serial_dir, field_name, DURATION_TAG, vel_iter_key)
-        field_dist, t_d = load_distributed_snapshot(distributed_dir, field_name, DURATION_TAG, vel_iter_key, px, py, Nx, Ny)
+        field_serial_full, t_s = load_serial_snapshot(serial_dir, field_name, DURATION_TAG, vel_iter_key)
+        field_dist_full, t_d = load_distributed_snapshot(distributed_dir, field_name, DURATION_TAG, vel_iter_key, px, py, Nx, Ny; halo = (Hx, Hy, Hz))
         t_yr = t_s / year
 
-        # Trim serial to match distributed interior size
-        nz_field = size(field_dist, 3)
-        field_serial_trimmed = @view field_serial[1:Nx, 1:Ny, 1:nz_field]
-        field_diff = field_dist .- Array(field_serial_trimmed)
+        # Extract interior from halo-inclusive serial data
+        nz_field = size(field_dist_full, 3)
+        field_serial = extract_interior(field_serial_full, Hx, Hy, Hz, Nx, Ny, nz_field)
+        field_dist = field_dist_full[1:Nx, 1:Ny, 1:nz_field]
+        field_diff = field_dist .- field_serial
 
         # Determine which k-slices to plot
         # For eta (2D, stored as nz=1), use k=1 for data but surface mask (k=Nz)
@@ -316,7 +328,7 @@ if serial_vel_exists && dist_vel_exists
         for (ki, (k, klabel)) in enumerate(zip(k_slices, k_labels))
             mk = isnothing(mask_k_override) ? min(k, Nz) : mask_k_override
             # --- Serial field ---
-            serial_slice = Array(field_serial_trimmed[:, :, k])
+            serial_slice = Array(field_serial[:, :, k])
             serial_slice[.!wet3D[:, :, mk]] .= NaN
 
             fig = Figure(; size = (900, 500))

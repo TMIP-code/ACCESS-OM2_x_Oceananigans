@@ -129,19 +129,23 @@ function list_iterations(dir, field_name, duration_tag)
 end
 
 """
-    load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny) -> (data, time)
+    load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny; halo=(0,0,0)) -> (data, time)
 
 Load and stitch distributed rank files for a single snapshot into a global array.
 Each rank has its own JLD2Writer file: `{field}_{tag}_rank{r}.jld2`.
 Partition layout is px × py. Oceananigans rank ordering: rank = i * Ry + j.
+
+If `halo` is nonzero, strips halo regions from each rank before stitching
+(needed when data was saved with `with_halos=true`).
 The stitched result is trimmed to `(Nx, Ny, :)` to match serial interior.
 """
-function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny)
+function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny; halo = (0, 0, 0))
     nranks = px * py
+    Hx, Hy, Hz = halo
 
-    # Determine per-rank sizes and z-dimension from rank files
-    rank_sizes_x = zeros(Int, px)
-    rank_sizes_y = zeros(Int, py)
+    # Determine per-rank interior sizes and z-dimension from rank files
+    rank_interior_nx = zeros(Int, px)
+    rank_interior_ny = zeros(Int, py)
     nz_data = 0
     ndims_data = 0
     for i in 1:px
@@ -150,10 +154,10 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
         isfile(filepath) || error("Rank file not found: $filepath")
         jldopen(filepath, "r") do f
             sample = f["timeseries/$(field_name)/$iter_key"]
-            rank_sizes_x[i] = size(sample, 1)
+            rank_interior_nx[i] = size(sample, 1) - 2Hx
             if i == 1
                 ndims_data = ndims(sample)
-                nz_data = ndims_data >= 3 ? size(sample, 3) : 1
+                nz_data = ndims_data >= 3 ? size(sample, 3) - 2Hz : 1
             end
         end
     end
@@ -161,14 +165,14 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
         rank = j - 1
         filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
         jldopen(filepath, "r") do f
-            rank_sizes_y[j] = size(f["timeseries/$(field_name)/$iter_key"], 2)
+            rank_interior_ny[j] = size(f["timeseries/$(field_name)/$iter_key"], 2) - 2Hy
         end
     end
 
-    Nx_full = sum(rank_sizes_x)
-    Ny_full = sum(rank_sizes_y)
-    x_offsets = cumsum([0; rank_sizes_x[1:(end - 1)]])
-    y_offsets = cumsum([0; rank_sizes_y[1:(end - 1)]])
+    Nx_full = sum(rank_interior_nx)
+    Ny_full = sum(rank_interior_ny)
+    x_offsets = cumsum([0; rank_interior_nx[1:(end - 1)]])
+    y_offsets = cumsum([0; rank_interior_ny[1:(end - 1)]])
 
     global_data = zeros(Float64, Nx_full, Ny_full, nz_data)
     t = nothing
@@ -181,15 +185,24 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
         j_rank = mod(rank, py) + 1
 
         jldopen(filepath, "r") do f
-            local_data = f["timeseries/$(field_name)/$iter_key"]
+            local_full = f["timeseries/$(field_name)/$iter_key"]
             if t === nothing
                 t = f["timeseries/t/$iter_key"]
             end
 
+            # Strip halos: interior is at [Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+            nx_local = rank_interior_nx[i_rank]
+            ny_local = rank_interior_ny[j_rank]
+            local_data = if ndims_data >= 3
+                local_full[(Hx + 1):(Hx + nx_local), (Hy + 1):(Hy + ny_local), (Hz + 1):(Hz + nz_data)]
+            else
+                local_full[(Hx + 1):(Hx + nx_local), (Hy + 1):(Hy + ny_local)]
+            end
+
             x_start = x_offsets[i_rank] + 1
-            x_end = x_offsets[i_rank] + rank_sizes_x[i_rank]
+            x_end = x_offsets[i_rank] + nx_local
             y_start = y_offsets[j_rank] + 1
-            y_end = y_offsets[j_rank] + rank_sizes_y[j_rank]
+            y_end = y_offsets[j_rank] + ny_local
 
             if ndims_data >= 3
                 global_data[x_start:x_end, y_start:y_end, :] .= local_data
