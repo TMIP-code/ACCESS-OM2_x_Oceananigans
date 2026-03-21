@@ -97,57 +97,59 @@ end
 #   part 13 = snapshot at t=1 year
 
 """
-    load_serial_part(dir, field_name, duration_tag, part) -> (data, time)
+    load_serial_snapshot(dir, field_name, duration_tag, iter_key) -> (data, time)
 
-Load a single serial part file (one monthly snapshot).
-Returns the 3D data array and the snapshot time.
+Load a single snapshot from a serial JLD2Writer file (one file per variable,
+iterations stored as keys under `timeseries/{field}/{iter}`).
 """
-function load_serial_part(dir, field_name, duration_tag, part)
-    filepath = joinpath(dir, "$(field_name)_$(duration_tag)_part$(part).jld2")
-    isfile(filepath) || error("Part file not found: $filepath")
+function load_serial_snapshot(dir, field_name, duration_tag, iter_key)
+    filepath = joinpath(dir, "$(field_name)_$(duration_tag).jld2")
+    isfile(filepath) || error("Serial file not found: $filepath")
     return jldopen(filepath, "r") do f
-        iters = keys(f["timeseries/$(field_name)"])
-        iter = first(filter(k -> k != "serialized", iters))
-        data = f["timeseries/$(field_name)/$iter"]
-        t = f["timeseries/t/$iter"]
+        data = f["timeseries/$(field_name)/$iter_key"]
+        t = f["timeseries/t/$iter_key"]
         return data, t
     end
 end
 
 """
-    load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny[, Nz]) -> (data, time)
+    list_iterations(dir, field_name, duration_tag) -> Vector{String}
 
-Load and stitch distributed rank files for a single part into a global array.
-Partition layout is px × py (e.g., 2×2 for 4 GPUs/CPUs).
-`Nx, Ny` is the interior size (e.g., from `size(wet3D)`).
-`Nz` is optional — the z-dimension is auto-detected from rank 0 data.
-Handles 2D fields (e.g., eta) and fields with different z-sizes (e.g., w at Nz+1).
-The distributed grid may include a fold row (Ny_full = Ny + 1 for tripolar grids);
-the stitched result is trimmed to `(Nx, Ny, :)` to match serial interior output.
+List all iteration keys in a serial JLD2Writer file, sorted numerically.
 """
-function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, Ny, Nz = nothing)
+function list_iterations(dir, field_name, duration_tag)
+    filepath = joinpath(dir, "$(field_name)_$(duration_tag).jld2")
+    isfile(filepath) || error("File not found: $filepath")
+    return jldopen(filepath, "r") do f
+        iters = collect(keys(f["timeseries/$(field_name)"]))
+        filter!(k -> k != "serialized", iters)
+        sort!(iters; by = k -> parse(Int, k))
+        return iters
+    end
+end
+
+"""
+    load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny) -> (data, time)
+
+Load and stitch distributed rank files for a single snapshot into a global array.
+Each rank has its own JLD2Writer file: `{field}_{tag}_rank{r}.jld2`.
+Partition layout is px × py. Oceananigans rank ordering: rank = i * Ry + j.
+The stitched result is trimmed to `(Nx, Ny, :)` to match serial interior.
+"""
+function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny)
     nranks = px * py
 
-    # Oceananigans rank2index uses column-major ordering:
-    #   rank = i * Ry + j  (0-indexed, Rz=1)
-    #   i = div(rank, py),  j = mod(rank, py)
-    # So x-column i contains ranks {i*py, i*py+1, ..., i*py+py-1}
-    # and y-row j contains ranks {j, j+py, j+2*py, ...}
-
-    # Determine per-rank sizes from one rank per x-column and one per y-row
-    # Also auto-detect z-size and dimensionality from rank 0
+    # Determine per-rank sizes and z-dimension from rank files
     rank_sizes_x = zeros(Int, px)
     rank_sizes_y = zeros(Int, py)
     nz_data = 0
     ndims_data = 0
     for i in 1:px
-        rank = (i - 1) * py  # first rank in x-column i
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        rank = (i - 1) * py
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
         isfile(filepath) || error("Rank file not found: $filepath")
         jldopen(filepath, "r") do f
-            iters = keys(f["timeseries/$(field_name)"])
-            iter = first(filter(k -> k != "serialized", iters))
-            sample = f["timeseries/$(field_name)/$iter"]
+            sample = f["timeseries/$(field_name)/$iter_key"]
             rank_sizes_x[i] = size(sample, 1)
             if i == 1
                 ndims_data = ndims(sample)
@@ -156,12 +158,10 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
         end
     end
     for j in 1:py
-        rank = j - 1  # first rank in y-row j
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        rank = j - 1
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
         jldopen(filepath, "r") do f
-            iters = keys(f["timeseries/$(field_name)"])
-            iter = first(filter(k -> k != "serialized", iters))
-            rank_sizes_y[j] = size(f["timeseries/$(field_name)/$iter"], 2)
+            rank_sizes_y[j] = size(f["timeseries/$(field_name)/$iter_key"], 2)
         end
     end
 
@@ -174,19 +174,16 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
     t = nothing
 
     for rank in 0:(nranks - 1)
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank)_part$(part).jld2")
+        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
         isfile(filepath) || error("Rank file not found: $filepath")
 
-        # Oceananigans column-major: i = div(rank, py), j = mod(rank, py)
         i_rank = div(rank, py) + 1
         j_rank = mod(rank, py) + 1
 
         jldopen(filepath, "r") do f
-            iters = keys(f["timeseries/$(field_name)"])
-            iter = first(filter(k -> k != "serialized", iters))
-            local_data = f["timeseries/$(field_name)/$iter"]
+            local_data = f["timeseries/$(field_name)/$iter_key"]
             if t === nothing
-                t = f["timeseries/t/$iter"]
+                t = f["timeseries/t/$iter_key"]
             end
 
             x_start = x_offsets[i_rank] + 1
@@ -202,6 +199,5 @@ function load_distributed_part(dir, field_name, duration_tag, part, px, py, Nx, 
         end
     end
 
-    # Trim to interior size (exclude fold row for tripolar grids)
     return global_data[1:Nx, 1:Ny, :], t
 end

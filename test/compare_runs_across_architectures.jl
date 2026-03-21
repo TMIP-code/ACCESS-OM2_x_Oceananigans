@@ -38,7 +38,6 @@ const OCEANS = oceanpolygons()
 using Statistics
 using TOML
 using JLD2
-using OffsetArrays
 using Printf
 
 include("../src/shared_functions.jl")
@@ -74,15 +73,16 @@ distributed_dir = joinpath(outputdir, "standardrun", model_config, GPU_TAG)
 @info "- Distributed dir  = $distributed_dir"
 flush(stdout); flush(stderr)
 
-# Verify part files exist
-serial_part1 = joinpath(serial_dir, "age_$(DURATION_TAG)_part1.jld2")
-dist_part1 = joinpath(distributed_dir, "age_$(DURATION_TAG)_rank0_part1.jld2")
-isfile(serial_part1) || error("Serial part file not found: $serial_part1")
-isfile(dist_part1) || error("Distributed part file not found: $dist_part1")
+# Verify JLD2Writer files exist (single file per variable)
+serial_age_file = joinpath(serial_dir, "age_$(DURATION_TAG).jld2")
+dist_age_file = joinpath(distributed_dir, "age_$(DURATION_TAG)_rank0.jld2")
+isfile(serial_age_file) || error("Serial file not found: $serial_age_file")
+isfile(dist_age_file) || error("Distributed file not found: $dist_age_file")
 
-# Auto-detect number of parts from serial directory
-NPARTS = length(filter(f -> startswith(f, "age_$(DURATION_TAG)_part") && endswith(f, ".jld2"), readdir(serial_dir)))
-@info "Detected $NPARTS part files for DURATION_TAG=$DURATION_TAG"
+# Auto-detect iterations from serial file
+iter_keys = list_iterations(serial_dir, "age", DURATION_TAG)
+NITERS = length(iter_keys)
+@info "Detected $NITERS iterations in $(serial_age_file)"
 
 ################################################################################
 # Load grid, masks, volumes
@@ -108,20 +108,20 @@ v1D = vol_3D[idx]
 vol_norm = make_vol_norm(v1D, year)
 
 ################################################################################
-# Per-snapshot comparison (load one part at a time)
+# Per-snapshot comparison
 ################################################################################
 
-@info "Comparing $NPARTS snapshots"
-@info @sprintf("  %5s  %10s  %14s  %14s", "part", "time(yr)", "vol_norm(yr)", "max|diff|(yr)")
+@info "Comparing $NITERS snapshots"
+@info @sprintf("  %5s  %10s  %14s  %14s", "iter", "time(yr)", "vol_norm(yr)", "max|diff|(yr)")
 flush(stdout); flush(stderr)
 
-# Store snapshots for plotting: parts 1, 2, and NPARTS
-plot_parts = sort(unique([1, 2, NPARTS]))
+# Store snapshots for plotting: first, second, and last
+plot_indices = sort(unique([1, 2, NITERS]))
 snapshots = Dict{Int, @NamedTuple{age_serial_yr::Array{Float64, 3}, age_dist_yr::Array{Float64, 3}, age_diff_yr::Array{Float64, 3}, t_yr::Float64}}()
 
-for part in 1:NPARTS
-    age_serial_full, t_serial = load_serial_part(serial_dir, "age", DURATION_TAG, part)
-    age_dist_raw, t_dist = load_distributed_part(distributed_dir, "age", DURATION_TAG, part, px, py, Nx, Ny, Nz)
+for (idx_i, iter_key) in enumerate(iter_keys)
+    age_serial_full, t_serial = load_serial_snapshot(serial_dir, "age", DURATION_TAG, iter_key)
+    age_dist_raw, t_dist = load_distributed_snapshot(distributed_dir, "age", DURATION_TAG, iter_key, px, py, Nx, Ny)
 
     # Trim serial data to interior size (fold row may be included in serial output)
     age_serial_raw = @view age_serial_full[1:Nx, 1:Ny, 1:Nz]
@@ -133,10 +133,10 @@ for part in 1:NPARTS
     maxdiff = maximum(abs, diff_1D) / year
     t_yr = t_serial / year
 
-    @info @sprintf("  %5d  %10.5f  %14.2e  %14.2e", part, t_yr, vn, maxdiff)
+    @info @sprintf("  %5s  %10.5f  %14.2e  %14.2e", iter_key, t_yr, vn, maxdiff)
 
-    if part ∈ plot_parts
-        snapshots[part] = (
+    if idx_i ∈ plot_indices
+        snapshots[idx_i] = (
             age_serial_yr = Array(age_serial_raw) ./ year,
             age_dist_yr = age_dist_raw ./ year,
             age_diff_yr = (age_dist_raw .- Array(age_serial_raw)) ./ year,
@@ -147,9 +147,9 @@ end
 flush(stdout); flush(stderr)
 
 # Use final snapshot for summary statistics
-age_serial_yr = snapshots[NPARTS].age_serial_yr
-age_dist_yr = snapshots[NPARTS].age_dist_yr
-age_diff_yr = snapshots[NPARTS].age_diff_yr
+age_serial_yr = snapshots[NITERS].age_serial_yr
+age_dist_yr = snapshots[NITERS].age_dist_yr
+age_diff_yr = snapshots[NITERS].age_diff_yr
 
 ################################################################################
 # Summary statistics for final snapshot (wet cells only)
@@ -191,17 +191,17 @@ flush(stdout); flush(stderr)
 
 n_levels = 11
 
-for part in plot_parts
-    snap = snapshots[part]
-    part_label = "part$(part)"
-    @info "Plotting $part_label (t = $(@sprintf("%.5f", snap.t_yr)) yr)"
+for idx_i in plot_indices
+    snap = snapshots[idx_i]
+    iter_label = "iter$(iter_keys[idx_i])"
+    @info "Plotting $iter_label (t = $(@sprintf("%.5f", snap.t_yr)) yr)"
 
     compare_k_indices = 30:50
 
     # Serial age (reference)
     plot_age_diagnostics(
         snap.age_serial_yr, grid, wet3D, vol_3D, plot_output_dir,
-        "serial_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        "serial_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(iter_label)";
         colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
         target_k_indices = compare_k_indices,
     )
@@ -209,7 +209,7 @@ for part in plot_parts
     # Distributed age
     plot_age_diagnostics(
         snap.age_dist_yr, grid, wet3D, vol_3D, plot_output_dir,
-        "distributed_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        "distributed_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(iter_label)";
         colorrange = (-0.1, 1.1), levels = -0.1:0.1:1.1,
         target_k_indices = compare_k_indices,
     )
@@ -222,7 +222,7 @@ for part in plot_parts
     diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
     plot_age_diagnostics(
         snap.age_diff_yr, grid, wet3D, vol_3D, plot_output_dir,
-        "diff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+        "diff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(iter_label)";
         colorrange = diff_range, levels = diff_levels,
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
@@ -247,7 +247,7 @@ for part in plot_parts
         reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
         plot_age_diagnostics(
             age_reldiff_part, grid, wet3D, vol_3D, plot_output_dir,
-            "reldiff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(part_label)";
+            "reldiff_$(GPU_TAG)_$(DURATION_TAG)_$(ADVECTION_SCHEME)_$(iter_label)";
             colorrange = reldiff_range, levels = reldiff_levels,
             colormap = cgrad(:balance, n_levels - 1, categorical = true),
             lowclip = :blue, highclip = :red,
@@ -259,7 +259,7 @@ for part in plot_parts
 end
 
 ################################################################################
-# Compare velocity and eta fields (part 2 = first timestep after t=0)
+# Compare velocity and eta fields (iter 1 = first timestep after t=0)
 ################################################################################
 
 # Extract grid coordinates for heatmap plotting
@@ -268,26 +268,26 @@ lon = Array(ug.λᶜᶜᵃ[1:Nx, 1:Ny])
 lat = Array(ug.φᶜᶜᵃ[1:Nx, 1:Ny])
 
 velocity_fields = ["u", "v", "w", "eta"]
-velocity_part = 2  # first timestep (part 1 = t=0, part 2 = t=Δt)
+vel_iter_key = NITERS >= 2 ? iter_keys[2] : iter_keys[1]  # first timestep after t=0
 
 # Check if velocity files exist (they won't if distributed was GPU-only)
-serial_vel_exists = isfile(joinpath(serial_dir, "u_$(DURATION_TAG)_part$(velocity_part).jld2"))
-dist_vel_exists = isfile(joinpath(distributed_dir, "u_$(DURATION_TAG)_rank0_part$(velocity_part).jld2"))
+serial_vel_exists = isfile(joinpath(serial_dir, "u_$(DURATION_TAG).jld2"))
+dist_vel_exists = isfile(joinpath(distributed_dir, "u_$(DURATION_TAG)_rank0.jld2"))
 
 if serial_vel_exists && dist_vel_exists
-    @info "Comparing velocity/eta fields at part $velocity_part"
+    @info "Comparing velocity/eta fields at iter $vel_iter_key"
     flush(stdout); flush(stderr)
 
     for field_name in velocity_fields
-        serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG)_part$(velocity_part).jld2")
-        dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank0_part$(velocity_part).jld2")
+        serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG).jld2")
+        dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank0.jld2")
         if !isfile(serial_file) || !isfile(dist_file)
             @warn "Skipping $field_name: missing serial or distributed file"
             continue
         end
 
-        field_serial, t_s = load_serial_part(serial_dir, field_name, DURATION_TAG, velocity_part)
-        field_dist, t_d = load_distributed_part(distributed_dir, field_name, DURATION_TAG, velocity_part, px, py, Nx, Ny)
+        field_serial, t_s = load_serial_snapshot(serial_dir, field_name, DURATION_TAG, vel_iter_key)
+        field_dist, t_d = load_distributed_snapshot(distributed_dir, field_name, DURATION_TAG, vel_iter_key, px, py, Nx, Ny)
         t_yr = t_s / year
 
         # Trim serial to match distributed interior size
@@ -401,32 +401,28 @@ flush(stdout); flush(stderr)
 # the full domain including halo regions.
 
 halo_fields = ["u", "v", "w", "age"]
-halo_part = 2  # first timestep
+halo_iter_key = vel_iter_key  # same iteration as velocity comparison
 
-@info "Plotting halo-inclusive fields (fold diagnostic)"
+@info "Plotting halo-inclusive fields (fold diagnostic) at iter $halo_iter_key"
 flush(stdout); flush(stderr)
 
-"""Load raw data from JLD2Writer file, preserving halos. Returns (parent_array, time)."""
-function load_with_halos(filepath, field_name)
+"""Load raw data from JLD2Writer file at a specific iteration. Returns (parent_array, time)."""
+function load_with_halos(filepath, field_name, iter_key)
     return jldopen(filepath, "r") do f
-        iters = keys(f["timeseries/$(field_name)"])
-        iter = first(filter(k -> k != "serialized", iters))
-        raw = f["timeseries/$(field_name)/$iter"]
-        t = f["timeseries/t/$iter"]
-        # OffsetArray → plain Array (parent strips the offset indices)
-        data = raw isa OffsetArrays.OffsetArray ? parent(raw) : raw
-        return data, t
+        raw = f["timeseries/$(field_name)/$iter_key"]
+        t = f["timeseries/t/$iter_key"]
+        return raw, t
     end
 end
 
 for field_name in halo_fields
-    serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG)_part$(halo_part).jld2")
+    serial_file = joinpath(serial_dir, "$(field_name)_$(DURATION_TAG).jld2")
     if !isfile(serial_file)
         @warn "Skipping $field_name halo plot: no serial file"
         continue
     end
 
-    serial_halo, t_s = load_with_halos(serial_file, field_name)
+    serial_halo, t_s = load_with_halos(serial_file, field_name, halo_iter_key)
     t_yr = t_s / year
 
     # Determine k-slice for plotting (in parent array coordinates, halos included)
@@ -467,12 +463,12 @@ for field_name in halo_fields
     rank_halos = Dict{Int, Array}()
     for ry in 0:(py - 1), rx in 0:(px - 1)
         r = rx * py + ry  # Oceananigans rank ordering: rank = i * Ry + j
-        dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank$(r)_part$(halo_part).jld2")
+        dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank$(r).jld2")
         if !isfile(dist_file)
             @warn "Missing distributed file for rank $r: $dist_file"
             continue
         end
-        rank_halo, _ = load_with_halos(dist_file, field_name)
+        rank_halo, _ = load_with_halos(dist_file, field_name, halo_iter_key)
         rank_halos[r] = rank_halo
     end
 
