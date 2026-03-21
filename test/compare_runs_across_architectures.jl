@@ -449,17 +449,24 @@ for field_name in halo_fields
         xlabel = "i (with halos)", ylabel = "j (with halos)",
         backgroundcolor = :lightgray,
     )
-    hm = heatmap!(ax, 1:nx_h, 1:ny_h, serial_halo[:, :, k_halo]; nan_color = :lightgray)
+    serial_slice = serial_halo[:, :, k_halo]
+    if field_name in ("u", "v", "w")
+        vmax = maximum(abs, filter(!isnan, serial_slice))
+        vmax = vmax > 0 ? vmax : 1.0e-10
+        hm = heatmap!(
+            ax, 1:nx_h, 1:ny_h, serial_slice;
+            colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+        )
+    else
+        hm = heatmap!(ax, 1:nx_h, 1:ny_h, serial_slice; nan_color = :lightgray)
+    end
     Colorbar(fig[1, 2], hm; label = field_name)
     save(joinpath(plot_output_dir, "$(field_name)_serial_halos_$(DURATION_TAG)_k$(k_halo).png"), fig)
 
-    # Compute per-rank interior sizes (needed for diff slicing)
-    # Load rank 0 to get Hx, Hy from the size difference between parent and interior
+    # Load all rank data
     rank_halos = Dict{Int, Array}()
-    rank_interior_nx = zeros(Int, px)
-    rank_interior_ny = zeros(Int, py)
     for ry in 0:(py - 1), rx in 0:(px - 1)
-        r = ry * px + rx
+        r = rx * py + ry  # Oceananigans rank ordering: rank = i * Ry + j
         dist_file = joinpath(distributed_dir, "$(field_name)_$(DURATION_TAG)_rank$(r)_part$(halo_part).jld2")
         if !isfile(dist_file)
             @warn "Missing distributed file for rank $r: $dist_file"
@@ -469,28 +476,44 @@ for field_name in halo_fields
         rank_halos[r] = rank_halo
     end
 
-    # Infer halo size: serial parent size = Nx + 2*Hx, interior = Nx
+    # Infer halo size from serial parent vs interior.
+    # Serial parent size = interior_size + 2*H, where interior_size depends on field location.
+    # For Center-y (u, w, age): interior Ny = Ny (300). For Face-y (v): interior Ny = Ny+1 (301).
+    # We compute Hx, Hy from the serial data directly.
+    serial_interior_nx = Nx  # always Nx for Periodic x
+    serial_interior_ny = ny_h > Ny ? ny_h : Ny  # will compute below
+    # Get Hx from x: parent_nx = Nx + 2*Hx
     Hx = (nx_h - Nx) ÷ 2
-    Hy = (ny_h - (Ny + 1)) ÷ 2  # Ny+1 for fold row in tripolar grid
+    # Get Hy from y: need to know the interior ny for this field's y-location
+    # u (Face,Center): interior ny = Ny; v (Center,Face): interior ny = Ny+1;
+    # w (Center,Center,Face): interior ny = Ny; age/eta (Center,Center): interior ny = Ny
+    field_interior_ny = ny_h - 2 * ((nx_h - Nx) ÷ 2)  # assume Hy == Hx (both are 7)
+    Hy = Hx  # halos are symmetric
 
     # Determine interior sizes per rank from parent sizes
+    rank_interior_nx = zeros(Int, px)
+    rank_interior_ny = zeros(Int, py)
     for rx in 0:(px - 1)
-        r0 = rx * py  # first rank in this x-column (using Oceananigans ordering: r = i*Ry + j)
+        r0 = rx * py  # first rank in this x-column
         if haskey(rank_halos, r0)
             rank_interior_nx[rx + 1] = size(rank_halos[r0], 1) - 2 * Hx
         end
     end
     for ry in 0:(py - 1)
-        if haskey(rank_halos, ry)
-            rank_interior_ny[ry + 1] = size(rank_halos[ry], 2) - 2 * Hy
+        r0 = ry  # first rank in this y-row (rx=0)
+        if haskey(rank_halos, r0)
+            rank_interior_ny[ry + 1] = size(rank_halos[r0], 2) - 2 * Hy
         end
     end
     x_offsets = cumsum([0; rank_interior_nx[1:(end - 1)]])
     y_offsets = cumsum([0; rank_interior_ny[1:(end - 1)]])
 
+    # Use symmetric blue-red colormap for velocity fields
+    is_velocity = field_name in ("u", "v", "w")
+
     # Plot each rank with halos + diff against serial
     for ry in 0:(py - 1), rx in 0:(px - 1)
-        r = rx * py + ry  # Oceananigans rank ordering: i * Ry + j
+        r = rx * py + ry  # Oceananigans rank ordering: rank = i * Ry + j
         haskey(rank_halos, r) || continue
         rank_halo = rank_halos[r]
         nxr, nyr = size(rank_halo, 1), size(rank_halo, 2)
@@ -498,6 +521,7 @@ for field_name in halo_fields
         @info "  $field_name rank $r ($(rx),$(ry)): parent size=$(size(rank_halo)), plotting k=$k_r"
 
         # Rank value plot
+        rank_slice = rank_halo[:, :, k_r]
         fig = Figure(; size = (1000, 600))
         ax = Axis(
             fig[1, 1];
@@ -505,13 +529,21 @@ for field_name in halo_fields
             xlabel = "i (with halos)", ylabel = "j (with halos)",
             backgroundcolor = :lightgray,
         )
-        hm = heatmap!(ax, 1:nxr, 1:nyr, rank_halo[:, :, k_r]; nan_color = :lightgray)
+        if is_velocity
+            vmax = maximum(abs, filter(!isnan, rank_slice))
+            vmax = vmax > 0 ? vmax : 1.0e-10
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, rank_slice;
+                colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+            )
+        else
+            hm = heatmap!(ax, 1:nxr, 1:nyr, rank_slice; nan_color = :lightgray)
+        end
         Colorbar(fig[1, 2], hm; label = field_name)
         save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_halos_$(DURATION_TAG)_k$(k_r).png"), fig)
 
         # Diff: slice serial parent to match rank's parent (including halos).
         # Rank parent[1..nxr] maps to serial parent[x_offsets[rx]+1 .. x_offsets[rx]+nxr].
-        # This works because both parent arrays have Hx halo columns on each side.
         i_start = x_offsets[rx + 1] + 1
         j_start = y_offsets[ry + 1] + 1
         i_end = i_start + nxr - 1
@@ -519,7 +551,7 @@ for field_name in halo_fields
 
         if i_end <= nx_h && j_end <= ny_h
             serial_slice = serial_halo[i_start:i_end, j_start:j_end, k_r]
-            diff_slice = rank_halo[:, :, k_r] .- serial_slice
+            diff_slice = rank_slice .- serial_slice
             max_abs = maximum(abs, diff_slice)
             mean_abs = mean(abs, diff_slice)
             @info "  $field_name rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
