@@ -126,9 +126,13 @@ Hy = (size(age_sample, 2) - Ny) ÷ 2
 Hz = (size(age_sample, 3) - Nz) ÷ 2
 @info "Inferred halo size: Hx=$Hx, Hy=$Hy, Hz=$Hz"
 
-"""Extract interior from halo-inclusive parent data."""
-extract_interior(data, Hx, Hy, Hz, Nx, Ny, Nz) =
-    data[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)]
+"""Extract interior from halo-inclusive parent data.
+For 2D fields (nz ≤ 2Hz), z-halos are not present so use full z range."""
+function extract_interior(data, Hx, Hy, Hz, Nx, Ny, Nz)
+    nz_raw = size(data, 3)
+    z_range = nz_raw > 2Hz ? ((Hz + 1):(Hz + Nz)) : (1:Nz)
+    return data[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), z_range]
+end
 
 for (idx_i, iter_key) in enumerate(iter_keys)
     age_serial_full, t_serial = load_serial_snapshot(serial_dir, "age", DURATION_TAG, iter_key)

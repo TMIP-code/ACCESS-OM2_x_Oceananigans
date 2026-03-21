@@ -157,7 +157,10 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
             rank_interior_nx[i] = size(sample, 1) - 2Hx
             if i == 1
                 ndims_data = ndims(sample)
-                nz_data = ndims_data >= 3 ? size(sample, 3) - 2Hz : 1
+                nz_raw = ndims_data >= 3 ? size(sample, 3) : 1
+                # Only strip z-halos for true 3D fields (nz > 2Hz).
+                # 2D fields like eta are stored as (nx, ny, 1) — no z-halos.
+                nz_data = nz_raw > 2Hz ? nz_raw - 2Hz : nz_raw
             end
         end
     end
@@ -190,11 +193,15 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
                 t = f["timeseries/t/$iter_key"]
             end
 
-            # Strip halos: interior is at [Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+            # Strip halos: interior at [Hx+1:end-Hx, Hy+1:end-Hy, Hz+1:end-Hz]
+            # For 2D fields (nz_data ≤ 2Hz), no z-halos to strip
             nx_local = rank_interior_nx[i_rank]
             ny_local = rank_interior_ny[j_rank]
+            nz_raw = size(local_full, 3)
+            z_has_halos = nz_raw > 2Hz
+            z_range = z_has_halos ? ((Hz + 1):(Hz + nz_data)) : (1:nz_data)
             local_data = if ndims_data >= 3
-                local_full[(Hx + 1):(Hx + nx_local), (Hy + 1):(Hy + ny_local), (Hz + 1):(Hz + nz_data)]
+                local_full[(Hx + 1):(Hx + nx_local), (Hy + 1):(Hy + ny_local), z_range]
             else
                 local_full[(Hx + 1):(Hx + nx_local), (Hy + 1):(Hy + ny_local)]
             end
