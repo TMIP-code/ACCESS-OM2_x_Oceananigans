@@ -21,9 +21,10 @@ using Oceananigans.BoundaryConditions: fill_halo_regions!
 """
     load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid=nothing)
 
-Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, loads on CPU
-first then copies to distributed fields via `fold_set!` to work around Oceananigans bug
-where `offset_data` clips global data to local size before `fold_set!` can partition it.
+Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, loading
+directly fails because the `FieldTimeSeries` constructor passes global-sized file data to
+`offset_data`, which expects local-sized data. Workaround: load on a serial CPU grid first,
+then partition to distributed ranks via `fold_set!`.
 """
 function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing)
     return FieldTimeSeries(file, name; architecture = arch, grid, backend, time_indexing)
@@ -35,9 +36,13 @@ function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_i
         file, name; architecture = CPU(), grid = cpu_grid,
         backend = InMemory(), time_indexing
     )
+    # Pass boundary_conditions from the CPU FTS so the distributed FTS gets the correct
+    # FPivotZipperBoundaryCondition sign (e.g., -1 for u, v velocities at the north fold).
+    # Without this, the default BCs omit the sign and fill_halo_regions! produces wrong halos.
     dist_fts = FieldTimeSeries(
         instantiated_location(cpu_fts), grid, cpu_fts.times;
-        backend = InMemory(), time_indexing
+        backend = InMemory(), time_indexing,
+        boundary_conditions = cpu_fts.boundary_conditions,
     )
     # Use fold_set! directly because DistributedTripolarField dispatch doesn't match
     # ImmersedBoundaryGrid-wrapped fields (Oceananigans bug: DistributedTripolarField
