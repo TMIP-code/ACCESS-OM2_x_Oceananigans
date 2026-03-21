@@ -1996,11 +1996,11 @@ version = "0.8.3"
 
 [[deps.Oceananigans]]
 deps = ["Adapt", "Crayons", "CubedSphere", "Dates", "Distances", "DocStringExtensions", "FFTW", "GPUArraysCore", "Glob", "InteractiveUtils", "JLD2", "KernelAbstractions", "Krylov", "LinearAlgebra", "Logging", "MPI", "MuladdMacro", "OffsetArrays", "OrderedCollections", "Pkg", "Printf", "ReactantCore", "Rotations", "SeawaterPolynomials", "SparseArrays", "StaticArrays", "Statistics", "StructArrays"]
-git-tree-sha1 = "2d2b6d2165c3a97ba1d95127658d9037905a304b"
+git-tree-sha1 = "5c77847a1fb97eb95c9496e1088a7fb3ffad6b8c"
 repo-rev = "bp/offline-ACCESS-OM2"
 repo-url = "https://github.com/briochemc/Oceananigans.jl.git"
 uuid = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
-version = "0.105.4"
+version = "0.105.5"
 
     [deps.Oceananigans.extensions]
     OceananigansAMDGPUExt = ["AMDGPU", "AbstractFFTs"]
