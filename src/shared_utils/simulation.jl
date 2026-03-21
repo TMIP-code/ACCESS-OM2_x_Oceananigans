@@ -85,6 +85,28 @@ function setup_age_simulation(
         )
     end
 
+    # Save z-star internal fields (∂t_σ, σᶜᶜⁿ, ηⁿ) via manual callback —
+    # these are raw OffsetArrays in grid.z, not Fields, so JLD2Writer can't handle them.
+    ug = model.grid isa ImmersedBoundaryGrid ? model.grid.underlying_grid : model.grid
+    if ug.z isa MutableVerticalDiscretization
+        grid_arch = Oceananigans.Architectures.architecture(model.grid)
+        zstar_rank = grid_arch isa Distributed ? grid_arch.local_rank : -1
+        zstar_suffix = zstar_rank >= 0 ? "_rank$(zstar_rank)" : ""
+        function save_zstar_fields(sim)
+            t = time(sim)
+            iter = iteration(sim)
+            for (name, arr) in [("dt_sigma", ug.z.∂t_σ), ("sigma_cc", ug.z.σᶜᶜⁿ), ("eta_n", ug.z.ηⁿ)]
+                filepath = joinpath(age_output_dir, "$(name)_$(duration_tag)$(zstar_suffix).jld2")
+                jldopen(filepath, "a") do f
+                    f["timeseries/$(name)/$(iter)"] = Array(parent(arr))
+                    f["timeseries/t/$(iter)"] = t
+                end
+            end
+            return
+        end
+        add_callback!(simulation, save_zstar_fields, TimeInterval(output_interval))
+    end
+
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
 

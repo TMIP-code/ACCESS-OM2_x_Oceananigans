@@ -416,7 +416,7 @@ flush(stdout); flush(stderr)
 # Load the raw data and convert OffsetArray → plain Array via `parent()` to plot
 # the full domain including halo regions.
 
-halo_fields = ["u", "v", "w", "age"]
+halo_fields = ["u", "v", "w", "eta", "age"]
 halo_iter_key = vel_iter_key  # same iteration as velocity comparison
 
 @info "Plotting halo-inclusive fields (fold diagnostic) at iter $halo_iter_key"
