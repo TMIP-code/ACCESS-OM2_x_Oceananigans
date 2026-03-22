@@ -73,7 +73,7 @@ if has_step halofill; then
     HALOFILL_JOB=$(qsub \
         -N "${MODEL_SHORT}_halofill" -l walltime=$WALLTIME \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
         scripts/tests/run_halofill_test.sh)
     echo "[$STEP] halofill (GPU): $HALOFILL_JOB"
 fi
@@ -106,7 +106,7 @@ if has_step diag; then
     DIAG_JOB=$(qsub \
         -N "${MODEL_SHORT}_diag" -l walltime=$WALLTIME \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
         scripts/tests/run_diagnostic_steps.sh)
     echo "[$STEP] diag: $DIAG_JOB"
 fi
@@ -117,9 +117,9 @@ if has_step diagcpu; then
     DIAGCPU_JOB=$(qsub \
         -N "${MODEL_SHORT}_diagcpu" -l walltime=00:30:00 \
         -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
-        -v ${COMMON_VARS},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/tests/run_diagnostic_steps.sh)
-    echo "[$STEP] diagcpu (CPU, ${PARTITION_X}x${PARTITION_Y}): $DIAGCPU_JOB"
+    echo "[$STEP] diagcpu (CPU, ${PARTITION}): $DIAGCPU_JOB"
 fi
 
 # --- diagcpuserial: 10-step diagnostic on CPU (serial, no GPUs, express queue) ---
@@ -163,7 +163,7 @@ if has_step mpi; then
     MPI_JOB=$(qsub \
         -N "${MODEL_SHORT}_mpi" -l walltime=$WALLTIME \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
         scripts/tests/run_mpi_test.sh)
     echo "[$STEP] mpi: $MPI_JOB"
 fi

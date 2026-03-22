@@ -313,7 +313,7 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     PARTITION_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_partition" -l walltime=00:30:00 \
         -q $CPU_QUEUE -l ngpus=0 -l ncpus=$CPU_NCPUS -l mem=$CPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/preprocessing/partition_data.sh)
     echo "[$STEP] Partition (${PARTITION_X}x${PARTITION_Y}, CPU): $PARTITION_JOB${deps:+ (afterok $deps)}"
 fi
@@ -334,7 +334,7 @@ if has_step run1yr; then
     RUN1YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run1yr" -l walltime=${WALLTIME_RUN_1YEAR} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/standard_runs/run_1year.sh)
     echo "[$STEP] 1-year run: $RUN1YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -346,7 +346,7 @@ if has_step run1yrfast; then
     RUN1YRFAST_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run1yrfast" -l walltime=${WALLTIME_RUN_1YEAR} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/standard_runs/run_1year_benchmark.sh)
     echo "[$STEP] 1-year benchmark: $RUN1YRFAST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -358,7 +358,7 @@ if has_step run10yr; then
     RUN10YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run10yr" -l walltime=${WALLTIME_RUN_10YEARS} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/standard_runs/run_10years.sh)
     echo "[$STEP] 10-year run: $RUN10YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -370,7 +370,7 @@ if has_step run100yr; then
     RUN100YR_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run100yr" -l walltime=${WALLTIME_RUN_100YEARS} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION} \
         scripts/standard_runs/run_100years.sh)
     echo "[$STEP] 100-year run: $RUN100YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -382,7 +382,7 @@ if has_step runlong; then
     RUNLONG_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_runlong" -l walltime=${WALLTIME_RUN_LONG} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},NYEARS=${NYEARS:-3000},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        -v ${COMMON_VARS},NYEARS=${NYEARS:-3000},PARTITION=${PARTITION} \
         scripts/standard_runs/run_long.sh)
     echo "[$STEP] Long run: $RUNLONG_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
 fi
@@ -471,7 +471,7 @@ if has_step NK; then
         NK_CONST=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_NK_c" -l walltime=${WALLTIME_NK} \
             -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION} \
             scripts/solvers/solve_periodic_NK.sh)
         echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
     fi
@@ -483,7 +483,7 @@ if has_step NK; then
         NK_AVG=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
             -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION} \
             scripts/solvers/solve_periodic_NK.sh)
         echo "[$STEP] NK avg: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
     fi
@@ -502,7 +502,7 @@ if has_step run1yrNK; then
         RUNNK_CONST=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_run1yrNK_c" -l walltime=${WALLTIME_RUN_1YEAR} \
             -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION} \
             scripts/standard_runs/run_1year_from_periodic_sol.sh)
         echo "[$STEP] Run NK 1yr (const): $RUNNK_CONST${NK_CONST:+ (afterok $NK_CONST)}"
     fi
@@ -514,7 +514,7 @@ if has_step run1yrNK; then
         RUNNK_AVG=$(qsub "${dep_flag[@]}" \
             -N "${MODEL_SHORT}_run1yrNK_a" -l walltime=${WALLTIME_RUN_1YEAR} \
             -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION} \
             scripts/standard_runs/run_1year_from_periodic_sol.sh)
         echo "[$STEP] Run NK 1yr (avg): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
     fi
