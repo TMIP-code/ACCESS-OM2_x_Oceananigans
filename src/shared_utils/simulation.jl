@@ -92,6 +92,11 @@ function setup_age_simulation(
         grid_arch = Oceananigans.Architectures.architecture(model.grid)
         zstar_rank = grid_arch isa Distributed ? grid_arch.local_rank : -1
         zstar_suffix = zstar_rank >= 0 ? "_rank$(zstar_rank)" : ""
+        # Remove stale files from previous runs
+        for name in ("dt_sigma", "sigma_cc", "eta_n")
+            old = joinpath(age_output_dir, "$(name)_$(duration_tag)$(zstar_suffix).jld2")
+            isfile(old) && rm(old)
+        end
         function save_zstar_fields(sim)
             t = time(sim)
             iter = iteration(sim)
@@ -120,6 +125,11 @@ function setup_age_simulation(
         "w" => model.velocities.w,
         "eta" => model.free_surface.displacement,
     )
+    # Remove stale manual files from previous runs
+    for name in keys(manual_fields)
+        old = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
+        isfile(old) && rm(old)
+    end
     function save_manual_fields(sim)
         t = time(sim)
         iter = iteration(sim)
