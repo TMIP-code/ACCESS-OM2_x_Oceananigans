@@ -51,7 +51,7 @@ using Printf
 
 include("shared_functions.jl")
 
-(; parentmodel, experiment, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment, time_window, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
