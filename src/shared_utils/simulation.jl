@@ -125,41 +125,73 @@ function setup_age_simulation(
         "w" => model.velocities.w,
         "eta" => model.free_surface.displacement,
     )
-    # Remove stale manual files from previous runs
+    # Remove stale manual/fts files from previous runs
     for name in keys(manual_fields)
-        old = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
-        isfile(old) && rm(old)
+        for suffix in ("_manual_", "_fts_")
+            old = joinpath(age_output_dir, "$(name)$(suffix)$(duration_tag)$(manual_suffix).jld2")
+            isfile(old) && rm(old)
+        end
     end
-    # Pre-allocate temporary Fields for pointwise evaluation of TSI fields.
-    # We evaluate field[i,j,k] at every point (including halos), exactly as
-    # simulation kernels do. This captures the true halos from the FTS snapshots
-    # (which have correct sign=-1 BCs for u,v) without going through
-    # fill_halo_regions! (which would use default sign=+1 BCs).
+    # Save bottom height (from PartialCellBottom) for diagnostics
+    if model.grid isa ImmersedBoundaryGrid
+        ib = model.grid.immersed_boundary
+        if hasproperty(ib, :bottom_height)
+            bottom_path = joinpath(age_output_dir, "bottom_$(duration_tag)$(manual_suffix).jld2")
+            isfile(bottom_path) && rm(bottom_path)
+            jldopen(bottom_path, "w") do f
+                f["bottom"] = Array(parent(ib.bottom_height.data))
+            end
+            @info "Saved bottom_height: size=$(size(parent(ib.bottom_height.data)))"
+        end
+    end
+    # Save fields via three methods for comparison:
+    # (a) Pointwise TSI evaluation at every index (including halos)
+    # (b) FTS snapshot parent data (raw halos from load_fts)
+    # (c) Regular parent(field.data) for non-TSI fields (w, etc.)
     manual_tmp = Dict{String, Field}()
+    manual_fts = Dict{String, Any}()
     for (name, field) in manual_fields
         if field isa Oceananigans.OutputReaders.TimeSeriesInterpolation
             loc = Oceananigans.Fields.location(field)
             manual_tmp[name] = Field{loc[1], loc[2], loc[3]}(model.grid)
+            manual_fts[name] = field.time_series
+            @info "Manual callback '$name': TSI field, tmp axes=$(axes(manual_tmp[name].data)), FTS data axes=$(axes(field.time_series.data)[1:3])"
         end
     end
+    flush(stdout); flush(stderr)
     function save_manual_fields(sim)
         t = time(sim)
         iter = iteration(sim)
         for (name, field) in manual_fields
             if haskey(manual_tmp, name)
                 tmp = manual_tmp[name]
-                # Pointwise evaluation at every index including halos
+                # (a) Pointwise TSI evaluation (no @inbounds — let errors surface)
                 for k in axes(tmp.data, 3), j in axes(tmp.data, 2), i in axes(tmp.data, 1)
-                    @inbounds tmp.data[i, j, k] = field[i, j, k]
+                    tmp.data[i, j, k] = field[i, j, k]
                 end
-                data = Array(parent(tmp.data))
+                data_eval = Array(parent(tmp.data))
+                # (b) FTS snapshot 1 parent data (raw halos from load_fts)
+                fts = manual_fts[name]
+                data_fts = Array(parent(fts[1].data))
+                # Save both
+                filepath_eval = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
+                jldopen(filepath_eval, "a") do f
+                    f["timeseries/$(name)/$(iter)"] = data_eval
+                    f["timeseries/t/$(iter)"] = t
+                end
+                filepath_fts = joinpath(age_output_dir, "$(name)_fts_$(duration_tag)$(manual_suffix).jld2")
+                jldopen(filepath_fts, "a") do f
+                    f["timeseries/$(name)/$(iter)"] = data_fts
+                    f["timeseries/t/$(iter)"] = t
+                end
             else
+                # (c) Regular field (w, etc.)
                 data = Array(parent(field.data))
-            end
-            filepath = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
-            jldopen(filepath, "a") do f
-                f["timeseries/$(name)/$(iter)"] = data
-                f["timeseries/t/$(iter)"] = t
+                filepath = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
+                jldopen(filepath, "a") do f
+                    f["timeseries/$(name)/$(iter)"] = data
+                    f["timeseries/t/$(iter)"] = t
+                end
             end
         end
         return

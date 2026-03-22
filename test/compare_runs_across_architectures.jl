@@ -753,5 +753,205 @@ for field_name in manual_fields
     flush(stdout); flush(stderr)
 end
 
+################################################################################
+# FTS snapshot plots (raw halos from load_fts, bypassing TSI interpolation)
+################################################################################
+
+fts_fields = ["u", "v", "eta"]
+
+@info "Plotting FTS snapshot fields (raw halos from load_fts)"
+flush(stdout); flush(stderr)
+
+for field_name in fts_fields
+    serial_fts_file = joinpath(serial_dir, "$(field_name)_fts_$(DURATION_TAG).jld2")
+    if !isfile(serial_fts_file)
+        @info "  $field_name: no FTS file — skipping"
+        continue
+    end
+
+    serial_data, t_s = jldopen(serial_fts_file, "r") do f
+        iters = collect(keys(f["timeseries/$(field_name)"]))
+        iter = first(sort(iters; by = k -> parse(Int, k)))
+        f["timeseries/$(field_name)/$iter"], f["timeseries/t/$iter"]
+    end
+    t_yr = t_s / year
+
+    nz_f = size(serial_data, 3)
+    k_f = field_name == "eta" ? nz_f ÷ 2 + 1 : nz_f - 7
+    nx_f, ny_f = size(serial_data, 1), size(serial_data, 2)
+
+    @info "  $field_name FTS serial: size=$(size(serial_data)), plotting k=$k_f"
+
+    # Serial FTS plot
+    serial_slice = serial_data[:, :, k_f]
+    fig = Figure(; size = (1000, 600))
+    ax = Axis(
+        fig[1, 1];
+        title = "$field_name FTS serial (k=$k_f, size=$(size(serial_data)))",
+        xlabel = "i (with halos)", ylabel = "j (with halos)",
+        backgroundcolor = :lightgray,
+    )
+    if field_name in ("u", "v")
+        vmax = maximum(abs, filter(!isnan, serial_slice))
+        vmax = vmax > 0 ? vmax : 1.0e-10
+        hm = heatmap!(
+            ax, 1:nx_f, 1:ny_f, serial_slice;
+            colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+        )
+    else
+        hm = heatmap!(ax, 1:nx_f, 1:ny_f, serial_slice; nan_color = :lightgray)
+    end
+    Colorbar(fig[1, 2], hm; label = field_name)
+    save(joinpath(plot_output_dir, "$(field_name)_serial_fts_$(DURATION_TAG)_k$(k_f).png"), fig)
+
+    # Distributed rank FTS plots + diff
+    for ry in 0:(py - 1), rx in 0:(px - 1)
+        r = rx * py + ry
+        dist_fts_file = joinpath(distributed_dir, "$(field_name)_fts_$(DURATION_TAG)_rank$(r).jld2")
+        if !isfile(dist_fts_file)
+            @warn "  $field_name FTS rank $r: file not found"
+            continue
+        end
+
+        rank_data, _ = jldopen(dist_fts_file, "r") do f
+            iters = collect(keys(f["timeseries/$(field_name)"]))
+            iter = first(sort(iters; by = k -> parse(Int, k)))
+            f["timeseries/$(field_name)/$iter"], f["timeseries/t/$iter"]
+        end
+
+        nxr, nyr = size(rank_data, 1), size(rank_data, 2)
+        k_r = min(k_f, size(rank_data, 3))
+
+        # Rank value plot
+        rank_slice = rank_data[:, :, k_r]
+        fig = Figure(; size = (1000, 600))
+        ax = Axis(
+            fig[1, 1];
+            title = "$field_name FTS rank $r ($(rx),$(ry)) (k=$k_r)",
+            xlabel = "i (with halos)", ylabel = "j (with halos)",
+            backgroundcolor = :lightgray,
+        )
+        if field_name in ("u", "v")
+            vmax = maximum(abs, filter(!isnan, rank_slice))
+            vmax = vmax > 0 ? vmax : 1.0e-10
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, rank_slice;
+                colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+            )
+        else
+            hm = heatmap!(ax, 1:nxr, 1:nyr, rank_slice; nan_color = :lightgray)
+        end
+        Colorbar(fig[1, 2], hm; label = field_name)
+        save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_fts_$(DURATION_TAG)_k$(k_r).png"), fig)
+
+        # Diff against serial (slice serial to match rank)
+        rank_int_nx = nxr - 2Hx
+        rank_int_ny = nyr - 2Hy
+        # Compute rank interior offsets
+        rank_nxs = zeros(Int, px)
+        rank_nys = zeros(Int, py)
+        for rx2 in 0:(px - 1)
+            f2 = joinpath(distributed_dir, "$(field_name)_fts_$(DURATION_TAG)_rank$(rx2 * py).jld2")
+            isfile(f2) && jldopen(f2, "r") do f
+                it = first(sort(filter(k -> k != "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
+                rank_nxs[rx2 + 1] = size(f["timeseries/$(field_name)/$it"], 1) - 2Hx
+            end
+        end
+        for ry2 in 0:(py - 1)
+            f2 = joinpath(distributed_dir, "$(field_name)_fts_$(DURATION_TAG)_rank$(ry2).jld2")
+            isfile(f2) && jldopen(f2, "r") do f
+                it = first(sort(filter(k -> k != "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
+                rank_nys[ry2 + 1] = size(f["timeseries/$(field_name)/$it"], 2) - 2Hy
+            end
+        end
+        i_start = sum(rank_nxs[1:rx]) + 1
+        j_start = sum(rank_nys[1:ry]) + 1
+        i_end = i_start + nxr - 1
+        j_end = j_start + nyr - 1
+
+        if i_end <= nx_f && j_end <= ny_f
+            serial_match = serial_data[i_start:i_end, j_start:j_end, k_r]
+            diff_slice = rank_slice .- serial_match
+            max_abs = maximum(abs, diff_slice)
+            mean_abs = mean(abs, diff_slice)
+            @info "  $field_name FTS rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
+
+            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            fig = Figure(; size = (1000, 600))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name FTS rank $r DIFF (k=$k_r, max=$(@sprintf("%.2e", max_abs)))",
+                xlabel = "i (with halos)", ylabel = "j (with halos)",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, diff_slice;
+                colorrange = (-diff_scale, diff_scale),
+                colormap = :balance, nan_color = :lightgray,
+                lowclip = :blue, highclip = :red,
+            )
+            Colorbar(fig[1, 2], hm; label = "$field_name diff")
+            save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_diff_fts_$(DURATION_TAG)_k$(k_r).png"), fig)
+        end
+    end
+
+    @info "  $field_name: FTS plots saved"
+    flush(stdout); flush(stderr)
+end
+
+################################################################################
+# Bottom height plots
+################################################################################
+
+serial_bottom_file = joinpath(serial_dir, "bottom_$(DURATION_TAG).jld2")
+dist_bottom_file = joinpath(distributed_dir, "bottom_$(DURATION_TAG)_rank0.jld2")
+
+if isfile(serial_bottom_file)
+    @info "Plotting bottom height"
+    serial_bottom = jldopen(serial_bottom_file, "r") do f
+        f["bottom"]
+    end
+    nx_b, ny_b = size(serial_bottom, 1), size(serial_bottom, 2)
+    @info "  Serial bottom: size=$(size(serial_bottom))"
+
+    fig = Figure(; size = (1000, 600))
+    ax = Axis(
+        fig[1, 1];
+        title = "Bottom height serial (size=$(size(serial_bottom)))",
+        xlabel = "i (with halos)", ylabel = "j (with halos)",
+        backgroundcolor = :lightgray,
+    )
+    hm = heatmap!(ax, 1:nx_b, 1:ny_b, serial_bottom[:, :, 1]; nan_color = :lightgray)
+    Colorbar(fig[1, 2], hm; label = "bottom (m)")
+    save(joinpath(plot_output_dir, "bottom_serial_$(DURATION_TAG).png"), fig)
+
+    for ry in 0:(py - 1), rx in 0:(px - 1)
+        r = rx * py + ry
+        df = joinpath(distributed_dir, "bottom_$(DURATION_TAG)_rank$(r).jld2")
+        if !isfile(df)
+            continue
+        end
+        rank_bottom = jldopen(df, "r") do f
+            f["bottom"]
+        end
+        nxr, nyr = size(rank_bottom, 1), size(rank_bottom, 2)
+
+        fig = Figure(; size = (1000, 600))
+        ax = Axis(
+            fig[1, 1];
+            title = "Bottom height rank $r ($(rx),$(ry)) (size=$(size(rank_bottom)))",
+            xlabel = "i (with halos)", ylabel = "j (with halos)",
+            backgroundcolor = :lightgray,
+        )
+        hm = heatmap!(ax, 1:nxr, 1:nyr, rank_bottom[:, :, 1]; nan_color = :lightgray)
+        Colorbar(fig[1, 2], hm; label = "bottom (m)")
+        save(joinpath(plot_output_dir, "bottom_rank$(r)_$(DURATION_TAG).png"), fig)
+    end
+    @info "  Bottom plots saved"
+    flush(stdout); flush(stderr)
+else
+    @info "No bottom height file — skipping"
+end
+
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 flush(stdout); flush(stderr)
