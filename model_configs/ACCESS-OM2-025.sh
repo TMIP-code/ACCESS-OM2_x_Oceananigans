@@ -6,6 +6,9 @@ MODEL_SHORT=OM2-025
 # --- GPU queue (H200 needed for 0.25° resolution) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 
+# --- CPU queue (hugemem for 0.25° — partition needs ~48 GB per rank) ---
+CPU_QUEUE=${CPU_QUEUE:-hugemem}
+
 # --- Preprocessing ---
 WALLTIME_PREP=12:00:00
 WALLTIME_GRID=00:30:00
