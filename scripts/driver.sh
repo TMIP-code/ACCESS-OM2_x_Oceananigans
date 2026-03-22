@@ -197,29 +197,8 @@ has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 PARTITION=${PARTITION:-1x1}
 PARTITION_X="${PARTITION%%x*}"
 PARTITION_Y="${PARTITION#*x}"
-RANKS=$(( PARTITION_X * PARTITION_Y ))
 CPU_QUEUE=${CPU_QUEUE:-express}
-
-# GPU resources
-NGPUS=$RANKS
-GPU_NCPUS=$(( NGPUS * 12 ))
-case "$GPU_QUEUE" in
-    gpuvolta)  MEM_PER_GPU=96 ;;
-    gpuhopper) MEM_PER_GPU=256 ;;
-    *) echo "ERROR: Unknown GPU_QUEUE: $GPU_QUEUE" >&2; exit 1 ;;
-esac
-GPU_MEM="$(( NGPUS * MEM_PER_GPU ))GB"
-GPU_MEM_SINGLE="${MEM_PER_GPU}GB"
-
-# CPU resources
-CPU_NCPUS=$RANKS
-case "$CPU_QUEUE" in
-    express|normal) MEM_PER_CPU=4 ;;
-    hugemem)        MEM_PER_CPU=32 ;;
-    megamem)        MEM_PER_CPU=64 ;;
-    *) echo "ERROR: Unknown CPU_QUEUE: $CPU_QUEUE" >&2; exit 1 ;;
-esac
-CPU_MEM="$(( CPU_NCPUS * MEM_PER_CPU ))GB"
+source "$(dirname "${BASH_SOURCE[0]}")/compute_resources.sh"
 
 export PARTITION PARTITION_X PARTITION_Y RANKS
 

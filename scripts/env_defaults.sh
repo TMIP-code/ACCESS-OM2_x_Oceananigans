@@ -99,43 +99,8 @@ fi
 source "$MODEL_CONF"
 
 # --- Partition + queue configuration ---
-# PARTITION: MPI partition layout (default 1x1 = serial)
-# GPU_QUEUE: GPU PBS queue (set by model config: gpuvolta or gpuhopper)
-# CPU_QUEUE: CPU-only PBS queue (default express)
-PARTITION=${PARTITION:-1x1}
-PARTITION_X="${PARTITION%%x*}"
-PARTITION_Y="${PARTITION#*x}"
-RANKS=$(( PARTITION_X * PARTITION_Y ))
 CPU_QUEUE=${CPU_QUEUE:-express}
-
-# GPU resources (for GPU jobs)
-NGPUS=$RANKS
-GPU_NCPUS=$(( NGPUS * 12 ))
-case "$GPU_QUEUE" in
-    gpuvolta)  MEM_PER_GPU=96 ;;
-    gpuhopper) MEM_PER_GPU=256 ;;
-    *) echo "ERROR: Unknown GPU_QUEUE: $GPU_QUEUE (must be gpuvolta or gpuhopper)" >&2; exit 1 ;;
-esac
-GPU_MEM="$(( NGPUS * MEM_PER_GPU ))GB"
-GPU_MEM_SINGLE="${MEM_PER_GPU}GB"
-
-# CPU resources (for CPU-only MPI jobs)
-CPU_NCPUS=$RANKS
-case "$CPU_QUEUE" in
-    express|normal) MEM_PER_CPU=4 ;;
-    hugemem)        MEM_PER_CPU=32 ;;
-    megamem)        MEM_PER_CPU=64 ;;
-    *) echo "ERROR: Unknown CPU_QUEUE: $CPU_QUEUE (must be express, normal, hugemem, or megamem)" >&2; exit 1 ;;
-esac
-# Enforce queue minimum memory (hugemem ≥ 192 GB, megamem ≥ 1440 GB)
-CPU_MEM_BALANCED=$(( CPU_NCPUS * MEM_PER_CPU ))
-case "$CPU_QUEUE" in
-    hugemem) CPU_MEM_MIN=192 ;;
-    megamem) CPU_MEM_MIN=1440 ;;
-    *)       CPU_MEM_MIN=0 ;;
-esac
-CPU_MEM_VAL=$(( CPU_MEM_BALANCED > CPU_MEM_MIN ? CPU_MEM_BALANCED : CPU_MEM_MIN ))
-CPU_MEM="${CPU_MEM_VAL}GB"
+source "$(dirname "${BASH_SOURCE[0]}")/compute_resources.sh"
 
 export MODEL_SHORT GPU_QUEUE CPU_QUEUE
 export PARTITION PARTITION_X PARTITION_Y RANKS
