@@ -127,7 +127,15 @@ case "$CPU_QUEUE" in
     megamem)        MEM_PER_CPU=64 ;;
     *) echo "ERROR: Unknown CPU_QUEUE: $CPU_QUEUE (must be express, normal, hugemem, or megamem)" >&2; exit 1 ;;
 esac
-CPU_MEM="$(( CPU_NCPUS * MEM_PER_CPU ))GB"
+# Enforce queue minimum memory (hugemem ≥ 192 GB, megamem ≥ 1440 GB)
+CPU_MEM_BALANCED=$(( CPU_NCPUS * MEM_PER_CPU ))
+case "$CPU_QUEUE" in
+    hugemem) CPU_MEM_MIN=192 ;;
+    megamem) CPU_MEM_MIN=1440 ;;
+    *)       CPU_MEM_MIN=0 ;;
+esac
+CPU_MEM_VAL=$(( CPU_MEM_BALANCED > CPU_MEM_MIN ? CPU_MEM_BALANCED : CPU_MEM_MIN ))
+CPU_MEM="${CPU_MEM_VAL}GB"
 
 export MODEL_SHORT GPU_QUEUE CPU_QUEUE
 export PARTITION PARTITION_X PARTITION_Y RANKS
