@@ -130,11 +130,23 @@ function setup_age_simulation(
         old = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
         isfile(old) && rm(old)
     end
+    # Pre-allocate materialized Fields for TSI fields
+    manual_materialized = Dict{String, Any}()
+    for (name, field) in manual_fields
+        if field isa Oceananigans.OutputReaders.TimeSeriesInterpolation
+            manual_materialized[name] = Field(field)
+        end
+    end
     function save_manual_fields(sim)
         t = time(sim)
         iter = iteration(sim)
         for (name, field) in manual_fields
-            data = Array(parent(field.data))
+            if haskey(manual_materialized, name)
+                compute!(manual_materialized[name])
+                data = Array(parent(manual_materialized[name].data))
+            else
+                data = Array(parent(field.data))
+            end
             filepath = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
             jldopen(filepath, "a") do f
                 f["timeseries/$(name)/$(iter)"] = data
