@@ -23,7 +23,7 @@ using Oceananigans.DistributedComputations: Distributed, global_index_offset
 using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
-using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
+using Oceananigans.OutputReaders: FieldTimeSeries, InMemory, Cyclical
 using Oceananigans.Units: day, days, second, seconds
 year = years = 365.25days
 
