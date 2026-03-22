@@ -86,9 +86,10 @@ function load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
     # Create empty FTS on the distributed grid
     dist_fts = FieldTimeSeries(loc, grid, times; backend = InMemory(), time_indexing)
 
-    # Copy pre-partitioned parent data directly into each snapshot
+    # Copy pre-partitioned parent data directly into each snapshot.
+    # Use copyto! to handle CPU→GPU transfer when grid is on GPU.
     for n in eachindex(times)
-        parent(dist_fts[n].data) .= snapshots[n]
+        copyto!(parent(dist_fts[n].data), snapshots[n])
     end
 
     return dist_fts
