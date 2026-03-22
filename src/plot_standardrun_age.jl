@@ -101,7 +101,7 @@ grid = load_tripolar_grid(grid_file, CPU())
 @info "Loading age field from $output_filepath"
 flush(stdout); flush(stderr)
 
-age_fts = FieldTimeSeries(output_filepath, "age")
+age_fts = FieldTimeSeries(output_filepath, "age"; grid, backend = InMemory())
 n_times = length(age_fts.times)
 @info "Found $n_times output timesteps; using last one"
 flush(stdout); flush(stderr)
