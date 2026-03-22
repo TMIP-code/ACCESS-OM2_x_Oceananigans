@@ -130,20 +130,29 @@ function setup_age_simulation(
         old = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
         isfile(old) && rm(old)
     end
-    # Pre-allocate materialized Fields for TSI fields
-    manual_materialized = Dict{String, Any}()
+    # Pre-allocate temporary Fields for pointwise evaluation of TSI fields.
+    # We evaluate field[i,j,k] at every point (including halos), exactly as
+    # simulation kernels do. This captures the true halos from the FTS snapshots
+    # (which have correct sign=-1 BCs for u,v) without going through
+    # fill_halo_regions! (which would use default sign=+1 BCs).
+    manual_tmp = Dict{String, Field}()
     for (name, field) in manual_fields
         if field isa Oceananigans.OutputReaders.TimeSeriesInterpolation
-            manual_materialized[name] = Field(field)
+            loc = Oceananigans.Fields.location(field)
+            manual_tmp[name] = Field{loc[1], loc[2], loc[3]}(model.grid)
         end
     end
     function save_manual_fields(sim)
         t = time(sim)
         iter = iteration(sim)
         for (name, field) in manual_fields
-            if haskey(manual_materialized, name)
-                compute!(manual_materialized[name])
-                data = Array(parent(manual_materialized[name].data))
+            if haskey(manual_tmp, name)
+                tmp = manual_tmp[name]
+                # Pointwise evaluation at every index including halos
+                for k in axes(tmp.data, 3), j in axes(tmp.data, 2), i in axes(tmp.data, 1)
+                    @inbounds tmp.data[i, j, k] = field[i, j, k]
+                end
+                data = Array(parent(tmp.data))
             else
                 data = Array(parent(field.data))
             end
