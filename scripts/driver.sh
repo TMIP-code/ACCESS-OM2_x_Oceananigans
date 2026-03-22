@@ -183,7 +183,7 @@ JOB_CHAIN="$expanded"
 
 # Expand shortcuts (order matters: expand 'full' before its sub-shortcuts)
 JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr}"
-JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel}"
+JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-partition}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
 JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
@@ -302,8 +302,29 @@ fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
 
+# 1d. partition (depends on: vel + grid, only if multi-rank)
+PARTITION_JOB=""
+if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
+    STEP=$((STEP + 1))
+    deps=""
+    [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
+    [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
+    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
+    PARTITION_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_partition" -l walltime=00:30:00 \
+        -q $CPU_QUEUE -l ngpus=0 -l ncpus=$CPU_NCPUS -l mem=$CPU_MEM \
+        -v ${COMMON_VARS},PARTITION=${PARTITION},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
+        scripts/preprocessing/partition_data.sh)
+    echo "[$STEP] Partition (${PARTITION_X}x${PARTITION_Y}, CPU): $PARTITION_JOB${deps:+ (afterok $deps)}"
+fi
+
+# Update dependency: standard runs depend on partition (if it exists) or vel
+if [ -n "$PARTITION_JOB" ]; then
+    VEL_DEP="$PARTITION_JOB"
+fi
+
 # ============================================================
-# 2. Standard runs (depend on: vel)
+# 2. Standard runs (depend on: vel or partition)
 # ============================================================
 
 # 2a. run1yr
