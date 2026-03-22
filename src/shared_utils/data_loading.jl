@@ -26,33 +26,71 @@ directly fails because the `FieldTimeSeries` constructor passes global-sized fil
 `offset_data`, which expects local-sized data. Workaround: load on a serial CPU grid first,
 then partition to distributed ranks via `fold_set!`.
 """
-function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing)
+function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing, partition_dir = nothing)
     return FieldTimeSeries(file, name; architecture = arch, grid, backend, time_indexing)
 end
 
-function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_indexing)
+function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_indexing, partition_dir = nothing)
+    # Try loading from pre-partitioned per-rank file first
+    if partition_dir !== nothing
+        # Derive rank file name from the global file name
+        # e.g., "u_from_mass_transport_monthly.jld2" → "u_from_mass_transport_monthly_rank0.jld2"
+        basename_global = basename(file)
+        basename_rank = replace(basename_global, ".jld2" => "_rank$(arch.local_rank).jld2")
+        rank_file = joinpath(partition_dir, basename_rank)
+        if isfile(rank_file)
+            @info "Loading pre-partitioned FTS '$name' from $rank_file"
+            return load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
+        else
+            @warn "Rank file not found: $rank_file — falling back to global loading"
+        end
+    end
+
+    # Fallback: load global FTS on CPU, partition via fold_set!, fill halos
     @info "Loading FTS '$name' via CPU grid for distributed partitioning"
     cpu_fts = FieldTimeSeries(
         file, name; architecture = CPU(), grid = cpu_grid,
         backend = InMemory(), time_indexing
     )
-    # Pass boundary_conditions from the CPU FTS so the distributed FTS gets the correct
-    # FPivotZipperBoundaryCondition sign (e.g., -1 for u, v velocities at the north fold).
-    # Without this, the default BCs omit the sign and fill_halo_regions! produces wrong halos.
     dist_fts = FieldTimeSeries(
         instantiated_location(cpu_fts), grid, cpu_fts.times;
         backend = InMemory(), time_indexing,
         boundary_conditions = cpu_fts.boundary_conditions,
     )
-    # Use fold_set! directly because DistributedTripolarField dispatch doesn't match
-    # ImmersedBoundaryGrid-wrapped fields (Oceananigans bug: DistributedTripolarField
-    # uses DistributedTripolarGrid but not DistributedTripolarGridOfSomeKind).
     conformal_mapping = grid.underlying_grid.conformal_mapping
     y_loc = instantiated_location(cpu_fts)[2]
     for n in eachindex(cpu_fts.times)
         fold_set!(dist_fts[n], Array(interior(cpu_fts[n])), conformal_mapping, typeof(y_loc))
     end
     fill_halo_regions!(dist_fts)
+    return dist_fts
+end
+
+"""
+    load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
+
+Load a FieldTimeSeries from a pre-partitioned per-rank JLD2 file.
+The file contains parent data (including halos) for each time snapshot,
+sliced from the serial global data by partition_data.jl.
+No fill_halo_regions! needed — halos are already correct.
+"""
+function load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
+    loc, times, snapshots = jldopen(rank_file, "r") do f
+        loc = Tuple(f["location"])
+        times = f["times"]
+        Nt = length(times)
+        snaps = [f["data/$n"] for n in 1:Nt]
+        (loc, times, snaps)
+    end
+
+    # Create empty FTS on the distributed grid
+    dist_fts = FieldTimeSeries(loc, grid, times; backend = InMemory(), time_indexing)
+
+    # Copy pre-partitioned parent data directly into each snapshot
+    for n in eachindex(times)
+        parent(dist_fts[n].data) .= snapshots[n]
+    end
+
     return dist_fts
 end
 
