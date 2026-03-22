@@ -255,15 +255,24 @@ end
 ################################################################################
 
 @info "Creating velocity and sea surface height field time series"
+flush(stdout); flush(stderr)
 
 @info "Reading NetCDF inputs from monthly_dir=$monthly_dir"
+flush(stdout); flush(stderr)
 
+@info "  Opening u_monthly.nc"; flush(stdout); flush(stderr)
 u_ds = open_dataset(joinpath(monthly_dir, "u_monthly.nc"))
+@info "  Opening v_monthly.nc"; flush(stdout); flush(stderr)
 v_ds = open_dataset(joinpath(monthly_dir, "v_monthly.nc"))
+@info "  Opening wt_monthly.nc"; flush(stdout); flush(stderr)
 wt_ds = open_dataset(joinpath(monthly_dir, "wt_monthly.nc"))
+@info "  Opening eta_t_monthly.nc"; flush(stdout); flush(stderr)
 η_ds = open_dataset(joinpath(monthly_dir, "eta_t_monthly.nc"))
+@info "  Opening dht_monthly.nc"; flush(stdout); flush(stderr)
 dht_ds = open_dataset(joinpath(monthly_dir, "dht_monthly.nc"))
+@info "  Opening tx_trans_monthly.nc"; flush(stdout); flush(stderr)
 tx_ds = open_dataset(joinpath(monthly_dir, "tx_trans_monthly.nc"))
+@info "  Opening ty_trans_monthly.nc"; flush(stdout); flush(stderr)
 ty_ds = open_dataset(joinpath(monthly_dir, "ty_trans_monthly.nc"))
 dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_monthly.nc")
 wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_monthly.nc")
