@@ -1,50 +1,46 @@
-# Architecture selection based on PBS_NGPUS (set by PBS scheduler).
-# Sets: arch, arch_str, ngpus
+# Architecture selection: GPU vs CPU × serial vs distributed.
+# Sets: arch, arch_str
 #
-# PBS_NGPUS > 1  → Distributed(GPU(), partition=Partition(px, py))  (multi-GPU via MPI)
-# PBS_NGPUS == 1 → GPU()                                             (single GPU)
-# PBS_NGPUS == 0 + PARTITION_X set → Distributed(CPU(), ...)     (multi-CPU via MPI)
-# PBS_NGPUS == 0 → CPU()                                             (no GPU)
-#
-# For multi-GPU/CPU runs, PARTITION_X and PARTITION_Y must be set in ENV
-# (passed via qsub -v from driver.sh). These determine the domain decomposition.
+# Two independent axes:
+#   1. Device: PBS_NGPUS ≥ 1 → GPU(), else CPU()
+#   2. Distribution: PARTITION_X × PARTITION_Y > 1 → Distributed(device, partition)
 #
 # include()'d by setup_model.jl, create_velocities.jl, create_closures.jl.
 
+# 1. Device selection
 ngpus = parse(Int, get(ENV, "PBS_NGPUS", "0"))
-if ngpus > 1
+if ngpus >= 1
     using CUDA
-    using MPI
-    MPI.Init()
     # CUDA runtime version is pinned in LocalPreferences.toml (version = "12.9", local = true).
     # Do NOT call CUDA.set_runtime_version!() here — it rewrites LocalPreferences.toml
     # and can clobber the [MPIPreferences] section.
     @show CUDA.versioninfo()
-    px = parse(Int, ENV["PARTITION_X"])
-    py = parse(Int, ENV["PARTITION_Y"])
-    arch = Distributed(GPU(), partition = Partition(px, py))
-    arch_str = "DistributedGPU($(px)x$(py))"
-    rank = MPI.Comm_rank(MPI.COMM_WORLD)
-    nranks = MPI.Comm_size(MPI.COMM_WORLD)
-    @info "MPI rank $rank/$nranks, partition=$(px)x$(py), CUDA device: $(CUDA.device())"
-elseif ngpus == 1
-    using CUDA
-    @show CUDA.versioninfo()
-    arch = GPU()
-    arch_str = "GPU"
-elseif ngpus == 0 && haskey(ENV, "PARTITION_X")
+    device = GPU()
+    device_str = "GPU"
+else
+    device = CPU()
+    device_str = "CPU"
+end
+
+# 2. Distribution selection
+px = parse(Int, get(ENV, "PARTITION_X", "1"))
+py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+nranks = px * py
+
+if nranks > 1
     using MPI
     MPI.Init()
-    px = parse(Int, ENV["PARTITION_X"])
-    py = parse(Int, ENV["PARTITION_Y"])
-    arch = Distributed(CPU(), partition = Partition(px, py))
-    arch_str = "DistributedCPU($(px)x$(py))"
+    arch = Distributed(device, partition = Partition(px, py))
     rank = MPI.Comm_rank(MPI.COMM_WORLD)
-    nranks = MPI.Comm_size(MPI.COMM_WORLD)
-    @info "MPI rank $rank/$nranks, partition=$(px)x$(py) (CPU)"
+    arch_str = "Distributed$(device_str)($(px)x$(py))"
+    @info "MPI rank $rank/$nranks, partition=$(px)x$(py) ($device_str)"
+    if device isa GPU
+        @info "CUDA device: $(CUDA.device())"
+    end
 else
-    arch = CPU()
-    arch_str = "CPU"
+    arch = device
+    arch_str = device_str
 end
+
 @info "Using $arch_str architecture"
 flush(stdout); flush(stderr)
