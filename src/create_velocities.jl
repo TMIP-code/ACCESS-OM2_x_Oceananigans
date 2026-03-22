@@ -323,7 +323,14 @@ v_mt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend
 w_mt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
 η_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_monthly_file, name = "η", time_indexing = Cyclical(stop_time))
 
+@info "All NetCDF datasets opened successfully"
+flush(stdout); flush(stderr)
+
+@info "Creating FieldTimeSeries with OnDisk backend"
+flush(stdout); flush(stderr)
+
 println("Grid spacings for B-grid to C-grid interpolation (computed once and reused)")
+flush(stdout)
 Δxᶠᶠᶜ = Field(xspacings(grid, Face(), Face(), Center()))
 Δyᶠᶠᶜ = Field(yspacings(grid, Face(), Face(), Center()))
 compute!(Δxᶠᶠᶜ)
@@ -376,9 +383,10 @@ w_mt_acc = ZFaceField(grid; boundary_conditions = wbcs)
 
 for month in 1:12
     println("month $month")
+    flush(stdout)
 
     # ── η (set first so _update_zstar_scaling! runs before the dht check) ────
-    println("- η")
+    println("- η"); flush(stdout)
     η_data = readcubedata(η_ds.eta_t[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, η_data, η_data)
     set!(η, η_data)
@@ -393,7 +401,7 @@ for month in 1:12
     # mask_immersed_field! sets immersed cells to NaN in both fields so that
     # filter(!isnan, ratio) selects only wet cells (Δrᶜᶜᶜ is non-zero for immersed
     # cells in PartialCellBottom grids, so Δzᶜᶜᶜ_data .> 0 would be incorrect).
-    println("- dht consistency check")
+    println("- dht consistency check"); flush(stdout)
     dht_data = readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, dht_data, dht_data)
     size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny - 1), $Nz)")
@@ -407,7 +415,7 @@ for month in 1:12
     println("  - dht/Δzstar wet-cell ratio: min=$(minimum(wet_ratio)), mean=$(mean(wet_ratio)), max=$(maximum(wet_ratio))")
 
     # ── u and v ──────────────────────────────────────────────────────────────
-    println("- u and v:")
+    println("- u and v:"); flush(stdout)
     println("  - loading from MOM B grid")
     u_data = readcubedata(u_ds.u[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, u_data, u_data)
@@ -428,7 +436,7 @@ for month in 1:12
     set!(v_monthly_ts, v, month)
 
     # ── u, v, w from mass transports ────────────────────────────────────────
-    println("- u, v, w from mass transports")
+    println("- u, v, w from mass transports"); flush(stdout)
     tx_data = readcubedata(tx_ds.tx_trans[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, tx_data, tx_data)
     ty_data = readcubedata(ty_ds.ty_trans[month = At(month)]).data
@@ -460,7 +468,7 @@ for month in 1:12
     set!(w_mt_monthly_ts, w_mt, month)
 
     # ── w ────────────────────────────────────────────────────────────────────
-    println("- w")
+    println("- w"); flush(stdout)
     println("  - loading from MOM wt output")
     w_data = readcubedata(getproperty(wt_ds, wt_var_name)[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, w_data, w_data)
@@ -512,7 +520,7 @@ for month in 1:12
         save_single_field_plot(plottable_η, "sea surface height[month=$month]", joinpath(η_plot_dir, "sea_surface_height_month$(month)_$(arch_str).png"))
     end
 
-    println("- Accumulate into time-average")
+    println("- Accumulate into time-average"); flush(stdout)
     u_acc .+= u
     v_acc .+= v
     w_acc .+= w
