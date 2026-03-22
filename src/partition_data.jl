@@ -211,14 +211,14 @@ if VELOCITY_SOURCE == "cgridtransports"
         ("u_from_mass_transport", "u"),
         ("v_from_mass_transport", "v"),
         ("w_from_mass_transport", "w"),
-        ("eta", "eta"),
+        ("eta", "η"),
     ]
 else
     fts_fields = [
         ("u_interpolated", "u"),
         ("v_interpolated", "v"),
         ("w", "w"),
-        ("eta", "eta"),
+        ("eta", "η"),
     ]
 end
 
