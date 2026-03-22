@@ -120,7 +120,21 @@ end
 
 backend = InMemory()
 time_indexing = Cyclical(1year)
-fts_kw = arch isa Distributed ? (; cpu_grid) : (;)
+
+# Check for pre-partitioned FTS files (written by partition_data.jl)
+partition_dir = nothing
+if arch isa Distributed
+    px = parse(Int, get(ENV, "PARTITION_X", "1"))
+    py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+    pd = joinpath(experiment_dir, time_window, "partitions", "$(px)x$(py)")
+    if isdir(pd) && !isempty(readdir(pd))
+        partition_dir = pd
+        @info "Using pre-partitioned FTS data from $partition_dir"
+    else
+        @info "No pre-partitioned data at $pd — using runtime fold_set! partitioning"
+    end
+end
+fts_kw = arch isa Distributed ? (; cpu_grid, partition_dir) : (;)
 
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 u_ts = load_fts(arch, u_file, "u", grid; backend, time_indexing, fts_kw...)
