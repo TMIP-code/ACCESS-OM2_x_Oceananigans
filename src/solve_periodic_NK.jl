@@ -88,8 +88,8 @@ flush(stdout); flush(stderr)
 # Solver output directory (used by periodic_solver_common.jl for trace files)
 ################################################################################
 
-px = parse(Int, get(ENV, "GPU_PARTITION_X", "1"))
-py = parse(Int, get(ENV, "GPU_PARTITION_Y", "1"))
+px = parse(Int, get(ENV, "PARTITION_X", "1"))
+py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
 solver_output_dir = isempty(gpu_tag) ?
     joinpath(outputdir, "periodic", model_config, "NK") :

@@ -4,7 +4,7 @@
 MODEL_SHORT=OM2-1
 
 # --- GPU queue (V100 sufficient for 1° resolution) ---
-GPU_RESOURCES=${GPU_RESOURCES:-gpuvolta}
+GPU_QUEUE=${GPU_QUEUE:-gpuvolta}
 
 # --- Preprocessing ---
 WALLTIME_PREP=12:00:00

@@ -3,10 +3,10 @@
 #
 # PBS_NGPUS > 1  → Distributed(GPU(), partition=Partition(px, py))  (multi-GPU via MPI)
 # PBS_NGPUS == 1 → GPU()                                             (single GPU)
-# PBS_NGPUS == 0 + GPU_PARTITION_X set → Distributed(CPU(), ...)     (multi-CPU via MPI)
+# PBS_NGPUS == 0 + PARTITION_X set → Distributed(CPU(), ...)     (multi-CPU via MPI)
 # PBS_NGPUS == 0 → CPU()                                             (no GPU)
 #
-# For multi-GPU/CPU runs, GPU_PARTITION_X and GPU_PARTITION_Y must be set in ENV
+# For multi-GPU/CPU runs, PARTITION_X and PARTITION_Y must be set in ENV
 # (passed via qsub -v from driver.sh). These determine the domain decomposition.
 #
 # include()'d by setup_model.jl, create_velocities.jl, create_closures.jl.
@@ -20,8 +20,8 @@ if ngpus > 1
     # Do NOT call CUDA.set_runtime_version!() here — it rewrites LocalPreferences.toml
     # and can clobber the [MPIPreferences] section.
     @show CUDA.versioninfo()
-    px = parse(Int, ENV["GPU_PARTITION_X"])
-    py = parse(Int, ENV["GPU_PARTITION_Y"])
+    px = parse(Int, ENV["PARTITION_X"])
+    py = parse(Int, ENV["PARTITION_Y"])
     arch = Distributed(GPU(), partition = Partition(px, py))
     arch_str = "DistributedGPU($(px)x$(py))"
     rank = MPI.Comm_rank(MPI.COMM_WORLD)
@@ -32,11 +32,11 @@ elseif ngpus == 1
     @show CUDA.versioninfo()
     arch = GPU()
     arch_str = "GPU"
-elseif ngpus == 0 && haskey(ENV, "GPU_PARTITION_X")
+elseif ngpus == 0 && haskey(ENV, "PARTITION_X")
     using MPI
     MPI.Init()
-    px = parse(Int, ENV["GPU_PARTITION_X"])
-    py = parse(Int, ENV["GPU_PARTITION_Y"])
+    px = parse(Int, ENV["PARTITION_X"])
+    py = parse(Int, ENV["PARTITION_Y"])
     arch = Distributed(CPU(), partition = Partition(px, py))
     arch_str = "DistributedCPU($(px)x$(py))"
     rank = MPI.Comm_rank(MPI.COMM_WORLD)

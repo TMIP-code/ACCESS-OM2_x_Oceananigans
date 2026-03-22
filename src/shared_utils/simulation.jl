@@ -58,8 +58,8 @@ function setup_age_simulation(
     simulation = Simulation(model; Δt, stop_time)
     add_callback!(simulation, progress_message, TimeInterval(progress_interval))
 
-    px = parse(Int, get(ENV, "GPU_PARTITION_X", "1"))
-    py = parse(Int, get(ENV, "GPU_PARTITION_Y", "1"))
+    px = parse(Int, get(ENV, "PARTITION_X", "1"))
+    py = parse(Int, get(ENV, "PARTITION_Y", "1"))
     gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
     age_output_dir = isempty(gpu_tag) ?
         joinpath(outputdir, "standardrun", model_config) :

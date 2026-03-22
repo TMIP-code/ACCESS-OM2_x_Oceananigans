@@ -2,9 +2,9 @@
 # Unified test driver for ACCESS-OM2_x_Oceananigans.
 #
 # Usage (from login node):
-#   GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh
+#   GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh
 #   PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
-#   GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill-diag-mpi bash scripts/test_driver.sh
+#   GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill-diag-mpi bash scripts/test_driver.sh
 #
 # Available test steps (dash-separated in JOB_CHAIN):
 #   halofill  — fill_halo_regions! MWE at all staggered locations (distributed GPU)
@@ -35,43 +35,24 @@ source scripts/env_defaults.sh
 # --- Validate JOB_CHAIN ---
 JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
-    echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_RESOURCES=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
+    echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
     echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi"
     echo ""
     echo "Examples:"
-    echo "  GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
+    echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
     echo "  PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh"
-    echo "  GPU_RESOURCES=gpuvolta-2x2 JOB_CHAIN=halofill-diag-mpi bash scripts/test_driver.sh"
+    echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 JOB_CHAIN=halofill-diag-mpi bash scripts/test_driver.sh"
     exit 1
 fi
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
-# --- GPU queue configuration (same as driver.sh) ---
-GPU_RESOURCES=${GPU_RESOURCES:-gpuvolta}
-
-GPU_BASE="${GPU_RESOURCES%%-*}"
-GPU_SUFFIX="${GPU_RESOURCES#*-}"
-if [[ "$GPU_BASE" != "$GPU_SUFFIX" ]] && [[ "$GPU_SUFFIX" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-    GPU_PARTITION_X="${BASH_REMATCH[1]}"
-    GPU_PARTITION_Y="${BASH_REMATCH[2]}"
-    GPU_NGPUS=$(( GPU_PARTITION_X * GPU_PARTITION_Y ))
-else
-    GPU_PARTITION_X=1
-    GPU_PARTITION_Y=1
-    GPU_NGPUS=1
-fi
-
-case "$GPU_BASE" in
-    gpuvolta)  GPU_MEM_PER_GPU=96;  GPU_QUEUE=gpuvolta ;;
-    gpuhopper) GPU_MEM_PER_GPU=256; GPU_QUEUE=gpuhopper ;;
-    *) echo "Unknown GPU_RESOURCES base: $GPU_BASE (must be gpuvolta or gpuhopper)"; exit 1 ;;
-esac
-GPU_MEM="$(( GPU_NGPUS * GPU_MEM_PER_GPU ))GB"
-GPU_NCPUS=$(( GPU_NGPUS * 12 ))
-
-export GPU_PARTITION_X GPU_PARTITION_Y
+# --- Partition + queue configuration ---
+# Already set by env_defaults.sh sourced above:
+#   GPU_QUEUE, PARTITION, PARTITION_X, PARTITION_Y, RANKS
+#   NGPUS, GPU_NCPUS, GPU_MEM, MEM_PER_GPU
+#   CPU_QUEUE, CPU_NCPUS, CPU_MEM, MEM_PER_CPU
 
 COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},GIT_COMMIT=${GIT_COMMIT}"
 WALLTIME=00:30:00
@@ -80,7 +61,7 @@ echo "=== ${PARENT_MODEL} test driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "JOB_CHAIN=$JOB_CHAIN"
 echo "GIT_COMMIT=$GIT_COMMIT"
-echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, partition=${GPU_PARTITION_X}x${GPU_PARTITION_Y}, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
+echo "GPU_QUEUE=$GPU_QUEUE, PARTITION=$PARTITION (${PARTITION_X}x${PARTITION_Y}), RANKS=$RANKS, NGPUS=$NGPUS, GPU_MEM=$GPU_MEM"
 echo ""
 
 STEP=0
@@ -91,8 +72,8 @@ if has_step halofill; then
     STEP=$((STEP + 1))
     HALOFILL_JOB=$(qsub \
         -N "${MODEL_SHORT}_halofill" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
         scripts/tests/run_halofill_test.sh)
     echo "[$STEP] halofill (GPU): $HALOFILL_JOB"
 fi
@@ -124,8 +105,8 @@ if has_step diag; then
     STEP=$((STEP + 1))
     DIAG_JOB=$(qsub \
         -N "${MODEL_SHORT}_diag" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
         scripts/tests/run_diagnostic_steps.sh)
     echo "[$STEP] diag: $DIAG_JOB"
 fi
@@ -136,9 +117,9 @@ if has_step diagcpu; then
     DIAGCPU_JOB=$(qsub \
         -N "${MODEL_SHORT}_diagcpu" -l walltime=00:30:00 \
         -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
-        -v ${COMMON_VARS},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        -v ${COMMON_VARS},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
         scripts/tests/run_diagnostic_steps.sh)
-    echo "[$STEP] diagcpu (CPU, ${GPU_PARTITION_X}x${GPU_PARTITION_Y}): $DIAGCPU_JOB"
+    echo "[$STEP] diagcpu (CPU, ${PARTITION_X}x${PARTITION_Y}): $DIAGCPU_JOB"
 fi
 
 # --- diagcpuserial: 10-step diagnostic on CPU (serial, no GPUs, express queue) ---
@@ -156,7 +137,7 @@ fi
 if has_step compare; then
     STEP=$((STEP + 1))
     DURATION_TAG=${DURATION_TAG:-diag}
-    GPU_TAG="${GPU_PARTITION_X}x${GPU_PARTITION_Y}"
+    GPU_TAG="${PARTITION_X}x${PARTITION_Y}"
     COMPARE_JOB=$(qsub \
         -N "${MODEL_SHORT}_compare" -l walltime=01:00:00 \
         -q express -l ngpus=0 -l ncpus=12 -l mem=47GB \
@@ -181,8 +162,8 @@ if has_step mpi; then
     STEP=$((STEP + 1))
     MPI_JOB=$(qsub \
         -N "${MODEL_SHORT}_mpi" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_RESOURCES=${GPU_RESOURCES},GPU_PARTITION_X=${GPU_PARTITION_X},GPU_PARTITION_Y=${GPU_PARTITION_Y} \
+        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION_X=${PARTITION_X},PARTITION_Y=${PARTITION_Y} \
         scripts/tests/run_mpi_test.sh)
     echo "[$STEP] mpi: $MPI_JOB"
 fi

@@ -5,10 +5,10 @@ set -euo pipefail
 #
 # Optional env vars:
 #   PARENT_MODEL  (default: ACCESS-OM2-1)
-#   GPU_RESOURCES (default: gpuhopper; options: gpuvolta, gpuvolta2, gpuhopper)
+#   GPU_QUEUE (default: gpuhopper; options: gpuvolta, gpuhopper)
 
 PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
-GPU_RESOURCES=${GPU_RESOURCES:-gpuhopper}
+GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 
 # Source model config for MODEL_SHORT and walltimes
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
@@ -19,16 +19,16 @@ if [ ! -f "$MODEL_CONF" ]; then
 fi
 source "$MODEL_CONF"
 
-# Auto-set GPU resources based on selection
-case "$GPU_RESOURCES" in
-    gpuvolta)  GPU_MEM=96GB;  GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuvolta ;;
-    gpuvolta2) GPU_MEM=192GB; GPU_NGPUS=2; GPU_NCPUS=24; GPU_QUEUE=gpuvolta ;;
-    gpuhopper) GPU_MEM=256GB; GPU_NGPUS=1; GPU_NCPUS=12; GPU_QUEUE=gpuhopper ;;
-    *)         echo "Unknown GPU_RESOURCES=$GPU_RESOURCES (must be: gpuvolta, gpuvolta2, gpuhopper)"; exit 1 ;;
+# Auto-set GPU resources (single GPU benchmarks)
+case "$GPU_QUEUE" in
+    gpuvolta)  MEM_PER_GPU=96 ;;
+    gpuhopper) MEM_PER_GPU=256 ;;
+    *)         echo "Unknown GPU_QUEUE=$GPU_QUEUE (must be: gpuvolta or gpuhopper)"; exit 1 ;;
 esac
+NGPUS=1; GPU_NCPUS=12; GPU_MEM="${MEM_PER_GPU}GB"
 
 echo "PARENT_MODEL=$PARENT_MODEL (MODEL_SHORT=$MODEL_SHORT)"
-echo "GPU_RESOURCES=$GPU_RESOURCES (queue=$GPU_QUEUE, ngpus=$GPU_NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
+echo "GPU_QUEUE=$GPU_QUEUE (ngpus=$NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 
 # velocity_sources=(bgridvelocities cgridtransports)
 velocity_sources=(cgridtransports)
@@ -48,7 +48,7 @@ for velocity_source in "${velocity_sources[@]}"; do
         echo "  TIMESTEPPER=${timestepper}"
         extra_vars=""
         [ -n "${TRACE_SOLVER_HISTORY:-}" ] && extra_vars="${extra_vars},TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY}"
-        qsub -N "${MODEL_SHORT}_run1yr" -q $GPU_QUEUE -l ngpus=$GPU_NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
+        qsub -N "${MODEL_SHORT}_run1yr" -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
             -l walltime=${WALLTIME_RUN_1YEAR} \
             -v PARENT_MODEL=${PARENT_MODEL},VELOCITY_SOURCE="${velocity_source}",W_FORMULATION="${w_formulation}",TIMESTEPPER="${timestepper}"${extra_vars} \
             scripts/standard_runs/run_1year.sh

@@ -90,16 +90,53 @@ export UCX_WARN_UNUSED_ENV_VARS=n
 # MPItrampoline: point to mpiwrapper built against system OpenMPI
 export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
 
-# Source model-specific config (MODEL_SHORT, GPU_RESOURCES, walltimes)
+# Source model-specific config (MODEL_SHORT, GPU_QUEUE, walltimes)
 MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
 if [ ! -f "$MODEL_CONF" ]; then
     echo "ERROR: Model config not found: $MODEL_CONF" >&2
     exit 1
 fi
 source "$MODEL_CONF"
-export MODEL_SHORT GPU_RESOURCES
+
+# --- Partition + queue configuration ---
+# PARTITION: MPI partition layout (default 1x1 = serial)
+# GPU_QUEUE: GPU PBS queue (set by model config: gpuvolta or gpuhopper)
+# CPU_QUEUE: CPU-only PBS queue (default express)
+PARTITION=${PARTITION:-1x1}
+PARTITION_X="${PARTITION%%x*}"
+PARTITION_Y="${PARTITION#*x}"
+RANKS=$(( PARTITION_X * PARTITION_Y ))
+CPU_QUEUE=${CPU_QUEUE:-express}
+
+# GPU resources (for GPU jobs)
+NGPUS=$RANKS
+GPU_NCPUS=$(( NGPUS * 12 ))
+case "$GPU_QUEUE" in
+    gpuvolta)  MEM_PER_GPU=96 ;;
+    gpuhopper) MEM_PER_GPU=256 ;;
+    *) echo "ERROR: Unknown GPU_QUEUE: $GPU_QUEUE (must be gpuvolta or gpuhopper)" >&2; exit 1 ;;
+esac
+GPU_MEM="$(( NGPUS * MEM_PER_GPU ))GB"
+GPU_MEM_SINGLE="${MEM_PER_GPU}GB"
+
+# CPU resources (for CPU-only MPI jobs)
+CPU_NCPUS=$RANKS
+case "$CPU_QUEUE" in
+    express|normal) MEM_PER_CPU=4 ;;
+    hugemem)        MEM_PER_CPU=32 ;;
+    megamem)        MEM_PER_CPU=64 ;;
+    *) echo "ERROR: Unknown CPU_QUEUE: $CPU_QUEUE (must be express, normal, hugemem, or megamem)" >&2; exit 1 ;;
+esac
+CPU_MEM="$(( CPU_NCPUS * MEM_PER_CPU ))GB"
+
+export MODEL_SHORT GPU_QUEUE CPU_QUEUE
+export PARTITION PARTITION_X PARTITION_Y RANKS
+export NGPUS GPU_NCPUS GPU_MEM GPU_MEM_SINGLE MEM_PER_GPU
+export CPU_NCPUS CPU_MEM MEM_PER_CPU
+
 echo "MODEL_SHORT=$MODEL_SHORT"
-echo "GPU_RESOURCES=$GPU_RESOURCES"
+echo "GPU_QUEUE=$GPU_QUEUE"
+echo "PARTITION=$PARTITION (${PARTITION_X}x${PARTITION_Y}, RANKS=$RANKS)"
 
 # Git commit tracking (passed from driver via qsub -v)
 if [ -n "${GIT_COMMIT:-}" ]; then
