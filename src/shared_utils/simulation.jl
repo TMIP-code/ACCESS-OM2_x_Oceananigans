@@ -107,6 +107,34 @@ function setup_age_simulation(
         add_callback!(simulation, save_zstar_fields, TimeInterval(output_interval))
     end
 
+    # Manual callback: save actual model field data with halos directly from parent(field.data).
+    # JLD2Writer wraps fields in anonymous ComputedFields whose fill_halo_regions! uses default
+    # sign=+1 BCs (since the wrapper isn't named :u/:v, it can't dispatch to sign=-1).
+    # This callback captures the TRUE model field halos for diagnostic comparison.
+    grid_arch = Oceananigans.Architectures.architecture(model.grid)
+    manual_rank = grid_arch isa Distributed ? grid_arch.local_rank : -1
+    manual_suffix = manual_rank >= 0 ? "_rank$(manual_rank)" : ""
+    manual_fields = Dict(
+        "u" => model.velocities.u,
+        "v" => model.velocities.v,
+        "w" => model.velocities.w,
+        "eta" => model.free_surface.displacement,
+    )
+    function save_manual_fields(sim)
+        t = time(sim)
+        iter = iteration(sim)
+        for (name, field) in manual_fields
+            data = Array(parent(field.data))
+            filepath = joinpath(age_output_dir, "$(name)_manual_$(duration_tag)$(manual_suffix).jld2")
+            jldopen(filepath, "a") do f
+                f["timeseries/$(name)/$(iter)"] = data
+                f["timeseries/t/$(iter)"] = t
+            end
+        end
+        return
+    end
+    add_callback!(simulation, save_manual_fields, TimeInterval(output_interval))
+
     @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
 

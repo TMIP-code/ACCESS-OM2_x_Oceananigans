@@ -593,5 +593,165 @@ for field_name in halo_fields
     flush(stdout); flush(stderr)
 end
 
+################################################################################
+# Manual callback field plots (true model halos, bypassing JLD2Writer)
+################################################################################
+
+# The JLD2Writer wraps fields in anonymous ComputedFields whose fill_halo_regions!
+# uses default sign=+1 BCs (the wrapper isn't named :u/:v so it can't dispatch to
+# sign=-1 in regularize_field_boundary_conditions). The manual callback saves
+# Array(parent(field.data)) directly, capturing the TRUE model field halos.
+
+manual_fields = ["u", "v", "w", "eta"]
+
+@info "Plotting manual callback fields (true model halos)"
+flush(stdout); flush(stderr)
+
+for field_name in manual_fields
+    serial_manual = joinpath(serial_dir, "$(field_name)_manual_$(DURATION_TAG).jld2")
+    if !isfile(serial_manual)
+        @info "  $field_name: no manual callback file — skipping"
+        continue
+    end
+
+    # Load serial manual data (first non-zero iteration)
+    serial_data, t_s = jldopen(serial_manual, "r") do f
+        iters = collect(keys(f["timeseries/$(field_name)"]))
+        iter = first(sort(iters; by = k -> parse(Int, k)))
+        f["timeseries/$(field_name)/$iter"], f["timeseries/t/$iter"]
+    end
+    t_yr = t_s / year
+
+    nz_m = size(serial_data, 3)
+    k_m = field_name == "eta" ? nz_m ÷ 2 + 1 : nz_m - 7
+    nx_m, ny_m = size(serial_data, 1), size(serial_data, 2)
+
+    @info "  $field_name manual serial: size=$(size(serial_data)), plotting k=$k_m"
+
+    # Serial manual plot
+    serial_slice = serial_data[:, :, k_m]
+    fig = Figure(; size = (1000, 600))
+    ax = Axis(
+        fig[1, 1];
+        title = "$field_name MANUAL serial (t=$(@sprintf("%.5f", t_yr)) yr, k=$k_m)",
+        xlabel = "i (with halos)", ylabel = "j (with halos)",
+        backgroundcolor = :lightgray,
+    )
+    if field_name in ("u", "v", "w")
+        vmax = maximum(abs, filter(!isnan, serial_slice))
+        vmax = vmax > 0 ? vmax : 1.0e-10
+        hm = heatmap!(
+            ax, 1:nx_m, 1:ny_m, serial_slice;
+            colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+        )
+    else
+        hm = heatmap!(ax, 1:nx_m, 1:ny_m, serial_slice; nan_color = :lightgray)
+    end
+    Colorbar(fig[1, 2], hm; label = field_name)
+    save(joinpath(plot_output_dir, "$(field_name)_serial_manualcallback_$(DURATION_TAG)_k$(k_m).png"), fig)
+
+    # Collect per-rank interior sizes for diff slicing
+    rank_int_nxs = zeros(Int, px)
+    rank_int_nys = zeros(Int, py)
+    for rx2 in 0:(px - 1)
+        r2 = rx2 * py
+        f2 = joinpath(distributed_dir, "$(field_name)_manual_$(DURATION_TAG)_rank$(r2).jld2")
+        if isfile(f2)
+            jldopen(f2, "r") do f
+                iters = collect(keys(f["timeseries/$(field_name)"]))
+                iter = first(sort(iters; by = k -> parse(Int, k)))
+                rank_int_nxs[rx2 + 1] = size(f["timeseries/$(field_name)/$iter"], 1) - 2Hx
+            end
+        end
+    end
+    for ry2 in 0:(py - 1)
+        f2 = joinpath(distributed_dir, "$(field_name)_manual_$(DURATION_TAG)_rank$(ry2).jld2")
+        if isfile(f2)
+            jldopen(f2, "r") do f
+                iters = collect(keys(f["timeseries/$(field_name)"]))
+                iter = first(sort(iters; by = k -> parse(Int, k)))
+                rank_int_nys[ry2 + 1] = size(f["timeseries/$(field_name)/$iter"], 2) - 2Hy
+            end
+        end
+    end
+
+    # Plot each distributed rank + diff
+    for ry in 0:(py - 1), rx in 0:(px - 1)
+        r = rx * py + ry
+        dist_manual = joinpath(distributed_dir, "$(field_name)_manual_$(DURATION_TAG)_rank$(r).jld2")
+        if !isfile(dist_manual)
+            @warn "  $field_name manual rank $r: file not found"
+            continue
+        end
+
+        rank_data, _ = jldopen(dist_manual, "r") do f
+            iters = collect(keys(f["timeseries/$(field_name)"]))
+            iter = first(sort(iters; by = k -> parse(Int, k)))
+            f["timeseries/$(field_name)/$iter"], f["timeseries/t/$iter"]
+        end
+
+        nxr, nyr = size(rank_data, 1), size(rank_data, 2)
+        k_r = min(k_m, size(rank_data, 3))
+
+        # Rank value plot
+        rank_slice = rank_data[:, :, k_r]
+        fig = Figure(; size = (1000, 600))
+        ax = Axis(
+            fig[1, 1];
+            title = "$field_name MANUAL rank $r ($(rx),$(ry)) (k=$k_r)",
+            xlabel = "i (with halos)", ylabel = "j (with halos)",
+            backgroundcolor = :lightgray,
+        )
+        if field_name in ("u", "v", "w")
+            vmax = maximum(abs, filter(!isnan, rank_slice))
+            vmax = vmax > 0 ? vmax : 1.0e-10
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, rank_slice;
+                colorrange = (-vmax, vmax), colormap = :balance, nan_color = :lightgray
+            )
+        else
+            hm = heatmap!(ax, 1:nxr, 1:nyr, rank_slice; nan_color = :lightgray)
+        end
+        Colorbar(fig[1, 2], hm; label = field_name)
+        save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_manualcallback_$(DURATION_TAG)_k$(k_r).png"), fig)
+
+        # Diff against serial
+        i_start = sum(rank_int_nxs[1:rx]) + 1
+        j_start = sum(rank_int_nys[1:ry]) + 1
+        i_end = i_start + nxr - 1
+        j_end = j_start + nyr - 1
+
+        if i_end <= nx_m && j_end <= ny_m
+            serial_match = serial_data[i_start:i_end, j_start:j_end, k_r]
+            diff_slice = rank_slice .- serial_match
+            max_abs = maximum(abs, diff_slice)
+            mean_abs = mean(abs, diff_slice)
+            @info "  $field_name manual rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
+
+            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            fig = Figure(; size = (1000, 600))
+            ax = Axis(
+                fig[1, 1];
+                title = "$field_name MANUAL rank $r DIFF (k=$k_r, max=$(@sprintf("%.2e", max_abs)))",
+                xlabel = "i (with halos)", ylabel = "j (with halos)",
+                backgroundcolor = :lightgray,
+            )
+            hm = heatmap!(
+                ax, 1:nxr, 1:nyr, diff_slice;
+                colorrange = (-diff_scale, diff_scale),
+                colormap = :balance, nan_color = :lightgray,
+                lowclip = :blue, highclip = :red,
+            )
+            Colorbar(fig[1, 2], hm; label = "$field_name diff")
+            save(joinpath(plot_output_dir, "$(field_name)_rank$(r)_diff_manualcallback_$(DURATION_TAG)_k$(k_r).png"), fig)
+        else
+            @warn "  $field_name manual rank $r: serial slice out of bounds"
+        end
+    end
+
+    @info "  $field_name: manual callback plots saved"
+    flush(stdout); flush(stderr)
+end
+
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 flush(stdout); flush(stderr)
