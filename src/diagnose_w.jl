@@ -128,11 +128,12 @@ flush(stdout); flush(stderr)
 
 simulation = Simulation(model; Δt, stop_time)
 
-# Use SpecifiedTimes to save w exactly at the FTS snapshot times.
-# Oceananigans adjusts the last Δt before each output time to land on it exactly.
+# Save w at half-monthly intervals (24 snapshots per year).
+# More snapshots than the 12 monthly FTS gives better interpolation.
+half_month = prescribed_Δt / 2
 simulation.output_writers[:w] = JLD2Writer(
     model, Dict("w" => model.velocities.w);
-    schedule = SpecifiedTimes(fts_times...),
+    schedule = TimeInterval(half_month),
     filename = w_output_file,
     overwrite_existing = true,
     with_halos = true,
@@ -161,10 +162,10 @@ run!(simulation)
 @info "Output saved to $(w_output_file).jld2"
 flush(stdout); flush(stderr)
 
-# Verify: check that 12 snapshots were saved
+# Verify saved snapshots
 jldopen("$(w_output_file).jld2", "r") do f
     iters = filter(k -> k != "serialized", keys(f["timeseries/w"]))
-    @info "Saved $(length(iters)) w snapshots (expected 12)"
+    @info "Saved $(length(iters)) w snapshots"
     for iter in sort(iters; by = k -> parse(Int, k))
         t = f["timeseries/t/$iter"]
         @info @sprintf("  iter %s: t = %.3f days = %.6f yr", iter, t / days, t / year)
