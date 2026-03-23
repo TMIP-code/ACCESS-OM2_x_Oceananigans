@@ -156,8 +156,14 @@ fts_times = u_ts.times
 flush(stdout); flush(stderr)
 
 if W_FORMULATION == "wprescribed"
-    @info "Using prescribed w field from: $(w_file)"
-    isfile(w_file) || println("W_FORMULATION=wprescribed requires file: $(w_file)")
+    # Select w source: "diagnosed" (from Oceananigans continuity) or "parent" (from MOM output)
+    PRESCRIBED_W_SOURCE = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
+    if PRESCRIBED_W_SOURCE == "diagnosed"
+        w_file = joinpath(monthly_dir, "w_diagnosed_monthly.jld2")
+    end
+    # else: w_file already set from VELOCITY_SOURCE (mass_transport or interpolated)
+    @info "Using prescribed w (source=$PRESCRIBED_W_SOURCE) from: $(w_file)"
+    isfile(w_file) || error("W_FORMULATION=wprescribed requires file: $(w_file)")
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     w_ts = load_fts(arch, w_file, "w", grid; backend, time_indexing, fts_kw...)
     @show w_ts

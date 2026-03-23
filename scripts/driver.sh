@@ -92,12 +92,12 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
-    echo "    prep grid vel run1yr run1yrfast run10yr run100yr runlong"
+    echo "    prep grid vel diagnose_w run1yr run1yrfast run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plot1yr plot10yr plot100yr"
     echo ""
     echo "  Shortcuts:"
-    echo "    preprocessing  = prep-grid-vel"
+    echo "    preprocessing  = prep-grid-vel-diagnose_w-partition"
     echo "    standardruns   = run1yr-run10yr-run100yr-runlong"
     echo "    TMall          = TMbuild-TMsnapshot-TMsolve"
     echo "    plotall         = plot1yr-plot10yr-plot100yr-plotNK"
@@ -183,7 +183,7 @@ JOB_CHAIN="$expanded"
 
 # Expand shortcuts (order matters: expand 'full' before its sub-shortcuts)
 JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr}"
-JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-partition}"
+JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-diagnose_w-partition}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
 JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
@@ -281,7 +281,29 @@ fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
 
-# 1d. partition (depends on: vel + grid, only if multi-rank)
+# 1d. diagnose_w (depends on: vel, runs model to save w from continuity equation)
+DIAGW_JOB=""
+if has_step diagnose_w; then
+    STEP=$((STEP + 1))
+    deps=""
+    [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
+    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
+    gpu_flags=()
+    PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
+    if [ "$PREPROCESS_ARCH" = "GPU" ]; then
+        gpu_flags=(-q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=${MEM_PER_GPU}GB)
+    fi
+    DIAGW_JOB=$(qsub "${dep_flag[@]}" "${gpu_flags[@]}" \
+        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_VEL} \
+        -v ${COMMON_VARS} \
+        scripts/preprocessing/diagnose_w.sh)
+    echo "[$STEP] Diagnose w: $DIAGW_JOB${deps:+ (afterok $deps)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
+fi
+
+# Update VEL_DEP to include diagnose_w if it ran
+[ -n "$DIAGW_JOB" ] && VEL_DEP="$DIAGW_JOB"
+
+# 1e. partition (depends on: vel/diagnose_w + grid, only if multi-rank)
 PARTITION_JOB=""
 if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     STEP=$((STEP + 1))
@@ -597,6 +619,7 @@ for label_job in \
     "prep:$PREP_JOB" \
     "grid:$GRID_JOB" \
     "vel:$VEL_JOB" \
+    "diagnose_w:$DIAGW_JOB" \
     "run1yr:$RUN1YR_JOB" \
     "run1yrfast:$RUN1YRFAST_JOB" \
     "run10yr:$RUN10YR_JOB" \
