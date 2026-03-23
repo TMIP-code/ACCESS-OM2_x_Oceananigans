@@ -289,7 +289,7 @@ if has_step diagnose_w; then
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
     dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
     DIAGW_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_1YR} \
+        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_RUN_1YEAR} \
         -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=${MEM_PER_GPU}GB \
         -v ${COMMON_VARS} \
         scripts/preprocessing/diagnose_w.sh)
