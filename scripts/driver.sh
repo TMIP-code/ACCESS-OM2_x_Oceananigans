@@ -281,23 +281,19 @@ fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
 
-# 1d. diagnose_w (depends on: vel, runs model to save w from continuity equation)
+# 1d. diagnose_w (depends on: vel, runs 1-year simulation on GPU to save w)
 DIAGW_JOB=""
 if has_step diagnose_w; then
     STEP=$((STEP + 1))
     deps=""
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
     dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
-    gpu_flags=()
-    PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
-    if [ "$PREPROCESS_ARCH" = "GPU" ]; then
-        gpu_flags=(-q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=${MEM_PER_GPU}GB)
-    fi
-    DIAGW_JOB=$(qsub "${dep_flag[@]}" "${gpu_flags[@]}" \
-        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_VEL} \
+    DIAGW_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_1YR} \
+        -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=${MEM_PER_GPU}GB \
         -v ${COMMON_VARS} \
         scripts/preprocessing/diagnose_w.sh)
-    echo "[$STEP] Diagnose w: $DIAGW_JOB${deps:+ (afterok $deps)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
+    echo "[$STEP] Diagnose w: $DIAGW_JOB${deps:+ (afterok $deps)} [1×GPU]"
 fi
 
 # Update VEL_DEP to include diagnose_w if it ran
