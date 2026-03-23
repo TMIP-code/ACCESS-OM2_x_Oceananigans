@@ -305,6 +305,7 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     STEP=$((STEP + 1))
     deps=""
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
+    [ -n "$DIAGW_JOB" ] && deps="${deps:+$deps:}$DIAGW_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
     dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
     PARTITION_JOB=$(qsub "${dep_flag[@]}" \
