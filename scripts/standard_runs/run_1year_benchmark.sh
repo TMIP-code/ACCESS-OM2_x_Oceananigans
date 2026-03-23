@@ -31,17 +31,17 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 # (not each rank individually), producing a single profile covering all ranks.
 # Also sets JULIA_NVTX_CALLBACKS=gc to trace Julia GC events.
 PROFILE="${PROFILE:-no}"
-NSYS_PREFIX=""
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
     profile_output="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
-    NSYS_PREFIX="nsys profile --trace=nvtx,cuda,mpi --cuda-memory-usage=true --output=$profile_output"
-    echo "PROFILE=yes: nsys output → ${profile_output}.nsys-rep"
+    # For MPI: nsys wraps each rank inside mpiexec (per-rank profiles).
+    # Skip --trace=mpi (causes SIGTERM on Gadi with mpiexec).
+    JULIA_CMD="nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --output=${profile_output}_rank%q{OMPI_COMM_WORLD_RANK} $JULIA_CMD"
+    echo "PROFILE=yes: nsys output → ${profile_output}_rank*.nsys-rep"
 fi
 
 JULIA_LAUNCHER="$JULIA_CMD"
 [ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD"
-JULIA_LAUNCHER="$NSYS_PREFIX $JULIA_LAUNCHER"
 
 echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
