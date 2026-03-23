@@ -31,21 +31,23 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 # (not each rank individually), producing a single profile covering all ranks.
 # Also sets JULIA_NVTX_CALLBACKS=gc to trace Julia GC events.
 PROFILE="${PROFILE:-no}"
+NSYS_PREFIX=""
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
     # Profile to local SSD ($PBS_JOBFS) then copy back — avoids network FS distortion.
-    # Use --delay to skip Julia JIT/init, --duration to avoid signal-based termination.
-    # Skip --trace=mpi (unreliable with OpenMPI mpiexec; designed for SLURM srun).
-    # %q{OMPI_COMM_WORLD_RANK} is nsys's own expansion for per-rank output files.
+    # Following carstenbauer/JuliaHLRS22 pattern: nsys wraps the entire MPI launcher.
+    # Use --mpi-impl=openmpi for MPI call tracing, --wait=primary to handle re-parented
+    # processes, --stats=true for inline summary.
     PROFILE_DIR="${PBS_JOBFS:-/tmp}/nsys_profiles"
     mkdir -p "$PROFILE_DIR"
     profile_final="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
-    JULIA_CMD="nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --delay=30 --duration=300 --kill=sigterm --output=${PROFILE_DIR}/profile_rank%q{OMPI_COMM_WORLD_RANK} $JULIA_CMD"
-    echo "PROFILE=yes: nsys profiling to ${PROFILE_DIR}, will copy to ${profile_final}_rank*.nsys-rep"
+    NSYS_PREFIX="nsys profile --trace=nvtx,cuda,mpi --mpi-impl=openmpi --cuda-memory-usage=true --wait=primary --stats=true --force-overwrite=true --output=${PROFILE_DIR}/profile"
+    echo "PROFILE=yes: nsys profiling to ${PROFILE_DIR}, will copy to ${profile_final}.nsys-rep"
 fi
 
 JULIA_LAUNCHER="$JULIA_CMD"
 [ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD"
+[ -n "$NSYS_PREFIX" ] && JULIA_LAUNCHER="$NSYS_PREFIX $JULIA_LAUNCHER"
 
 echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
