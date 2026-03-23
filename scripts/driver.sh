@@ -325,9 +325,9 @@ if has_step run1yrfast; then
     RUN1YRFAST_JOB=$(qsub "${dep_flag[@]}" \
         -N "${MODEL_SHORT}_run1yrfast" -l walltime=${WALLTIME_RUN_1YEAR} \
         -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
+        -v ${COMMON_VARS},PARTITION=${PARTITION},PROFILE=${PROFILE:-no} \
         scripts/standard_runs/run_1year_benchmark.sh)
-    echo "[$STEP] 1-year benchmark: $RUN1YRFAST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
+    echo "[$STEP] 1-year benchmark: $RUN1YRFAST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}${PROFILE:+ [PROFILE=$PROFILE]}"
 fi
 
 # 2c. run10yr (parallel with run1yr)

@@ -26,6 +26,15 @@ NGPUS="${PBS_NGPUS:-1}"
 JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
 [ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
 
+# Nsight Systems profiling: set PROFILE=yes to wrap the run with nsys profile.
+# Produces a .nsys-rep file in the log directory for analysis with Nsight Systems GUI.
+PROFILE="${PROFILE:-no}"
+if [ "$PROFILE" = "yes" ]; then
+    profile_output="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
+    JULIA_LAUNCHER="nsys profile --trace=cuda,mpi,nvtx --cuda-memory-usage=true --output=$profile_output $JULIA_LAUNCHER"
+    echo "PROFILE=yes: nsys output → ${profile_output}.nsys-rep"
+fi
+
 echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
 $JULIA_LAUNCHER src/run_1year_benchmark.jl &> "$log_file"
