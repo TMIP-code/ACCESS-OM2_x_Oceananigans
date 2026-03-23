@@ -26,23 +26,22 @@ NGPUS="${PBS_NGPUS:-1}"
 JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 
 # Nsight Systems profiling: set PROFILE=yes to wrap the run with nsys profile.
-# Produces .nsys-rep file(s) in the log directory for analysis with Nsight Systems GUI.
-# For MPI runs, nsys wraps each rank individually (using %q{OMPI_COMM_WORLD_RANK} for
-# per-rank output files), so each rank gets its own profile.
+# Produces a .nsys-rep file in the log directory for analysis with Nsight Systems GUI.
+# Following Oceananigans' distributed_scaling pattern: nsys wraps the entire MPI launcher
+# (not each rank individually), producing a single profile covering all ranks.
+# Also sets JULIA_NVTX_CALLBACKS=gc to trace Julia GC events.
 PROFILE="${PROFILE:-no}"
+NSYS_PREFIX=""
 if [ "$PROFILE" = "yes" ]; then
+    export JULIA_NVTX_CALLBACKS=gc
     profile_output="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
-    if [ "$NGPUS" -gt 1 ]; then
-        # MPI: nsys inside mpiexec, per-rank output files
-        JULIA_CMD="nsys profile --trace=cuda,mpi,nvtx --cuda-memory-usage=true --output=${profile_output}_rank%q{OMPI_COMM_WORLD_RANK} $JULIA_CMD"
-    else
-        JULIA_CMD="nsys profile --trace=cuda,mpi,nvtx --cuda-memory-usage=true --output=$profile_output $JULIA_CMD"
-    fi
-    echo "PROFILE=yes: nsys output → ${profile_output}*.nsys-rep"
+    NSYS_PREFIX="nsys profile --trace=nvtx,cuda,mpi --cuda-memory-usage=true --output=$profile_output"
+    echo "PROFILE=yes: nsys output → ${profile_output}.nsys-rep"
 fi
 
 JULIA_LAUNCHER="$JULIA_CMD"
 [ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD"
+JULIA_LAUNCHER="$NSYS_PREFIX $JULIA_LAUNCHER"
 
 echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"
