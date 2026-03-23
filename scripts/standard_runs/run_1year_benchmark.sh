@@ -33,11 +33,15 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 PROFILE="${PROFILE:-no}"
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
-    profile_output="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
-    # For MPI: nsys wraps each rank inside mpiexec (per-rank profiles).
-    # Skip --trace=mpi (causes SIGTERM on Gadi with mpiexec).
-    JULIA_CMD="nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --output=${profile_output}_rank%q{OMPI_COMM_WORLD_RANK} $JULIA_CMD"
-    echo "PROFILE=yes: nsys output → ${profile_output}_rank*.nsys-rep"
+    # Profile to local SSD ($PBS_JOBFS) then copy back — avoids network FS distortion.
+    # Use --delay to skip Julia JIT/init, --duration to avoid signal-based termination.
+    # Skip --trace=mpi (unreliable with OpenMPI mpiexec; designed for SLURM srun).
+    # %q{OMPI_COMM_WORLD_RANK} is nsys's own expansion for per-rank output files.
+    PROFILE_DIR="${PBS_JOBFS:-/tmp}/nsys_profiles"
+    mkdir -p "$PROFILE_DIR"
+    profile_final="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
+    JULIA_CMD="nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --delay=30 --duration=300 --kill=sigterm --output=${PROFILE_DIR}/profile_rank%q{OMPI_COMM_WORLD_RANK} $JULIA_CMD"
+    echo "PROFILE=yes: nsys profiling to ${PROFILE_DIR}, will copy to ${profile_final}_rank*.nsys-rep"
 fi
 
 JULIA_LAUNCHER="$JULIA_CMD"
@@ -47,3 +51,12 @@ echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$
 echo "logging output in $log_file"
 $JULIA_LAUNCHER src/run_1year_benchmark.jl &> "$log_file"
 echo "Done running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL"
+
+# Copy nsys profiles from local SSD to persistent storage
+if [ "$PROFILE" = "yes" ]; then
+    echo "Copying nsys profiles from $PROFILE_DIR to $run_log_dir"
+    cp "${PROFILE_DIR}"/*.nsys-rep "$run_log_dir/" 2>/dev/null && \
+        echo "Profiles copied: $(ls ${run_log_dir}/*nsys-rep 2>/dev/null | wc -l) files" || \
+        echo "WARNING: No .nsys-rep files found in $PROFILE_DIR"
+    ls -lh "${PROFILE_DIR}"/ 2>/dev/null
+fi
