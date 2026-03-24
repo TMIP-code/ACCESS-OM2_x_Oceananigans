@@ -31,21 +31,14 @@ stop_time = 100 * 12 * prescribed_Δt
 @info "Overriding stop_time for 100-year simulation: $(stop_time / year) years"
 flush(stdout); flush(stderr)
 
-################################################################################
-# Initial condition
-################################################################################
-
-@info "Setting initial condition: age = 0"
-flush(stdout); flush(stderr)
-
-set!(model, age = Returns(0.0))
+include("setup_simulation.jl")
 
 ################################################################################
-# Simulation
+# Output writers
 ################################################################################
 
-simulation, age_output_dir = setup_age_simulation(
-    model, Δt, stop_time, outputdir, model_config, "100years";
+age_output_dir = setup_age_simulation(
+    simulation, outputdir, model_config, "100years";
     output_interval = 10 * 12 * prescribed_Δt,
     progress_interval = 10 * 12 * prescribed_Δt,
 )

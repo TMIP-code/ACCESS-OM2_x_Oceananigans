@@ -31,12 +31,7 @@ flush(stdout); flush(stderr)
 # Simulation (no output writers)
 ################################################################################
 
-@info "Creating simulation (no output writers)"
-flush(stdout); flush(stderr)
-
-set!(model, age = Returns(0.0))
-
-simulation = Simulation(model; Δt, stop_time)
+include("setup_simulation.jl")
 
 add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 

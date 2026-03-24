@@ -35,7 +35,7 @@ using LinearAlgebra: norm
 NYEARS = parse(Int, get(ENV, "NYEARS", "3000"))
 CHECKPOINT_INTERVAL_YEARS = 100
 
-# Override stop_time for long simulation
+# Override stop_time for long simulation (before setup_simulation.jl uses it)
 stop_time = NYEARS * 12 * prescribed_Δt
 checkpoint_interval = CHECKPOINT_INTERVAL_YEARS * 12 * prescribed_Δt
 
@@ -45,14 +45,7 @@ checkpoint_interval = CHECKPOINT_INTERVAL_YEARS * 12 * prescribed_Δt
 @info "- stop_time = $(stop_time / year) years"
 flush(stdout); flush(stderr)
 
-################################################################################
-# Initial condition
-################################################################################
-
-@info "Setting initial condition: age = 0"
-flush(stdout); flush(stderr)
-
-set!(model, age = Returns(0.0))
+include("setup_simulation.jl")
 
 ################################################################################
 # Wet cell mask (for checkpoint saving)
@@ -71,15 +64,6 @@ flush(stdout); flush(stderr)
 ################################################################################
 # Simulation
 ################################################################################
-
-@info "Creating simulation"
-flush(stdout); flush(stderr)
-
-simulation = Simulation(
-    model;
-    Δt,
-    stop_time,
-)
 
 # Progress every year
 add_callback!(simulation, progress_message, TimeInterval(12 * prescribed_Δt))

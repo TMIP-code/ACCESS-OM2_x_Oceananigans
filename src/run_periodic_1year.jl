@@ -25,6 +25,7 @@ Environment variables (in addition to setup_model.jl):
 """
 
 include("setup_model.jl")
+include("setup_simulation.jl")
 
 ################################################################################
 # Configuration — locate the converged NK solution
@@ -57,23 +58,14 @@ flush(stdout); flush(stderr)
 nk_data = load(nk_file)
 age_steady_3D = nk_data["age"]  # (Nx', Ny', Nz') in seconds
 
-@info "Setting initial condition from converged periodic state"
+@info "Overriding age initial condition from converged periodic state"
 flush(stdout); flush(stderr)
 
 set!(model.tracers.age, age_steady_3D)
 
 ################################################################################
-# Simulation with monthly output
+# Output writers
 ################################################################################
-
-@info "Creating simulation"
-flush(stdout); flush(stderr)
-
-simulation = Simulation(
-    model;
-    Δt,
-    stop_time,
-)
 
 add_callback!(simulation, progress_message, TimeInterval(prescribed_Δt))
 

@@ -11,18 +11,18 @@ Environment variables (same as run_1year.jl):
 """
 
 include("setup_model.jl")
+include("setup_simulation.jl")
 
 using Oceananigans.Simulations: reset!
 
 NWARMUP_STEPS = parse(Int, get(ENV, "NWARMUP_STEPS", "3"))
-
-set!(model, age = Returns(0.0))
 
 # Lightweight progress callback: iteration, time, wall time only (no age stats)
 benchmark_progress(sim) = @info @sprintf(
     "  iter: %d, time: %.3f yr, wall: %.1f seconds",
     iteration(sim), time(sim) / year, sim.run_wall_time
 )
+add_callback!(simulation, benchmark_progress, TimeInterval(month))
 
 ################################################################################
 # Warmup run (JIT compilation)
@@ -32,8 +32,7 @@ warmup_time = NWARMUP_STEPS * Δt
 @info "Warmup: $NWARMUP_STEPS timestep(s) to trigger JIT (warmup_time=$(warmup_time)s)"
 flush(stdout); flush(stderr)
 
-simulation = Simulation(model; Δt, stop_time = warmup_time)
-add_callback!(simulation, benchmark_progress, TimeInterval(month))
+simulation.stop_time = warmup_time
 run!(simulation)
 
 @info "Warmup complete — resetting for benchmark"

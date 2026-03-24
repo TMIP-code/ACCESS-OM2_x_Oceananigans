@@ -45,17 +45,17 @@ end
 ################################################################################
 
 """
-    setup_age_simulation(model, Δt, stop_time, outputdir, model_config, duration_tag;
+    setup_age_simulation(simulation, outputdir, model_config, duration_tag;
                           output_interval, progress_interval)
 
-Create a Simulation with progress callback and JLD2 output writer for a standard
-age simulation. Returns `(simulation, age_output_dir)`.
+Add progress callback and JLD2 output writers to an existing Simulation for a
+standard age simulation. Returns `age_output_dir`.
 """
 function setup_age_simulation(
-        model, Δt, stop_time, outputdir, model_config, duration_tag;
+        simulation, outputdir, model_config, duration_tag;
         output_interval, progress_interval
     )
-    simulation = Simulation(model; Δt, stop_time)
+    model = simulation.model
     add_callback!(simulation, progress_message, TimeInterval(progress_interval))
 
     px = parse(Int, get(ENV, "PARTITION_X", "1"))
@@ -202,10 +202,10 @@ function setup_age_simulation(
         add_callback!(simulation, save_manual_fields, TimeInterval(output_interval))
     end # is_cpu
 
-    @info "Simulation configured: stop_time=$(stop_time / year) yr, output_dir=$age_output_dir"
+    @info "Simulation configured: output_dir=$age_output_dir"
     flush(stdout); flush(stderr)
 
-    return simulation, age_output_dir
+    return age_output_dir
 end
 
 
