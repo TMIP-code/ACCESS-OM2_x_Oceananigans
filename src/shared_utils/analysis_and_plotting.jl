@@ -8,7 +8,7 @@
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Grids: on_architecture, znodes
-using Statistics: mean, median
+using Statistics: mean, median, quantile
 using Printf: @sprintf
 
 #taken from Makie ext (not sure how to load these)
@@ -419,6 +419,113 @@ function animate_depth_slices(
             @. age_buf = ifelse(wet3D, age_raw / year, NaN)
             slice_obs[] = @view(age_buf[:, :, k])
             title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = %.1f months)", depth, k, actual_depth, frame_times[i] / (year / 12))
+        end
+
+        @info "Saved $filepath"
+    end
+
+    return nothing
+end
+
+"""
+    animate_surface_fields(field_specs, output_dir, prefix;
+                           n_frames=144, framerate=24, show_halos=true)
+
+Animate surface maps (top z-level for 3D fields, or full 2D fields) from
+FieldTimeSeries inputs. Includes halo regions when `show_halos=true`.
+
+`field_specs` is a vector of `(name, fts, k_index)` tuples where:
+- `name::String` — label for the field (e.g. "u", "T", "MLD")
+- `fts::FieldTimeSeries` — the monthly FTS (Cyclical, InMemory)
+- `k_index` — z-index for the surface slice: `nothing` for 2D fields (η, MLD),
+  or an integer for 3D fields (typically `Nz` for the top level)
+"""
+function animate_surface_fields(
+        field_specs, output_dir, prefix;
+        n_frames = 144,
+        framerate = 24,
+        show_halos = true,
+    )
+    mkpath(output_dir)
+
+    year = 365.25 * 86400  # seconds
+
+    for (name, fts, k_index) in field_specs
+        @info "Animating surface field — $name"
+        flush(stdout); flush(stderr)
+
+        stop_time = fts.times[end]
+        frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
+
+        # Extract first frame to set up figure
+        field_snap = fts[Time(frame_times[1])]
+        if show_halos
+            raw = Array(parent(field_snap))
+            if k_index !== nothing
+                slice = raw[:, :, k_index]
+            else
+                slice = dropdims(raw; dims = 3)
+            end
+        else
+            raw = Array(interior(field_snap))
+            if k_index !== nothing
+                slice = raw[:, :, k_index]
+            else
+                slice = dropdims(raw; dims = 3)
+            end
+        end
+
+        # Replace exact zeros in immersed cells with NaN for cleaner plots
+        slice_f64 = Float64.(slice)
+        replace!(slice_f64, 0.0 => NaN)
+
+        slice_obs = Observable(copy(slice_f64))
+        title_obs = Observable(@sprintf("%s surface (t = 0.0 months)", name))
+
+        # Auto-detect color range from the first frame (excluding NaN)
+        valid = filter(!isnan, vec(slice_f64))
+        if isempty(valid)
+            cmin, cmax = -1.0, 1.0
+        else
+            cmin = Float64(quantile(valid, 0.02))
+            cmax = Float64(quantile(valid, 0.98))
+        end
+        if cmin ≈ cmax
+            cmin -= 1.0
+            cmax += 1.0
+        end
+
+        fig = Figure(; size = (1000, 500))
+        ax = Axis(
+            fig[1, 1]; title = title_obs,
+            xlabel = show_halos ? "i (with halos)" : "i",
+            ylabel = show_halos ? "j (with halos)" : "j"
+        )
+        hm = heatmap!(ax, slice_obs; colorrange = (cmin, cmax), colormap = :balance, nan_color = :black)
+        Colorbar(fig[1, 2], hm; label = name)
+
+        filepath = joinpath(output_dir, "$(prefix)_surface_$(name).mp4")
+        record(fig, filepath, 1:n_frames; framerate) do i
+            field_snap = fts[Time(frame_times[i])]
+            if show_halos
+                raw = Array(parent(field_snap))
+                if k_index !== nothing
+                    sl = raw[:, :, k_index]
+                else
+                    sl = dropdims(raw; dims = 3)
+                end
+            else
+                raw = Array(interior(field_snap))
+                if k_index !== nothing
+                    sl = raw[:, :, k_index]
+                else
+                    sl = dropdims(raw; dims = 3)
+                end
+            end
+            sl_f64 = Float64.(sl)
+            replace!(sl_f64, 0.0 => NaN)
+            slice_obs[] = sl_f64
+            title_obs[] = @sprintf("%s surface (t = %.1f months)", name, frame_times[i] / (year / 12))
         end
 
         @info "Saved $filepath"
