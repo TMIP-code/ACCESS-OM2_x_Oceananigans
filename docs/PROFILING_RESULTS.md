@@ -162,10 +162,35 @@ GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replace
 
 ---
 
-### OM2-025 2x2 diagnosed-w (4× H200, pre-GC fix) — NOT AVAILABLE
+### OM2-025 2x2 diagnosed-w (4× H200, pre-GC fix) — Job `163718549` (partial, ~4 steps)
 
-Early attempt (`163718549`) produced a corrupt 21MB profile due to `%q{OMPI_COMM_WORLD_RANK}` expansion bug.
+Early attempt produced a 21MB profile with broken filename (`%q{}` not expanded).
+Only captured initialization + ~4 time steps before crash, but proportions are revealing.
 Later attempts (`163780321`, `163780332`) hit 30-min walltime before profile copy-back.
+
+**CUDA API Summary (rank 0, ~4 steps only):**
+
+| API call | Total (s) | Count | % |
+|----------|-----------|-------|---|
+| cuMemcpyDtoHAsync | 7.2 | 2,392 | 77.2% |
+| cuMemcpyHtoDAsync | 1.9 | 73 | 20.1% |
+| cuMemGetInfo_v2 | 0.07 | 19 | 0.7% |
+| cuModuleLoadDataEx | 0.06 | 44 | 0.6% |
+| cuStreamSynchronize | 0.05 | 4,784 | 0.5% |
+| cuMemAlloc_v2 | 0.05 | 114 | 0.5% |
+| cuLaunchKernel | 0.008 | 156 | 0.1% |
+
+**GPU Kernel Summary (rank 0, ~4 steps):**
+
+| Kernel | Total (s) | Instances | % |
+|--------|-----------|-----------|---|
+| _compute_w_from_continuity! | 0.036 | 4 | 22.5% |
+| broadcast_kernel_cartesian | 0.030 | 44 | 18.6% |
+| compute_hydrostatic_free_surface_Gc! | 0.012 | 1 | 7.4% |
+
+**Key insight:** MPI data staging (`cuMemcpyDtoHAsync` + `cuMemcpyHtoDAsync`) = **97.3%** of CPU time!
+GPU kernel time is only ~162ms while MPI staging overhead is 9.1s.
+This confirms **GPU↔CPU data copies for MPI halo exchange dominate at OM2-025 resolution**.
 
 ---
 
