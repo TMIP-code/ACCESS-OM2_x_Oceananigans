@@ -6,7 +6,7 @@
 #PBS -l ngpus=1
 #PBS -l ncpus=12
 #PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
-#PBS -l jobfs=40GB
+#PBS -l jobfs=80GB
 #PBS -o logs/PBS/
 #PBS -e logs/PBS/
 #PBS -l wd
