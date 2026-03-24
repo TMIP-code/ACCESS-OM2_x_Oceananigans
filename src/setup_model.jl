@@ -33,7 +33,7 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Architectures: CPU
 using Oceananigans.Grids: znode
-using Oceananigans.OutputReaders: Cyclical, InMemory
+using Oceananigans.OutputReaders: Cyclical, InMemory, Time
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
 month = months = year / 12
@@ -325,14 +325,14 @@ model = HydrostaticFreeSurfaceModel(
 
 # Prescribe T and S from FTS at each iteration (only called if GM_REDI is enabled)
 function prescribe_TS!(sim)
-    t = time(sim)
+    t = Time(time(sim))
     set!(sim.model.tracers.T, T_ts[t])
     return set!(sim.model.tracers.S, S_ts[t])
 end
 
 # Update κV from monthly FTS (only called if MONTHLY_KAPPAV is enabled)
 function update_κV!(sim)
-    t = time(sim)
+    t = Time(time(sim))
     return set!(κVField, κV_ts[t])
 end
 
