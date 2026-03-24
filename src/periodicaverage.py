@@ -6,6 +6,7 @@ Environment variables:
     PARENT_MODEL   — ACCESS-OM2-1 or ACCESS-OM2-025 (default: ACCESS-OM2-1)
     EXPERIMENT     — intake catalog key (e.g. 1deg_jra55_iaf_omip2_cycle6)
     TIME_WINDOW    — year range "YYYY-YYYY" or single year "YYYY" (default: 1960-1979)
+    CLEANUP_BEFORE — yes | no (default: no) — remove existing output files before processing
 
 Output:
     preprocessed_inputs/{PARENT_MODEL}/{EXPERIMENT}/{TIME_WINDOW}/monthly/*_monthly.nc
@@ -39,6 +40,7 @@ if not EXPERIMENT:
     sys.exit(1)
 
 TIME_WINDOW = os.environ.get("TIME_WINDOW", "1960-1979")
+CLEANUP_BEFORE = os.environ.get("CLEANUP_BEFORE", "no").lower() == "yes"
 
 # Parse TIME_WINDOW into start/end year strings for xarray slicing
 if "-" in TIME_WINDOW:
@@ -143,11 +145,35 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
     Load a variable, compute monthly climatology and yearly average, and save.
 
     For time-invariant variables (frequency='fx'), just save the raw field.
+    Skips variables whose output files already exist (unless CLEANUP_BEFORE=yes).
     """
     try:
         print(f"\n{'='*60}")
         print(f"Processing: {varname}")
         print(f"{'='*60}")
+
+        # Determine expected output files
+        if is_time_invariant:
+            expected_files = [monthly_dir / f"{varname}.nc"]
+        else:
+            expected_files = [
+                monthly_dir / f"{varname}_monthly.nc",
+                yearly_dir / f"{varname}_yearly.nc",
+            ]
+
+        # Optionally remove existing files
+        if CLEANUP_BEFORE:
+            for f in expected_files:
+                if f.exists():
+                    print(f"CLEANUP_BEFORE: removing {f}")
+                    f.unlink()
+
+        # Skip if all output files already exist
+        if all(f.exists() for f in expected_files):
+            print(f"Skipping {varname}: output files already exist")
+            for f in expected_files:
+                print(f"  {f}")
+            return
 
         datadask = select_data(
             searched_cat,
@@ -160,7 +186,7 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         if is_time_invariant:
             # Time-invariant field: save once to monthly/ (no suffix)
             da = datadask[varname]
-            outfile = monthly_dir / f"{varname}.nc"
+            outfile = expected_files[0]
             print(f"Saving {varname} to: {outfile}")
             da.to_netcdf(str(outfile), compute=True)
             print(f"Done: {varname}")
@@ -173,19 +199,24 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         print(f"\n{varname} (sliced): {da}")
 
         # Monthly climatology → monthly/
-        print(f"Computing monthly climatology for {varname}")
-        monthly = month_climatology(da)
-        monthly_file = monthly_dir / f"{varname}_monthly.nc"
-        print(f"Saving monthly climatology to: {monthly_file}")
-        monthly.to_dataset(name=varname).to_netcdf(str(monthly_file), compute=True)
+        monthly_file = expected_files[0]
+        if not monthly_file.exists():
+            print(f"Computing monthly climatology for {varname}")
+            monthly = month_climatology(da)
+            print(f"Saving monthly climatology to: {monthly_file}")
+            monthly.to_dataset(name=varname).to_netcdf(str(monthly_file), compute=True)
+        else:
+            print(f"Skipping monthly climatology for {varname}: {monthly_file} exists")
 
         # Yearly (time-window) average → yearly/
-        # TODO: Could parallelize monthly and yearly writes using dask.compute()
-        print(f"Computing yearly average for {varname}")
-        yearly = weighted_yearly_mean(da)
-        yearly_file = yearly_dir / f"{varname}_yearly.nc"
-        print(f"Saving yearly average to: {yearly_file}")
-        yearly.to_dataset(name=varname).to_netcdf(str(yearly_file), compute=True)
+        yearly_file = expected_files[1]
+        if not yearly_file.exists():
+            print(f"Computing yearly average for {varname}")
+            yearly = weighted_yearly_mean(da)
+            print(f"Saving yearly average to: {yearly_file}")
+            yearly.to_dataset(name=varname).to_netcdf(str(yearly_file), compute=True)
+        else:
+            print(f"Skipping yearly average for {varname}: {yearly_file} exists")
 
         print(f"Done: {varname}")
 
@@ -216,6 +247,7 @@ if __name__ == "__main__":
     all_variables = [
         "u", "v", "wt", "tx_trans", "ty_trans", "tx_trans_gm", "ty_trans_gm",
         "mld", "area_t", "dht", "eta_t",
+        "temp", "salt",
     ]
     searched_cat = cat.search(variable=all_variables)
     print(searched_cat)
@@ -251,6 +283,10 @@ if __name__ == "__main__":
     process_variable(searched_cat, "mld", CHUNKS_MLD)
     process_variable(searched_cat, "dht", CHUNKS_DHT)
     process_variable(searched_cat, "eta_t", CHUNKS_ETA)
+
+    # Temperature and salinity (T-grid, 3D) for GM-Redi
+    process_variable(searched_cat, "temp", CHUNKS_3D_T)
+    process_variable(searched_cat, "salt", CHUNKS_3D_T)
 
     print("\n" + "=" * 60)
     print("All variables processed successfully")

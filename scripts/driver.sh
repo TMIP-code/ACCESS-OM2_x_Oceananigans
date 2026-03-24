@@ -13,12 +13,12 @@ set -euo pipefail
 #   TM_SOURCE=both JOB_CHAIN=NK bash scripts/driver.sh            # run both const+avg
 #
 # Steps:
-#   prep grid vel run1yr run10yr run100yr runlong
+#   prep grid vel clo run1yr run10yr run100yr runlong
 #   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
 #   plot1yr plot10yr plot100yr
 #
 # Shortcuts:
-#   preprocessing  = prep-grid-vel
+#   preprocessing  = prep-grid-vel-clo
 #   standardruns   = run1yr-run10yr-run100yr-runlong
 #   TMall          = TMbuild-TMsnapshot-TMsolve
 #   plotall         = plot1yr-plot10yr-plot100yr-plotNK-plotTM
@@ -36,13 +36,14 @@ set -euo pipefail
 #
 # Dependency DAG:
 #   prep ─┐
-#   grid ─┤→ vel → run1yr    (afterok vel)
-#          │     → run10yr   (afterok vel, parallel)
-#          │     → run100yr  (afterok vel, parallel)
-#          │     → runlong   (afterok vel, parallel)
-#          │     → TMbuild   (afterok vel) → TMsolve(const) + NK(const) → run1yrNK → plotNK
-#          │                             └→ plotTM (afterok TMbuild + TMsnapshot)
-#          └─────→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
+#   grid ─┤→ vel ─┐
+#          └→ clo ─┤→ run1yr    (afterok vel+clo)
+#                   │→ run10yr   (afterok vel+clo, parallel)
+#                   │→ run100yr  (afterok vel+clo, parallel)
+#                   │→ runlong   (afterok vel+clo, parallel)
+#                   │→ TMbuild   (afterok vel+clo) → TMsolve(const) + NK(const) → run1yrNK → plotNK
+#                   │                             └→ plotTM (afterok TMbuild + TMsnapshot)
+#                   └→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
 #   plot10yr    (afterok run10yr)
@@ -92,12 +93,12 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
-    echo "    prep grid vel diagnose_w run1yr run1yrfast run10yr run100yr runlong"
+    echo "    prep grid vel clo diagnose_w run1yr run1yrfast run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plot1yr plot10yr plot100yr"
     echo ""
     echo "  Shortcuts:"
-    echo "    preprocessing  = prep-grid-vel-diagnose_w-partition"
+    echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
     echo "    standardruns   = run1yr-run10yr-run100yr-runlong"
     echo "    TMall          = TMbuild-TMsnapshot-TMsolve"
     echo "    plotall         = plot1yr-plot10yr-plot100yr-plotNK"
@@ -114,13 +115,14 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
+ALL_STEPS=(prep grid vel clo run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
 
 # --- Dependency DAG (step → space-separated children) ---
 declare -A DAG
-DAG[prep]="vel"
-DAG[grid]="vel"
+DAG[prep]="vel clo"
+DAG[grid]="vel clo"
 DAG[vel]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
+DAG[clo]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
 DAG[run1yr]="TMsnapshot plot1yr"
 DAG[run10yr]="plot10yr"
 DAG[run100yr]="plot100yr"
@@ -183,7 +185,7 @@ JOB_CHAIN="$expanded"
 
 # Expand shortcuts (order matters: expand 'full' before its sub-shortcuts)
 JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1yr}"
-JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-diagnose_w-partition}"
+JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-clo-diagnose_w-partition}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
 JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
@@ -214,7 +216,9 @@ LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-yes}
 INITIAL_AGE=${INITIAL_AGE:-0}
 
 # --- Common -v vars passed to all jobs ---
-COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},EXPERIMENT=${EXPERIMENT},TIME_WINDOW=${TIME_WINDOW},GIT_COMMIT=${GIT_COMMIT}"
+GM_REDI=${GM_REDI:-no}
+MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}
+COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},EXPERIMENT=${EXPERIMENT},TIME_WINDOW=${TIME_WINDOW},GIT_COMMIT=${GIT_COMMIT},GM_REDI=${GM_REDI},MONTHLY_KAPPAV=${MONTHLY_KAPPAV}"
 
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
@@ -229,7 +233,7 @@ echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP
 echo ""
 
 STEP=0
-PREP_JOB="" GRID_JOB="" VEL_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
+PREP_JOB="" GRID_JOB="" VEL_JOB="" CLO_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
@@ -279,9 +283,25 @@ if has_step vel; then
     echo "[$STEP] Velocities: $VEL_JOB${deps:+ (afterok $deps)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
 fi
 
-VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
+# 1d. clo (depends on: prep + grid)
+CLO_JOB=""
+if has_step clo; then
+    STEP=$((STEP + 1))
+    deps=""
+    [ -n "$PREP_JOB" ] && deps="${deps:+$deps:}$PREP_JOB"
+    [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
+    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
+    CLO_JOB=$(qsub "${dep_flag[@]}" \
+        -N "${MODEL_SHORT}_clo" -l walltime=${WALLTIME_VEL} \
+        -v ${COMMON_VARS} \
+        scripts/preprocessing/build_closures.sh)
+    echo "[$STEP] Closures: $CLO_JOB${deps:+ (afterok $deps)}"
+fi
 
-# 1d. diagnose_w (depends on: vel, runs 1-year simulation on GPU to save w)
+VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
+[ -n "$CLO_JOB" ] && VEL_DEP="${VEL_DEP:+${VEL_DEP}:}$CLO_JOB"
+
+# 1f. diagnose_w (depends on: vel, runs 1-year simulation on GPU to save w)
 DIAGW_JOB=""
 if has_step diagnose_w; then
     STEP=$((STEP + 1))
@@ -297,15 +317,19 @@ if has_step diagnose_w; then
 fi
 
 # Update VEL_DEP to include diagnose_w if it ran
-[ -n "$DIAGW_JOB" ] && VEL_DEP="$DIAGW_JOB"
+if [ -n "$DIAGW_JOB" ]; then
+    VEL_DEP="$DIAGW_JOB"
+    [ -n "$CLO_JOB" ] && VEL_DEP="${VEL_DEP}:${CLO_JOB}"
+fi
 
-# 1e. partition (depends on: vel/diagnose_w + grid, only if multi-rank)
+# 1g. partition (depends on: vel/diagnose_w + grid, only if multi-rank)
 PARTITION_JOB=""
 if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     STEP=$((STEP + 1))
     deps=""
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
     [ -n "$DIAGW_JOB" ] && deps="${deps:+$deps:}$DIAGW_JOB"
+    [ -n "$CLO_JOB" ] && deps="${deps:+$deps:}$CLO_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
     dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
     PARTITION_JOB=$(qsub "${dep_flag[@]}" \
@@ -616,6 +640,7 @@ for label_job in \
     "prep:$PREP_JOB" \
     "grid:$GRID_JOB" \
     "vel:$VEL_JOB" \
+    "clo:$CLO_JOB" \
     "diagnose_w:$DIAGW_JOB" \
     "run1yr:$RUN1YR_JOB" \
     "run1yrfast:$RUN1YRFAST_JOB" \

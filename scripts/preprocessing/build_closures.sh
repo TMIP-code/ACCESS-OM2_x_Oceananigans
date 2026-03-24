@@ -21,7 +21,7 @@ job_id="${PBS_JOBID:-interactive}"
 log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/preprocess
 mkdir -p "$log_dir"
 
-echo "Running prep_velocities.jl for PARENT_MODEL=$PARENT_MODEL"
-julia --project src/prep_velocities.jl &> "$log_dir/prep_velocities_${job_id}.log"
-echo "Done preprocessing velocities for PARENT_MODEL=$PARENT_MODEL"
-echo "logged output in $log_dir/prep_velocities_${job_id}.log"
+echo "Running prep_closures.jl for PARENT_MODEL=$PARENT_MODEL"
+julia --project src/prep_closures.jl &> "$log_dir/prep_closures_${job_id}.log"
+echo "Done preprocessing closures for PARENT_MODEL=$PARENT_MODEL"
+echo "logged output in $log_dir/prep_closures_${job_id}.log"

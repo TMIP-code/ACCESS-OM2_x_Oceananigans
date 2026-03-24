@@ -16,6 +16,8 @@ Environment variables:
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
+  GM_REDI          – yes | no  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
+  MONTHLY_KAPPAV   – yes | no  (default: no)  — use monthly time-varying vertical diffusivity from MLD
 """
 
 @info "Loading packages and functions"
@@ -25,6 +27,7 @@ using Oceananigans
 
 include("select_architecture.jl")
 
+using Oceananigans.BuoyancyFormulations: SeawaterBuoyancy, LinearEquationOfState
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
@@ -55,7 +58,15 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
+if GM_REDI
+    model_config = "$(model_config)_GMREDI"
+end
+if MONTHLY_KAPPAV
+    model_config = "$(model_config)_mkappaV"
+end
 
 @info "Run configuration"
 @info "- PARENT_MODEL      = $parentmodel"
@@ -63,6 +74,8 @@ model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMEST
 @info "- W_FORMULATION     = $W_FORMULATION"
 @info "- ADVECTION_SCHEME  = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER       = $TIMESTEPPER"
+@info "- GM_REDI           = $GM_REDI"
+@info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -155,6 +168,22 @@ fts_times = u_ts.times
 @info "Velocities loaded (InMemory backend)"
 flush(stdout); flush(stderr)
 
+# Load T and S FieldTimeSeries for GM-Redi buoyancy
+if GM_REDI
+    @info "Loading T and S FieldTimeSeries for GM-Redi buoyancy"
+    flush(stdout); flush(stderr)
+    T_file = joinpath(monthly_dir, "temp_monthly.jld2")
+    S_file = joinpath(monthly_dir, "salt_monthly.jld2")
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    T_ts = load_fts(arch, T_file, "T", grid; backend, time_indexing, fts_kw...)
+    @show T_ts
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    S_ts = load_fts(arch, S_file, "S", grid; backend, time_indexing, fts_kw...)
+    @show S_ts
+    @info "T and S FieldTimeSeries loaded"
+    flush(stdout); flush(stderr)
+end
+
 if W_FORMULATION == "wprescribed"
     # Select w source: "diagnosed" (from Oceananigans continuity) or "parent" (from MOM output)
     PRESCRIBED_W_SOURCE = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
@@ -192,22 +221,46 @@ flush(stdout); flush(stderr)
 κVML = 0.1    # m^2/s in the mixed layer
 κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
 
-# Load MLD to add strong vertical diffusion in the mixed layer
-# TODO: replace with monthly MLD (time-dependent κ) once implemented
+# Load MLD-based vertical diffusivity (static yearly average)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 mld_file = joinpath(yearly_dir, "mld_yearly.nc")
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
-implicit_vertical_diffusion = VerticalScalarDiffusivity(
-    VerticallyImplicitTimeDiscretization();
-    κ = κVField
-)
-horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+# Optionally load monthly κV FTS for time-varying vertical diffusivity
+if MONTHLY_KAPPAV
+    @info "Loading monthly κV FTS (time-varying vertical diffusivity)"
+    flush(stdout); flush(stderr)
+    κV_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
+    @show κV_ts
+    # Initialize κVField from first month
+    set!(κVField, κV_ts[0])
+    @info "κVField initialized from first month of κV FTS"
+    flush(stdout); flush(stderr)
+end
 
-closure = (
-    horizontal_diffusion,
-    implicit_vertical_diffusion,
-)
+if GM_REDI
+    # Per-tracer diffusivities: zero for ghost tracers T/S, real values for age
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = (; T = 0.0, S = 0.0, age = 300.0))
+    implicit_vertical_diffusion = VerticalScalarDiffusivity(
+        VerticallyImplicitTimeDiscretization();
+        κ = (; T = 0.0, S = 0.0, age = κVField),
+    )
+    gm_redi = IsopycnalSkewSymmetricDiffusivity(
+        κ_skew = (; T = 0.0, S = 0.0, age = 300.0),
+        κ_symmetric = (; T = 0.0, S = 0.0, age = 300.0),
+    )
+    closure = (horizontal_diffusion, implicit_vertical_diffusion, gm_redi)
+    @info "Closures: horizontal + vertical + GM-Redi (IsopycnalSkewSymmetricDiffusivity)"
+else
+    implicit_vertical_diffusion = VerticalScalarDiffusivity(
+        VerticallyImplicitTimeDiscretization();
+        κ = κVField,
+    )
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+    closure = (horizontal_diffusion, implicit_vertical_diffusion)
+end
 
 @info "Closures created"
 flush(stdout); flush(stderr)
@@ -240,8 +293,22 @@ forcing = (
     age = age_dynamics,
 )
 
-tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
-@info "Tracer advection scheme: $tracer_advection"
+if GM_REDI
+    age_advection = advection_from_scheme(ADVECTION_SCHEME)
+    tracer_advection = (; T = nothing, S = nothing, age = age_advection)
+    @info "Tracer advection: T=nothing, S=nothing, age=$age_advection"
+    tracers = (; T = CenterField(grid), S = CenterField(grid), age = CenterField(grid))
+    buoyancy = SeawaterBuoyancy(equation_of_state = LinearEquationOfState())
+    @info "Buoyancy: SeawaterBuoyancy with LinearEquationOfState"
+else
+    tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
+    @info "Tracer advection scheme: $tracer_advection"
+    tracers = (; age = CenterField(grid))
+end
+
+# Build optional kwargs — only pass buoyancy when GM_REDI is enabled
+# (buoyancy defaults to nothing in Oceananigans — preserve legacy code path)
+buoyancy_kw = GM_REDI ? (; buoyancy) : (;)
 
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 model = HydrostaticFreeSurfaceModel(
@@ -250,10 +317,24 @@ model = HydrostaticFreeSurfaceModel(
     tracer_advection,
     velocities = velocities,
     free_surface = free_surface,
-    tracers = (; age = CenterField(grid)),
+    tracers = tracers,
     closure = closure,
     forcing = forcing,
+    buoyancy_kw...,
 )
+
+# Prescribe T and S from FTS at each iteration (only called if GM_REDI is enabled)
+function prescribe_TS!(sim)
+    t = time(sim)
+    set!(sim.model.tracers.T, T_ts[t])
+    return set!(sim.model.tracers.S, S_ts[t])
+end
+
+# Update κV from monthly FTS (only called if MONTHLY_KAPPAV is enabled)
+function update_κV!(sim)
+    t = time(sim)
+    return set!(κVField, κV_ts[t])
+end
 
 stop_time = 12 * prescribed_Δt
 

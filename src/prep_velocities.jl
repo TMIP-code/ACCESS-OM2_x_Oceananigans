@@ -4,7 +4,7 @@ Create and save the velocities and free surface to JLD2 format.
 Requires: create_grid.jl to have been run first.
 
 Usage:
-    julia --project create_velocities.jl
+    julia --project prep_velocities.jl
 """
 
 @info "Loading packages and functions"

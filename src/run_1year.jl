@@ -34,6 +34,13 @@ flush(stdout); flush(stderr)
 
 set!(model, age = Returns(0.0))
 
+# Initialize T and S from first month of FTS (if GM-Redi enabled)
+if GM_REDI
+    @info "Initializing T and S from FieldTimeSeries at t=0"
+    set!(model.tracers.T, T_ts[0])
+    set!(model.tracers.S, S_ts[0])
+end
+
 ################################################################################
 # Simulation
 ################################################################################
@@ -43,6 +50,16 @@ simulation, age_output_dir = setup_age_simulation(
     output_interval = prescribed_Δt,
     progress_interval = prescribed_Δt,
 )
+
+# Register callbacks for prescribed fields
+if GM_REDI
+    add_callback!(simulation, prescribe_TS!, IterationInterval(1))
+    @info "Registered T/S prescribing callback (every iteration)"
+end
+if MONTHLY_KAPPAV
+    add_callback!(simulation, update_κV!, IterationInterval(1))
+    @info "Registered κV update callback (every iteration)"
+end
 
 @info "Running 1-year simulation"
 flush(stdout); flush(stderr)
