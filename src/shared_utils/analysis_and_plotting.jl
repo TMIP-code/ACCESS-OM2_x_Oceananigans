@@ -428,6 +428,29 @@ function animate_depth_slices(
 end
 
 """
+    colormap_for_field(name)
+
+Return a colormap symbol appropriate for the given field name.
+"""
+function colormap_for_field(name)
+    if name in ("T", "temp", "temperature")
+        return :coolwarm
+    elseif name in ("S", "salt", "salinity")
+        return :haline
+    elseif name in ("MLD", "mld")
+        return :magma
+    elseif contains(name, "kappaV") || contains(name, "κ")
+        return :cividis
+    elseif name in ("eta", "η")
+        return :PRGn
+    elseif name in ("u", "v", "w")
+        return :balance
+    else
+        return :viridis
+    end
+end
+
+"""
     animate_surface_fields(field_specs, output_dir, prefix;
                            n_frames=144, framerate=24, show_halos=true)
 
@@ -501,7 +524,8 @@ function animate_surface_fields(
             xlabel = show_halos ? "i (with halos)" : "i",
             ylabel = show_halos ? "j (with halos)" : "j"
         )
-        hm = heatmap!(ax, slice_obs; colorrange = (cmin, cmax), colormap = :balance, nan_color = :black)
+        colormap = colormap_for_field(name)
+        hm = heatmap!(ax, slice_obs; colorrange = (cmin, cmax), colormap, nan_color = :black)
         Colorbar(fig[1, 2], hm; label = name)
 
         filepath = joinpath(output_dir, "$(prefix)_surface_$(name).mp4")
