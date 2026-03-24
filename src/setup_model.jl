@@ -336,9 +336,10 @@ function update_κV!(sim)
     return set!(κVField, κV_ts[t])
 end
 
-stop_time = 12 * prescribed_Δt
+n_months = parse(Int, get(ENV, "N_MONTHS", "12"))
+stop_time = n_months * prescribed_Δt
 
-@info "Model built (stop_time = $(stop_time / year) years)"
+@info "Model built (stop_time = $(stop_time / year) years, N_MONTHS=$n_months)"
 flush(stdout); flush(stderr)
 
 @info "setup_model.jl complete"

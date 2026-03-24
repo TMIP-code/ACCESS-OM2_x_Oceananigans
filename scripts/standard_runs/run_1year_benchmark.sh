@@ -33,6 +33,9 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 PROFILE="${PROFILE:-no}"
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
+    # Limit simulation to 2 months to keep profile file small and finalization fast.
+    export N_MONTHS="${N_MONTHS:-2}"
+    echo "PROFILE=yes: limiting simulation to N_MONTHS=$N_MONTHS"
     # Profile to local SSD ($PBS_JOBFS) then copy back — avoids network FS distortion.
     PROFILE_DIR="${PBS_JOBFS:-/tmp}/nsys_profiles"
     mkdir -p "$PROFILE_DIR"
