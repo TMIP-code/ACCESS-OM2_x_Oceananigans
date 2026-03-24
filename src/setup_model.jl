@@ -235,7 +235,7 @@ if MONTHLY_KAPPAV
     κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
     @show κV_ts
     # Initialize κVField from first month
-    set!(κVField, κV_ts[0])
+    set!(κVField, κV_ts[1])
     @info "κVField initialized from first month of κV FTS"
     flush(stdout); flush(stderr)
 end

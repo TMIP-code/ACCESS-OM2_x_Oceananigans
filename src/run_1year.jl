@@ -37,8 +37,8 @@ set!(model, age = Returns(0.0))
 # Initialize T and S from first month of FTS (if GM-Redi enabled)
 if GM_REDI
     @info "Initializing T and S from FieldTimeSeries at t=0"
-    set!(model.tracers.T, T_ts[0])
-    set!(model.tracers.S, S_ts[0])
+    set!(model.tracers.T, T_ts[1])
+    set!(model.tracers.S, S_ts[1])
 end
 
 ################################################################################
