@@ -1,5 +1,7 @@
 # Profiling Results
 
+Terminology: DtoD = GPU→GPU, DtoH = GPU→CPU, HtoD = CPU→GPU.
+
 ## Benchmark wall times
 
 | Date | Model | Partition | W form. | GPU | Benchmark (s) | Speedup | Job ID | Note |
@@ -9,7 +11,7 @@
 | 2026-03-20 | OM2-025 | serial | diagnosed | 1× H200 | 510 | 1.0× | `163704551` | pre-GC fix |
 | 2026-03-20 | OM2-025 | 2x2 | diagnosed | 4× H200 | 468 | 1.09× | `163706476` | pre-GC fix |
 | 2026-03-20 | OM2-025 | 2x2 | diagnosed | 4× V100 | 546 | 0.93× | `163707102` | pre-GC fix, slower than serial H200 |
-| 2026-03-24 | OM2-1 | serial | diagnosed | 1× V100 | 41 | 1.0× | `163780377` | GC fix (Oceananigans update) |
+| 2026-03-24 | OM2-1 | serial | diagnosed | 1× V100 | 41 | 1.0× | `163780377` | GC fix |
 | 2026-03-24 | OM2-1 | 2x2 | diagnosed | 4× V100 | 39 | 1.05× | `163780380` | GC fix |
 | 2026-03-24 | OM2-025 | 2x2 | prescribed | 4× H200 | 432 | 1.18× | `163759028` | GC fix + prescribed w |
 
@@ -64,7 +66,7 @@
 | **w total** | **14.8** | | **35.4%** |
 
 **Note:** w is now a single kernel (interior+halos combined) vs separate interior/halo kernels before.
-GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replaced by 233 `cuMemFree_v2` calls (still 11.4% due to GC pauses).
+GC-related `cuMemAllocAsync`/`cuMemFreeAsync` eliminated; replaced by 233 `cuMemFree_v2` calls (11.4% — GC pauses remain).
 
 ---
 
@@ -91,7 +93,7 @@ GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replace
 | _compute_w_from_continuity! (halo north) | 0.51 | 6K | 9.1% |
 | **w total** | **2.52** | | **45.2%** |
 
-**Note:** `cuMemAllocAsync`/`cuMemFreeAsync` at 42K calls each (11.5% combined) — MPI halo exchange allocates temporary GPU buffers. This is the GC overhead the upstream fix targets.
+**Note:** `cuMemAllocAsync`/`cuMemFreeAsync` at 42K calls each (11.5% combined) — GC overhead from `reverse` allocations in MPI halo exchange.
 
 ---
 
@@ -106,11 +108,11 @@ GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replace
 | cuStreamGetCaptureInfo | 1.0 | 11.8M | 18.1% | new |
 | cuStreamSynchronize | 0.5 | 18K | 8.9% | 5.3→0.5s ↓↓ |
 | cuEventQuery | 0.2 | 308K | 3.5% | new |
-| cuMemcpyDtoDAsync | 0.15 | 29K | 2.6% | new (GPU-GPU IPC) |
-| cuMemcpyDtoHAsync | 0.15 | 447 | 2.6% | 23K→447 ↓↓ |
+| cuMemcpyDtoDAsync | 0.15 | 29K | 2.6% | GPU→GPU IPC transfers |
+| cuMemcpyDtoHAsync | 0.15 | 447 | 2.6% | |
 | cuMemcpyHtoDAsync | 0.12 | 578 | 2.1% | |
-| cuMemAllocAsync | 0 | 0 | 0% | 42K→0 ↓↓↓ GONE |
-| cuMemFreeAsync | 0 | 0 | 0% | 42K→0 ↓↓↓ GONE |
+| cuMemAllocAsync | 0 | 0 | 0% | 42K→0 GONE |
+| cuMemFreeAsync | 0 | 0 | 0% | 42K→0 GONE |
 | cuMemAlloc_v2 | 0.03 | 698 | 0.6% | |
 | cuMemFree_v2 | 0.02 | 698 | 0.3% | |
 
@@ -129,9 +131,8 @@ GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replace
 **Key changes from GC fix:**
 - `cuMemAllocAsync`/`cuMemFreeAsync` completely eliminated (42K calls → 0)
 - `cuStreamSynchronize` dropped 5.3→0.5s (10× less sync overhead)
-- `cuMemcpyDtoHAsync` dropped 23K→447 calls (GPU→CPU staging for MPI)
-- New `cuMemcpyDtoDAsync` (29K calls) — GPU-GPU IPC transfers instead of staging through CPU
-- w computation now 64.7% of GPU time (the dominant bottleneck for scaling)
+- `cuMemcpyDtoDAsync` (29K calls, 2.6%) — GPU→GPU IPC transfers (CUDA-aware MPI working)
+- w computation now 64.7% of GPU time (dominant bottleneck for distributed scaling)
 
 ---
 
@@ -162,35 +163,26 @@ GC-related `cuMemAllocAsync`/`cuMemFreeAsync` (11.5% before) eliminated; replace
 
 ---
 
-### OM2-025 2x2 diagnosed-w (4× H200, pre-GC fix) — Job `163718549` (partial, ~4 steps)
+### OM2-025 2x2 diagnosed-w (4× H200, pre-GC fix) — Job `163718549` (partial, initialization only)
 
 Early attempt produced a 21MB profile with broken filename (`%q{}` not expanded).
-Only captured initialization + ~4 time steps before crash, but proportions are revealing.
+Only captured initialization + ~4 time steps before crash.
 Later attempts (`163780321`, `163780332`) hit 30-min walltime before profile copy-back.
 
-**CUDA API Summary (rank 0, ~4 steps only):**
+**CUDA API Summary (rank 0, initialization only — NOT representative of steady-state):**
 
 | API call | Total (s) | Count | % |
 |----------|-----------|-------|---|
 | cuMemcpyDtoHAsync | 7.2 | 2,392 | 77.2% |
 | cuMemcpyHtoDAsync | 1.9 | 73 | 20.1% |
-| cuMemGetInfo_v2 | 0.07 | 19 | 0.7% |
-| cuModuleLoadDataEx | 0.06 | 44 | 0.6% |
 | cuStreamSynchronize | 0.05 | 4,784 | 0.5% |
-| cuMemAlloc_v2 | 0.05 | 114 | 0.5% |
 | cuLaunchKernel | 0.008 | 156 | 0.1% |
 
-**GPU Kernel Summary (rank 0, ~4 steps):**
-
-| Kernel | Total (s) | Instances | % |
-|--------|-----------|-----------|---|
-| _compute_w_from_continuity! | 0.036 | 4 | 22.5% |
-| broadcast_kernel_cartesian | 0.030 | 44 | 18.6% |
-| compute_hydrostatic_free_surface_Gc! | 0.012 | 1 | 7.4% |
-
-**Key insight:** MPI data staging (`cuMemcpyDtoHAsync` + `cuMemcpyHtoDAsync`) = **97.3%** of CPU time!
-GPU kernel time is only ~162ms while MPI staging overhead is 9.1s.
-This confirms **GPU↔CPU data copies for MPI halo exchange dominate at OM2-025 resolution**.
+**Caveat:** These numbers are dominated by initialization (loading FTS data, constructing fields).
+The DtoH/HtoD calls are from data loading, NOT from steady-state halo exchange.
+Communication buffers are allocated on GPU (`on_architecture(::Distributed, ...)` delegates to
+`child_architecture`, so buffers live on GPU when child is GPU). CUDA-aware MPI is used.
+A full-run profile is needed to see the actual distributed overhead breakdown.
 
 ---
 
