@@ -94,6 +94,7 @@ stop_time = 12 * prescribed_Δt
 temp_monthly_file = joinpath(monthly_dir, "temp_monthly.jld2")
 salt_monthly_file = joinpath(monthly_dir, "salt_monthly.jld2")
 κV_monthly_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
+mld_monthly_file = joinpath(monthly_dir, "mld_monthly.jld2")
 
 temp_yearly_file = joinpath(yearly_dir, "temp_yearly.jld2")
 salt_yearly_file = joinpath(yearly_dir, "salt_yearly.jld2")
@@ -102,6 +103,7 @@ salt_yearly_file = joinpath(yearly_dir, "salt_yearly.jld2")
 rm(temp_monthly_file; force = true)
 rm(salt_monthly_file; force = true)
 rm(κV_monthly_file; force = true)
+rm(mld_monthly_file; force = true)
 rm(temp_yearly_file; force = true)
 rm(salt_yearly_file; force = true)
 
@@ -115,6 +117,7 @@ flush(stdout); flush(stderr)
 temp_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = temp_monthly_file, name = "T", time_indexing = Cyclical(stop_time))
 salt_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = salt_monthly_file, name = "S", time_indexing = Cyclical(stop_time))
 κV_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = κV_monthly_file, name = "κV", time_indexing = Cyclical(stop_time))
+mld_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = mld_monthly_file, name = "MLD", time_indexing = Cyclical(stop_time))
 
 ################################################################################
 # Pre-allocate fields
@@ -124,6 +127,8 @@ temp_field = CenterField(grid)
 salt_field = CenterField(grid)
 temp_acc = CenterField(grid)
 salt_acc = CenterField(grid)
+
+mld_field = Field{Center, Center, Nothing}(grid)
 
 # κV parameters (same as setup_model.jl)
 κVML = 0.1    # m^2/s in the mixed layer
@@ -157,11 +162,18 @@ for month in 1:12
     fill_halo_regions!(salt_field)
     set!(salt_monthly_ts, salt_field, month)
 
-    # ── κV from MLD (compute 3D diffusivity field from monthly MLD) ─────
-    println("- κV from MLD"); flush(stdout)
+    # ── MLD (2D field, positive-downward in MOM) ────────────────────────
+    println("- MLD"); flush(stdout)
     mld_data = readcubedata(mld_monthly_ds.mld[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, mld_data, mld_data)
-    mld_data .= .-mld_data  # MLD is positive-downward in MOM; negate for z-comparison
+    set!(mld_field, mld_data)
+    mask_immersed_field!(mld_field, 0.0)
+    fill_halo_regions!(mld_field)
+    set!(mld_monthly_ts, mld_field, month)
+
+    # ── κV from MLD (compute 3D diffusivity field from monthly MLD) ─────
+    println("- κV from MLD"); flush(stdout)
+    mld_data .= .-mld_data  # negate for z-comparison (MLD positive-downward → negative z)
     is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
     set!(κV_field, κVML * is_mld + κVBG * .!is_mld)
     mask_immersed_field!(κV_field, 0.0)
@@ -183,6 +195,9 @@ println("Done!")
 
 @show κV_monthly_ts
 @info "saved to $(κV_monthly_file)"
+
+@show mld_monthly_ts
+@info "saved to $(mld_monthly_file)"
 
 ################################################################################
 # Yearly averaging for T and S

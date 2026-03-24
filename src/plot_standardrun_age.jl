@@ -216,12 +216,22 @@ if isfile(T_file) && isfile(S_file)
     push!(field_specs, ("S", S_ts, k_surface_ccc))
 end
 
-# Optionally add κV if monthly FTS exists
+# Optionally add MLD if monthly FTS exists
+mld_file = joinpath(monthly_dir, "mld_monthly.jld2")
+if isfile(mld_file)
+    @info "Loading MLD FTS for surface animations"
+    mld_ts = FieldTimeSeries(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
+    push!(field_specs, ("MLD", mld_ts, nothing))
+end
+
+# Optionally add κV at ~200m depth if monthly FTS exists
 κV_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
 if isfile(κV_file)
-    @info "Loading κV FTS for surface animations"
+    @info "Loading κV FTS for ~200m depth animations"
     κV_ts = FieldTimeSeries(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
-    push!(field_specs, ("kappaV", κV_ts, k_surface_ccc))
+    k_200m = find_nearest_depth_index(grid, 200)
+    k_200m_halos = k_200m + Hz  # offset for halo in parent array
+    push!(field_specs, ("kappaV_200m", κV_ts, k_200m_halos))
 end
 
 @info "Generating surface field animations ($(length(field_specs)) fields)"
