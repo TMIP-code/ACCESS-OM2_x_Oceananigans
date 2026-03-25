@@ -345,6 +345,13 @@ function mytendency!(GADcvec, ADcvec, ADc_field, GADc_field)
     c_forcing = jacobian_model.forcing[:ADc]
     c_immersed_bc = immersed_boundary_condition(jacobian_model.tracers[:ADc])
 
+    # Build tracers NamedTuple: must include T/S for GM-Redi buoyancy gradient computation
+    if GM_REDI
+        tracers_for_tendency = (; T = jacobian_model.tracers.T, S = jacobian_model.tracers.S, ADc = ADc_field)
+    else
+        tracers_for_tendency = (; ADc = ADc_field)
+    end
+
     args = tuple(
         Val(1),
         Val(:ADc),
@@ -355,7 +362,7 @@ function mytendency!(GADcvec, ADcvec, ADc_field, GADc_field)
         jacobian_model.biogeochemistry,
         jacobian_model.transport_velocities,
         jacobian_model.free_surface,
-        (; ADc = ADc_field),
+        tracers_for_tendency,
         jacobian_model.closure_fields,
         jacobian_model.auxiliary_fields,
         jacobian_model.clock,
