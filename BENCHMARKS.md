@@ -12,6 +12,17 @@ Benchmark script: `src/run_1year_benchmark.jl`, submitted via `JOB_CHAIN=run1yrf
 | 1x2       | NaN at iter 300      | NaN at iter 300        |
 | 1x4       | NaN at iter 300      | NaN at iter 300        |
 
+### Closure variants (1x1, V100)
+
+| Config | 1yr benchmark | Slowdown | Notes |
+|--------|--------------|----------|-------|
+| Baseline (horizontal + vertical diffusion) | **41.9 s** | 1.0× | |
+| Monthly κV (`MONTHLY_KAPPAV=yes`) | **69.8 s** | 1.7× | Time-varying κV from monthly MLD via callback |
+| GM-Redi (`GM_REDI=yes`) | **327.2 s** | 7.8× | IsopycnalSkewSymmetricDiffusivity with prescribed T/S |
+| GM-Redi + monthly κV | **342.1 s** | 8.2× | Both features combined |
+
+GM-Redi uses `SeawaterBuoyancy(LinearEquationOfState())` with T/S prescribed from monthly FTS via `IterationInterval(1)` callback. The isopycnal slope computation dominates the cost.
+
 ### Full 1-year runs (with JLD2 output writers)
 
 | Partition | GPU  | Wall time | Status          | Job ID    | Notes                              |
