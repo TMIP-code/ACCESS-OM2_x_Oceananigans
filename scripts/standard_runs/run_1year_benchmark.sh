@@ -76,11 +76,17 @@ echo "logging output in $log_file"
 $JULIA_LAUNCHER src/run_1year_benchmark.jl &> "$log_file"
 echo "Done running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL"
 
-# Copy nsys profiles from local SSD to persistent storage
+# Copy nsys profiles from local SSD to persistent storage with unique names
 if [ "$PROFILE" = "yes" ]; then
     echo "Copying nsys profiles from $PROFILE_DIR to $run_log_dir"
-    cp "${PROFILE_DIR}"/*.nsys-rep "$run_log_dir/" 2>/dev/null && \
-        echo "Profiles copied: $(ls ${run_log_dir}/*nsys-rep 2>/dev/null | wc -l) files" || \
-        echo "WARNING: No .nsys-rep files found in $PROFILE_DIR"
+    if [ "$NGPUS" -gt 1 ]; then
+        cp "${PROFILE_DIR}/profile_rank0.nsys-rep" "${profile_final}_rank0.nsys-rep" 2>/dev/null && \
+            echo "Profile copied: ${profile_final}_rank0.nsys-rep" || \
+            echo "WARNING: No profile_rank0.nsys-rep found in $PROFILE_DIR"
+    else
+        cp "${PROFILE_DIR}/profile.nsys-rep" "${profile_final}.nsys-rep" 2>/dev/null && \
+            echo "Profile copied: ${profile_final}.nsys-rep" || \
+            echo "WARNING: No profile.nsys-rep found in $PROFILE_DIR"
+    fi
     ls -lh "${PROFILE_DIR}"/ 2>/dev/null
 fi
