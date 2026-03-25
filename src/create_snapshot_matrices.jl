@@ -46,6 +46,7 @@ using Oceananigans.Grids: znode, get_active_cells_map
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using Oceananigans.Fields: immersed_boundary_condition
+using Oceananigans.BuoyancyFormulations: SeawaterBuoyancy, LinearEquationOfState
 using Oceananigans.OutputReaders: InMemory
 using Oceananigans.Units: minute, minutes, hour, hours, day, days, second, seconds
 year = years = 365.25days
@@ -84,12 +85,23 @@ include("shared_functions.jl")
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
 
+GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+if GM_REDI
+    model_config = "$(model_config)_GMREDI"
+end
+if MONTHLY_KAPPAV
+    model_config = "$(model_config)_mkappaV"
+end
+
 @info "Run configuration"
 @info "- PARENT_MODEL     = $parentmodel"
 @info "- VELOCITY_SOURCE  = $VELOCITY_SOURCE"
 @info "- W_FORMULATION    = $W_FORMULATION (NOTE: snapshots always use wprescribed)"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
+@info "- GM_REDI          = $GM_REDI"
+@info "- MONTHLY_KAPPAV   = $MONTHLY_KAPPAV"
 @info "- model_config     = $model_config"
 flush(stdout); flush(stderr)
 
@@ -175,6 +187,19 @@ u_snap = v_snap = w_snap = η_snap = nothing  # free memory
 @info "Constant velocity containers initialised"
 flush(stdout); flush(stderr)
 
+if GM_REDI
+    @info "Loading yearly T and S fields for GM-Redi buoyancy"
+    flush(stdout); flush(stderr)
+    T_constant_file = joinpath(yearly_dir, "temp_yearly.jld2")
+    S_constant_file = joinpath(yearly_dir, "salt_yearly.jld2")
+    T_constant = CenterField(grid)
+    set!(T_constant, load(T_constant_file, "T"))
+    fill_halo_regions!(T_constant)
+    S_constant = CenterField(grid)
+    set!(S_constant, load(S_constant_file, "S"))
+    fill_halo_regions!(S_constant)
+end
+
 ################################################################################
 # Prescribed velocities (always wprescribed) and free surface
 ################################################################################
@@ -203,10 +228,23 @@ is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
 κVField = CenterField(grid)
 set!(κVField, κVML * is_mld + κVBG * .!is_mld)
 
-explicit_vertical_diffusion = VerticalScalarDiffusivity(ExplicitTimeDiscretization(); κ = κVField)
-horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
-
-explicit_closure = (horizontal_diffusion, explicit_vertical_diffusion)
+if GM_REDI
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = (; T = 0.0, S = 0.0, ADc = 300.0))
+    explicit_vertical_diffusion = VerticalScalarDiffusivity(
+        ExplicitTimeDiscretization();
+        κ = (; T = 0.0, S = 0.0, ADc = κVField)
+    )
+    gm_redi = IsopycnalSkewSymmetricDiffusivity(
+        κ_skew = (; T = 0.0, S = 0.0, ADc = 300.0),
+        κ_symmetric = (; T = 0.0, S = 0.0, ADc = 300.0)
+    )
+    explicit_closure = (horizontal_diffusion, explicit_vertical_diffusion, gm_redi)
+    @info "Closures: horizontal + vertical + GM-Redi (all explicit)"
+else
+    explicit_vertical_diffusion = VerticalScalarDiffusivity(ExplicitTimeDiscretization(); κ = κVField)
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+    explicit_closure = (horizontal_diffusion, explicit_vertical_diffusion)
+end
 
 @info "Closures created"
 flush(stdout); flush(stderr)
@@ -230,17 +268,28 @@ linear_forcing = (; ADc = linear_dynamics)
 
 ADc0 = CenterField(grid)
 
+if GM_REDI
+    tracers = (; T = T_constant, S = S_constant, ADc = ADc0)
+    tracer_advection = (; T = nothing, S = nothing, ADc = advection_from_scheme(ADVECTION_SCHEME))
+    buoyancy = SeawaterBuoyancy(equation_of_state = LinearEquationOfState())
+    buoyancy_kw = (; buoyancy)
+else
+    tracers = (; ADc = ADc0)
+    tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
+    buoyancy_kw = (;)
+end
+
 jacobian_model_kwargs = (
     timestepper = timestepper_from_string(TIMESTEPPER),
-    tracer_advection = advection_from_scheme(ADVECTION_SCHEME),
+    tracer_advection = tracer_advection,
     velocities = velocities,
     free_surface = free_surface,
-    tracers = (; ADc = ADc0),
+    tracers = tracers,
     closure = explicit_closure,
     forcing = linear_forcing,
 )
 
-jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
+jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs..., buoyancy_kw...)
 
 ################################################################################
 # Initialise model state (update zstar from first snapshot η)
@@ -248,6 +297,11 @@ jacobian_model = HydrostaticFreeSurfaceModel(grid; jacobian_model_kwargs...)
 
 @info "Initialising model state (zstar scaling from first snapshot η)"
 flush(stdout); flush(stderr)
+
+if GM_REDI
+    set!(jacobian_model.tracers.T, T_constant)
+    set!(jacobian_model.tracers.S, S_constant)
+end
 
 launch!(CPU(), grid, surface_kernel_parameters(grid), _update_zstar_scaling!, η_constant, grid)
 fill_halo_regions!(jacobian_model.tracers.ADc)
