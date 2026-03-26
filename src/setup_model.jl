@@ -85,6 +85,11 @@ arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 @show grid
+ug = grid.underlying_grid
+@show typeof(ug.λᶜᶜᵃ) typeof(ug.φᶜᶜᵃ)
+@show typeof(ug.Δxᶜᶜᵃ) typeof(ug.Δyᶜᶜᵃ) typeof(ug.Azᶜᶜᵃ)
+@show typeof(ug.z)
+@show typeof(grid.immersed_boundary.bottom_height)
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
