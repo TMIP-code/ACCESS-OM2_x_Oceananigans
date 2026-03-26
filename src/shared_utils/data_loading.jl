@@ -260,3 +260,74 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
 
     return global_data[1:Nx, 1:Ny, :], t
 end
+
+################################################################################
+# Unified age loader for comparison scripts
+################################################################################
+
+"""
+    parse_source_spec(spec::AbstractString) -> NamedTuple
+
+Parse a colon-delimited source specification string.
+
+Formats:
+- `"serial:MODEL_CONFIG:DURATION_TAG"`  → `(; type=:serial, model_config, duration_tag)`
+- `"NK:MODEL_CONFIG:SOLVER_TAG"`        → `(; type=:NK, model_config, solver_tag)`
+
+Examples:
+- `"serial:cgridtransports_wdiagnosed_centered2_AB2:1year"`
+- `"NK:cgridtransports_wdiagnosed_centered2_AB2:Pardiso_LSprec"`
+"""
+function parse_source_spec(spec::AbstractString)
+    parts = split(spec, ':')
+    stype = lowercase(parts[1])
+    if stype == "serial"
+        length(parts) == 3 || error("serial spec requires serial:MODEL_CONFIG:DURATION_TAG, got: $spec")
+        return (; type = :serial, model_config = String(parts[2]), duration_tag = String(parts[3]))
+    elseif stype == "nk"
+        length(parts) == 3 || error("NK spec requires NK:MODEL_CONFIG:SOLVER_TAG, got: $spec")
+        return (; type = :NK, model_config = String(parts[2]), solver_tag = String(parts[3]))
+    else
+        error("Unknown source type '$stype' in spec: $spec. Must be serial or NK.")
+    end
+end
+
+"""
+    load_final_age_interior(source_spec, outputdir, Nx, Ny, Nz) -> Array{Float64, 3}
+
+Load the final age field as an `(Nx, Ny, Nz)` interior array **in seconds**.
+
+Source types:
+- `:serial` — last iteration from `{outputdir}/standardrun/{model_config}/age_{duration_tag}.jld2`,
+  halos stripped automatically.
+- `:NK` — periodic steady-state from `{outputdir}/periodic/{model_config}/NK/age_{solver_tag}.jld2`,
+  already interior-sized.
+"""
+function load_final_age_interior(source_spec::AbstractString, outputdir, Nx, Ny, Nz)
+    spec = parse_source_spec(source_spec)
+    return load_final_age_interior(spec, outputdir, Nx, Ny, Nz)
+end
+
+function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
+    if spec.type == :serial
+        run_dir = joinpath(outputdir, "standardrun", spec.model_config)
+        iter_keys = list_iterations(run_dir, "age", spec.duration_tag)
+        last_iter = iter_keys[end]
+        @info "Loading serial age: $(spec.model_config) iter $last_iter"
+        age_full, t = load_serial_snapshot(run_dir, "age", spec.duration_tag, last_iter)
+        Hx = (size(age_full, 1) - Nx) ÷ 2
+        Hy = (size(age_full, 2) - Ny) ÷ 2
+        Hz = (size(age_full, 3) - Nz) ÷ 2
+        age = Float64.(age_full[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)])
+        @info "  t = $t s, shape = $(size(age))"
+        return age
+
+    elseif spec.type == :NK
+        nk_file = joinpath(outputdir, "periodic", spec.model_config, "NK", "age_$(spec.solver_tag).jld2")
+        isfile(nk_file) || error("NK file not found: $nk_file")
+        @info "Loading NK age: $nk_file"
+        age = Float64.(load(nk_file, "age"))
+        @assert size(age) == (Nx, Ny, Nz) "NK age size $(size(age)) != expected ($Nx, $Ny, $Nz)"
+        return age
+    end
+end

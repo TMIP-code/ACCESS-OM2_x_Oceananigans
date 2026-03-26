@@ -182,7 +182,8 @@ if W_FORMULATION == "wprescribed"
         joinpath(yearly_dir, "w_yearly.jld2")
     @info "Using prescribed w field from: $w_constant_file"
     flush(stdout); flush(stderr)
-    w_constant = CenterField(grid)
+    wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
+    w_constant = ZFaceField(grid; boundary_conditions = wbcs)
     set!(w_constant, load(w_constant_file, "w"))
     fill_halo_regions!(w_constant)
     @show w_constant

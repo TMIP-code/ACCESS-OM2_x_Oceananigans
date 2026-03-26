@@ -16,7 +16,8 @@
 #   compare   — compare serial vs distributed outputs (CPU, express queue)
 #               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
-#   prediagw  — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
+#   prediagw    — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
+#   prediagwNK  — compare NK periodic age from wdiagnosed vs wprescribed (parent & prediag)
 
 set -euo pipefail
 
@@ -41,7 +42,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -105,9 +106,37 @@ has_step mpi && \
     submit_job mpi "$WALLTIME" scripts/tests/run_mpi_test.sh \
         --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION}" > /dev/null
 
-has_step prediagw && \
-    submit_job prediagw 01:00:00 scripts/plotting/compare_prescribed_vs_diagnosed_w.sh \
-        --queue express --ngpus 0 --ncpus 12 --mem 47GB > /dev/null
+# Helper: build MODEL_CONFIG for a given w-formulation tag
+_wmc() {
+    local wf=$1 suffix=""
+    [ "$GM_REDI" = "yes" ] && suffix="${suffix}_GMREDI"
+    [ "$MONTHLY_KAPPAV" = "yes" ] && suffix="${suffix}_mkappaV"
+    echo "${VELOCITY_SOURCE}_${wf}_${ADVECTION_SCHEME}_${TIMESTEPPER}${suffix}"
+}
+
+# prediagw: serial 1-year w-formulation comparison (2 pairs)
+if has_step prediagw; then
+    DIAG=$(_wmc wdiagnosed); PARENT=$(_wmc wparent); PREDIAG=$(_wmc wprediag)
+    DUR=${DURATION_TAG:-1year}
+    submit_job prediagw_dp 01:00:00 scripts/plotting/compare_runs.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "SOURCE_A=serial:${DIAG}:${DUR},SOURCE_B=serial:${PARENT}:${DUR},COMPARE_LABEL=w_serial_diag_vs_parent" > /dev/null
+    submit_job prediagw_dd 01:00:00 scripts/plotting/compare_runs.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "SOURCE_A=serial:${DIAG}:${DUR},SOURCE_B=serial:${PREDIAG}:${DUR},COMPARE_LABEL=w_serial_diag_vs_prediag" > /dev/null
+fi
+
+# prediagwNK: NK periodic w-formulation comparison (2 pairs)
+if has_step prediagwNK; then
+    DIAG=$(_wmc wdiagnosed); PARENT=$(_wmc wparent); PREDIAG=$(_wmc wprediag)
+    STAG="${LINEAR_SOLVER}_$([ "$LUMP_AND_SPRAY" = "yes" ] && echo LSprec || echo prec)"
+    submit_job prediagwNK_dp 01:00:00 scripts/plotting/compare_runs.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "SOURCE_A=NK:${DIAG}:${STAG},SOURCE_B=NK:${PARENT}:${STAG},COMPARE_LABEL=w_NK_diag_vs_parent" > /dev/null
+    submit_job prediagwNK_dd 01:00:00 scripts/plotting/compare_runs.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "SOURCE_A=NK:${DIAG}:${STAG},SOURCE_B=NK:${PREDIAG}:${STAG},COMPARE_LABEL=w_NK_diag_vs_prediag" > /dev/null
+fi
 
 # --- Summary ---
 print_summary "${PARENT_MODEL}"
