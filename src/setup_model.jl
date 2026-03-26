@@ -84,6 +84,7 @@ flush(stdout); flush(stderr)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
+@show grid
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
@@ -219,6 +220,7 @@ flush(stdout); flush(stderr)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 mld_file = joinpath(yearly_dir, "mld_yearly.nc")
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
+@show κVField
 
 # Optionally load monthly κV FTS for time-varying vertical diffusivity
 if MONTHLY_KAPPAV
@@ -292,12 +294,14 @@ if GM_REDI
     tracer_advection = (; T = nothing, S = nothing, age = age_advection)
     @info "Tracer advection: T=nothing, S=nothing, age=$age_advection"
     tracers = (; T = CenterField(grid), S = CenterField(grid), age = CenterField(grid))
+    @show tracers.T tracers.S tracers.age
     buoyancy = SeawaterBuoyancy(equation_of_state = LinearEquationOfState())
     @info "Buoyancy: SeawaterBuoyancy with LinearEquationOfState"
 else
     tracer_advection = advection_from_scheme(ADVECTION_SCHEME)
     @info "Tracer advection scheme: $tracer_advection"
     tracers = (; age = CenterField(grid))
+    @show tracers.age
 end
 
 # Build optional kwargs — only pass buoyancy when GM_REDI is enabled

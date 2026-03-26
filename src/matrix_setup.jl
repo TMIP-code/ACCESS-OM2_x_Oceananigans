@@ -104,6 +104,7 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
+@show grid
 
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
@@ -167,6 +168,8 @@ if GM_REDI
     S_constant = CenterField(grid)
     set!(S_constant, load(S_constant_file, "S"))
     fill_halo_regions!(S_constant)
+    @show T_constant
+    @show S_constant
 end
 
 ################################################################################
@@ -182,6 +185,7 @@ if W_FORMULATION == "wprescribed"
     w_constant = CenterField(grid)
     set!(w_constant, load(w_constant_file, "w"))
     fill_halo_regions!(w_constant)
+    @show w_constant
     velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, w = w_constant)
 elseif W_FORMULATION == "wdiagnosed"
     @info "Prescribing u, v (constant); diagnosing w via continuity"
@@ -208,6 +212,7 @@ z_center = znodes(grid, Center(), Center(), Center())
 is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
 κVField = CenterField(grid)
 set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+@show κVField
 
 if GM_REDI
     horizontal_diffusion = HorizontalScalarDiffusivity(κ = (; T = 0.0, S = 0.0, ADc = 300.0))
