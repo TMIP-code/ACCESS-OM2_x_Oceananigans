@@ -242,6 +242,7 @@ for idx_i in plot_indices
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
         target_k_indices = compare_k_indices,
+        colorbar_label = "Δage (years)",
     )
 
     # Relative difference (skip if age too small)
@@ -267,6 +268,7 @@ for idx_i in plot_indices
             colormap = cgrad(:balance, n_levels - 1, categorical = true),
             lowclip = :blue, highclip = :red,
             target_k_indices = compare_k_indices,
+            colorbar_label = "Δage / age",
         )
     end
 

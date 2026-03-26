@@ -207,6 +207,7 @@ for (a, b) in pairs
         colorrange = diff_range, levels = diff_levels,
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
+        colorbar_label = "Δage (years)",
     )
 
     # Relative difference (reference = wdiagnosed; skip where age too small)
@@ -233,6 +234,7 @@ for (a, b) in pairs
             colorrange = reldiff_range, levels = reldiff_levels,
             colormap = cgrad(:balance, n_levels - 1, categorical = true),
             lowclip = :blue, highclip = :red,
+            colorbar_label = "Δage / age",
         )
     end
 

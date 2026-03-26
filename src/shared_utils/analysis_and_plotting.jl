@@ -151,6 +151,7 @@ function plot_age_diagnostics(
         highclip = colormap[end],
         target_depths = [100, 200, 500, 1000, 2000, 3000],
         target_k_indices = Int[],
+        colorbar_label = "Age (years)",
     )
     mkpath(output_dir)
 
@@ -199,7 +200,7 @@ function plot_age_diagnostics(
         translate!(cf, 0, 0, -100)
         xlims!(ax, -90, 90)
         ylims!(ax, maximum(depth_vals), 0)
-        Colorbar(fig[1, 2], cf; label = "Age (years)")
+        Colorbar(fig[1, 2], cf; label = colorbar_label)
 
         outputfile = joinpath(output_dir, "$(label)_zonal_avg_$(basin_name).png")
         @info "Saving $outputfile"
@@ -230,7 +231,7 @@ function plot_age_diagnostics(
         )
 
         hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip, highclip)
-        Colorbar(fig[1, 2], hm; label = "Age (years)")
+        Colorbar(fig[1, 2], hm; label = colorbar_label)
 
         outputfile = joinpath(output_dir, "$(label)_slice_$(file_tag).png")
         @info "Saving $outputfile"
