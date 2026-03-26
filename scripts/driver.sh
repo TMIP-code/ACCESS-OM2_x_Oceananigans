@@ -34,7 +34,7 @@ set -euo pipefail
 #   TM_SOURCE=avg  — only avg branch
 #   TM_SOURCE=both   — both branches
 #
-# Dependency DAG:
+# Dependency DAG (source of truth: scripts/pipeline.mmd):
 #   prep ─┐
 #   grid ─┤→ vel ─┐
 #          └→ clo ─┤→ run1yr    (afterok vel+clo)
@@ -68,11 +68,13 @@ export EXPERIMENT TIME_WINDOW
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd "$repo_root"
 
-# Require clean git status before submitting jobs
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
-    git status --short >&2
-    exit 1
+# Require clean git status before submitting jobs (skip in dry-run mode)
+if [ "${DRY_RUN:-no}" != "yes" ]; then
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
+        git status --short >&2
+        exit 1
+    fi
 fi
 GIT_COMMIT=$(git rev-parse HEAD)
 
@@ -82,6 +84,7 @@ if [ ! -f "$MODEL_CONF" ]; then
     exit 1
 fi
 source "$MODEL_CONF"
+source scripts/submit_job.sh
 
 # --- JOB_CHAIN: required ---
 if [ -z "${JOB_CHAIN:-}" ]; then
@@ -115,21 +118,11 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
 
-# --- Dependency DAG (step → space-separated children) ---
+# --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
-DAG[prep]="vel clo"
-DAG[grid]="vel clo"
-DAG[vel]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
-DAG[clo]="run1yr run1yrfast run10yr run100yr runlong TMbuild"
-DAG[run1yr]="TMsnapshot plot1yr"
-DAG[run10yr]="plot10yr"
-DAG[run100yr]="plot100yr"
-DAG[TMbuild]="TMsolve NK plotTM"
-DAG[TMsnapshot]="TMsolve NK plotTM"
-DAG[NK]="run1yrNK plotNKtrace"
-DAG[run1yrNK]="plotNK"
+source scripts/parse_dag.sh
 
 # --- DAG-based range expansion (A..B → steps on any path from A to B) ---
 expand_range() {
@@ -193,9 +186,6 @@ JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
 # --- Partition + queue configuration ---
-# PARTITION: MPI partition layout (default 1x1 = serial)
-# GPU_QUEUE: set by model config (gpuvolta or gpuhopper)
-# CPU_QUEUE: queue for CPU-only jobs (default express)
 PARTITION=${PARTITION:-1x1}
 PARTITION_X="${PARTITION%%x*}"
 PARTITION_Y="${PARTITION#*x}"
@@ -241,88 +231,56 @@ echo "CPU_QUEUE=$CPU_QUEUE, CPU_NCPUS=$CPU_NCPUS, CPU_MEM=$CPU_MEM"
 echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY, INITIAL_AGE=$INITIAL_AGE"
 echo ""
 
-STEP=0
-PREP_JOB="" GRID_JOB="" VEL_JOB="" CLO_JOB="" RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
+# Job ID variables (empty = not submitted)
+PREP_JOB="" GRID_JOB="" VEL_JOB="" CLO_JOB="" DIAGW_JOB="" PARTITION_JOB=""
+RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
-PLOTTM_JOBS=() PLOTTM_LABELS=()
-PLOT1YR_JOB="" PLOT10YR_JOB="" PLOT100YR_JOB="" PLOTNK_JOB="" PLOTNKTRACE_JOB=""
 
 # ============================================================
 # 1. Preprocessing
 # ============================================================
 
-# 1a. prep — Python preprocessing (monthly climatologies + yearly averages)
-if has_step prep; then
-    STEP=$((STEP + 1))
-    PREP_JOB=$(qsub \
-        -N "${MODEL_SHORT}_prep" -l walltime=${WALLTIME_PREP} \
-        -v ${COMMON_VARS} \
+has_step prep && \
+    PREP_JOB=$(submit_job prep "$WALLTIME_PREP" \
         scripts/prepreprocessing/periodicaverage.sh)
-    echo "[$STEP] Prep: $PREP_JOB"
-fi
 
-# 1b. grid
-if has_step grid; then
-    STEP=$((STEP + 1))
-    GRID_JOB=$(qsub \
-        -N "${MODEL_SHORT}_grid" -l walltime=${WALLTIME_GRID} \
-        -v ${COMMON_VARS} \
+has_step grid && \
+    GRID_JOB=$(submit_job grid "$WALLTIME_GRID" \
         scripts/preprocessing/build_grid.sh)
-    echo "[$STEP] Grid: $GRID_JOB"
-fi
 
-# 1c. vel (depends on: grid + prep)
+# vel (depends on: grid + prep)
 if has_step vel; then
-    STEP=$((STEP + 1))
     deps=""
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
     [ -n "$PREP_JOB" ] && deps="${deps:+$deps:}$PREP_JOB"
-    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
-    gpu_flags=()
+    vel_flags=(--deps "$deps")
     PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
-    if [ "$PREPROCESS_ARCH" = "GPU" ]; then
-        gpu_flags=(-q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM)
-    fi
-    VEL_JOB=$(qsub "${dep_flag[@]}" "${gpu_flags[@]}" \
-        -N "${MODEL_SHORT}_vel" -l walltime=${WALLTIME_VEL} \
-        -v ${COMMON_VARS} \
-        scripts/preprocessing/build_velocities.sh)
-    echo "[$STEP] Velocities: $VEL_JOB${deps:+ (afterok $deps)}${PREPROCESS_ARCH:+ [$PREPROCESS_ARCH]}"
+    [ "$PREPROCESS_ARCH" = "GPU" ] && vel_flags+=(--gpu)
+    VEL_JOB=$(submit_job vel "$WALLTIME_VEL" \
+        scripts/preprocessing/build_velocities.sh "${vel_flags[@]}")
 fi
 
-# 1d. clo (depends on: prep + grid)
-CLO_JOB=""
+# clo (depends on: prep + grid)
 if has_step clo; then
-    STEP=$((STEP + 1))
     deps=""
     [ -n "$PREP_JOB" ] && deps="${deps:+$deps:}$PREP_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
-    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
-    CLO_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_clo" -l walltime=${WALLTIME_VEL} \
-        -v ${COMMON_VARS} \
-        scripts/preprocessing/build_closures.sh)
-    echo "[$STEP] Closures: $CLO_JOB${deps:+ (afterok $deps)}"
+    CLO_JOB=$(submit_job clo "$WALLTIME_VEL" \
+        scripts/preprocessing/build_closures.sh --deps "$deps")
 fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"
 [ -n "$CLO_JOB" ] && VEL_DEP="${VEL_DEP:+${VEL_DEP}:}$CLO_JOB"
 
-# 1f. diagnose_w (depends on: vel, runs 1-year simulation on GPU to save w)
-DIAGW_JOB=""
+# diagnose_w (depends on: vel, single GPU)
 if has_step diagnose_w; then
-    STEP=$((STEP + 1))
     deps=""
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
-    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
-    DIAGW_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_diagw" -l walltime=${WALLTIME_RUN_1YEAR} \
-        -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=${MEM_PER_GPU}GB \
-        -v ${COMMON_VARS} \
-        scripts/preprocessing/diagnose_w.sh)
-    echo "[$STEP] Diagnose w: $DIAGW_JOB${deps:+ (afterok $deps)} [1×GPU]"
+    DIAGW_JOB=$(submit_job diagw "$WALLTIME_RUN_1YEAR" \
+        scripts/preprocessing/diagnose_w.sh \
+        --gpu-single --deps "$deps")
 fi
 
 # Update VEL_DEP to include diagnose_w if it ran
@@ -331,118 +289,61 @@ if [ -n "$DIAGW_JOB" ]; then
     [ -n "$CLO_JOB" ] && VEL_DEP="${VEL_DEP}:${CLO_JOB}"
 fi
 
-# 1g. partition (depends on: vel/diagnose_w + grid, only if multi-rank)
-PARTITION_JOB=""
+# partition (depends on: vel/diagnose_w + clo + grid, only if multi-rank)
 if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
-    STEP=$((STEP + 1))
     deps=""
     [ -n "$VEL_JOB" ] && deps="${deps:+$deps:}$VEL_JOB"
     [ -n "$DIAGW_JOB" ] && deps="${deps:+$deps:}$DIAGW_JOB"
     [ -n "$CLO_JOB" ] && deps="${deps:+$deps:}$CLO_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
-    dep_flag=(); [ -n "$deps" ] && dep_flag=(-W "depend=afterok:${deps}")
-    PARTITION_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_partition" -l walltime=00:30:00 \
-        -q $CPU_QUEUE -l ngpus=0 -l ncpus=$CPU_NCPUS -l mem=$CPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
-        scripts/preprocessing/partition_data.sh)
-    echo "[$STEP] Partition (${PARTITION_X}x${PARTITION_Y}, CPU): $PARTITION_JOB${deps:+ (afterok $deps)}"
+    PARTITION_JOB=$(submit_job partition 00:30:00 \
+        scripts/preprocessing/partition_data.sh \
+        --cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
 fi
 
 # Update dependency: standard runs depend on partition (if it exists) or vel
-if [ -n "$PARTITION_JOB" ]; then
-    VEL_DEP="$PARTITION_JOB"
-fi
+[ -n "$PARTITION_JOB" ] && VEL_DEP="$PARTITION_JOB"
 
 # ============================================================
 # 2. Standard runs (depend on: vel or partition)
 # ============================================================
 
-# 2a. run1yr
-if has_step run1yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    RUN1YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_run1yr" -l walltime=${WALLTIME_RUN_1YEAR} \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
-        scripts/standard_runs/run_1year.sh)
-    echo "[$STEP] 1-year run: $RUN1YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
-fi
+has_step run1yr && \
+    RUN1YR_JOB=$(submit_job run1yr "$WALLTIME_RUN_1YEAR" \
+        scripts/standard_runs/run_1year.sh \
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION}")
 
-# 2b. run1yrfast — benchmark 1-year walltime (no output writers)
-if has_step run1yrfast; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    RUN1YRFAST_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_run1yrfast" -l walltime=${WALLTIME_RUN_1YEAR} \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION},PROFILE=${PROFILE:-no} \
-        scripts/standard_runs/run_1year_benchmark.sh)
-    echo "[$STEP] 1-year benchmark: $RUN1YRFAST_JOB${VEL_DEP:+ (afterok $VEL_DEP)}${PROFILE:+ [PROFILE=$PROFILE]}"
-fi
+has_step run1yrfast && \
+    RUN1YRFAST_JOB=$(submit_job run1yrfast "$WALLTIME_RUN_1YEAR" \
+        scripts/standard_runs/run_1year_benchmark.sh \
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION},PROFILE=${PROFILE:-no}")
 
-# 2c. run10yr (parallel with run1yr)
-if has_step run10yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    RUN10YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_run10yr" -l walltime=${WALLTIME_RUN_10YEARS} \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
-        scripts/standard_runs/run_10years.sh)
-    echo "[$STEP] 10-year run: $RUN10YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
-fi
+has_step run10yr && \
+    RUN10YR_JOB=$(submit_job run10yr "$WALLTIME_RUN_10YEARS" \
+        scripts/standard_runs/run_10years.sh \
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION}")
 
-# 2c. run100yr (parallel with run1yr)
-if has_step run100yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    RUN100YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_run100yr" -l walltime=${WALLTIME_RUN_100YEARS} \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
-        scripts/standard_runs/run_100years.sh)
-    echo "[$STEP] 100-year run: $RUN100YR_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
-fi
+has_step run100yr && \
+    RUN100YR_JOB=$(submit_job run100yr "$WALLTIME_RUN_100YEARS" \
+        scripts/standard_runs/run_100years.sh \
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION}")
 
-# 2d. runlong (parallel with run1yr)
-if has_step runlong; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    RUNLONG_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_runlong" -l walltime=${WALLTIME_RUN_LONG} \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},NYEARS=${NYEARS:-3000},PARTITION=${PARTITION} \
-        scripts/standard_runs/run_long.sh)
-    echo "[$STEP] Long run: $RUNLONG_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
-fi
+has_step runlong && \
+    RUNLONG_JOB=$(submit_job runlong "$WALLTIME_RUN_LONG" \
+        scripts/standard_runs/run_long.sh \
+        --gpu --deps "$VEL_DEP" --vars "NYEARS=${NYEARS:-3000},PARTITION=${PARTITION}")
 
 # ============================================================
 # 3. Transport matrix building
 # ============================================================
 
-# 3a. TMbuild — Jacobian from constant fields (depends on: vel)
-if has_step TMbuild; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "$VEL_DEP" ] && dep_flag=(-W "depend=afterok:${VEL_DEP}")
-    TMBUILD_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMbuild" -l walltime=${WALLTIME_TM_BUILD} \
-        -v ${COMMON_VARS} \
-        scripts/preprocessing/build_TMconst.sh)
-    echo "[$STEP] TM build (const): $TMBUILD_JOB${VEL_DEP:+ (afterok $VEL_DEP)}"
-fi
+has_step TMbuild && \
+    TMBUILD_JOB=$(submit_job TMbuild "$WALLTIME_TM_BUILD" \
+        scripts/preprocessing/build_TMconst.sh --deps "$VEL_DEP")
 
-# 3b. TMsnapshot — snapshot + averaged matrices (depends on: run1yr)
-if has_step TMsnapshot; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
-    TMSNAP_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_TMsnap" -l walltime=${WALLTIME_TM_SNAPSHOT} \
-        -v ${COMMON_VARS} \
-        scripts/preprocessing/build_TMavg.sh)
-    echo "[$STEP] TM snapshot+avg: $TMSNAP_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
-fi
+has_step TMsnapshot && \
+    TMSNAP_JOB=$(submit_job TMsnapshot "$WALLTIME_TM_SNAPSHOT" \
+        scripts/preprocessing/build_TMavg.sh --deps "${RUN1YR_JOB:-}")
 
 # ============================================================
 # 4. Transport matrix age solving (filtered by TM_SOURCE)
@@ -450,43 +351,27 @@ fi
 
 if has_step TMsolve; then
     if run_const; then
-        # 4a. const branch — CPU (Pardiso)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
-        TMSOLVE_CONST_CPU=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_TMslv_c" -l walltime=${WALLTIME_TM_SOLVE} \
-            -v ${COMMON_VARS},TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-            scripts/solvers/solve_TM_age_CPU.sh)
-        echo "[$STEP] TMsolve const/Pardiso: $TMSOLVE_CONST_CPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+        TMSOLVE_CONST_CPU=$(submit_job TMslv_c "$WALLTIME_TM_SOLVE" \
+            scripts/solvers/solve_TM_age_CPU.sh \
+            --deps "${TMBUILD_JOB:-}" \
+            --vars "TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}")
 
-        # 4b. const branch — GPU (CUDSS)
-        STEP=$((STEP + 1))
-        TMSOLVE_CONST_GPU=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_TMslv_cG" -l walltime=${WALLTIME_TM_SOLVE} \
-            -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=$GPU_MEM_SINGLE \
-            -v ${COMMON_VARS},TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-            scripts/solvers/solve_TM_age_GPU.sh)
-        echo "[$STEP] TMsolve const/CUDSS: $TMSOLVE_CONST_GPU${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
+        TMSOLVE_CONST_GPU=$(submit_job TMslv_cG "$WALLTIME_TM_SOLVE" \
+            scripts/solvers/solve_TM_age_GPU.sh \
+            --gpu-single --deps "${TMBUILD_JOB:-}" \
+            --vars "TM_SOURCE=const,LUMP_AND_SPRAY=${LUMP_AND_SPRAY}")
     fi
 
     if run_avg; then
-        # 4c. avg branch — CPU (Pardiso)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
-        TMSOLVE_AVG_CPU=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_TMslv_a" -l walltime=${WALLTIME_TM_SOLVE} \
-            -v ${COMMON_VARS},TM_SOURCE=avg,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-            scripts/solvers/solve_TM_age_CPU.sh)
-        echo "[$STEP] TMsolve avg/Pardiso: $TMSOLVE_AVG_CPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        TMSOLVE_AVG_CPU=$(submit_job TMslv_a "$WALLTIME_TM_SOLVE" \
+            scripts/solvers/solve_TM_age_CPU.sh \
+            --deps "${TMSNAP_JOB:-}" \
+            --vars "TM_SOURCE=avg,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}")
 
-        # 4d. avg branch — GPU (CUDSS)
-        STEP=$((STEP + 1))
-        TMSOLVE_AVG_GPU=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_TMslv_aG" -l walltime=${WALLTIME_TM_SOLVE} \
-            -q $GPU_QUEUE -l ngpus=1 -l ncpus=12 -l mem=$GPU_MEM_SINGLE \
-            -v ${COMMON_VARS},TM_SOURCE=avg,LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-            scripts/solvers/solve_TM_age_GPU.sh)
-        echo "[$STEP] TMsolve avg/CUDSS: $TMSOLVE_AVG_GPU${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
+        TMSOLVE_AVG_GPU=$(submit_job TMslv_aG "$WALLTIME_TM_SOLVE" \
+            scripts/solvers/solve_TM_age_GPU.sh \
+            --gpu-single --deps "${TMSNAP_JOB:-}" \
+            --vars "TM_SOURCE=avg,LUMP_AND_SPRAY=${LUMP_AND_SPRAY}")
     fi
 fi
 
@@ -494,202 +379,91 @@ fi
 # 5. Newton-Krylov solver (filtered by TM_SOURCE)
 # ============================================================
 
-if has_step NK; then
-    if run_const; then
-        # 5a. NK from const TM (depends on: TMbuild)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${TMBUILD_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMBUILD_JOB}")
-        NK_CONST=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_NK_c" -l walltime=${WALLTIME_NK} \
-            -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=const,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION} \
-            scripts/solvers/solve_periodic_NK.sh)
-        echo "[$STEP] NK const: $NK_CONST${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}"
-    fi
+NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION}"
 
-    if run_avg; then
-        # 5b. NK from avg TM (depends on: TMsnapshot)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${TMSNAP_JOB:-}" ] && dep_flag=(-W "depend=afterok:${TMSNAP_JOB}")
-        NK_AVG=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_NK_a" -l walltime=${WALLTIME_NK} \
-            -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},TM_SOURCE=avg,JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION} \
-            scripts/solvers/solve_periodic_NK.sh)
-        echo "[$STEP] NK avg: $NK_AVG${TMSNAP_JOB:+ (afterok $TMSNAP_JOB)}"
-    fi
+if has_step NK; then
+    run_const && \
+        NK_CONST=$(submit_job NK_c "$WALLTIME_NK" \
+            scripts/solvers/solve_periodic_NK.sh \
+            --gpu --deps "${TMBUILD_JOB:-}" --vars "TM_SOURCE=const,${NK_VARS}")
+
+    run_avg && \
+        NK_AVG=$(submit_job NK_a "$WALLTIME_NK" \
+            scripts/solvers/solve_periodic_NK.sh \
+            --gpu --deps "${TMSNAP_JOB:-}" --vars "TM_SOURCE=avg,${NK_VARS}")
 fi
 
 # ============================================================
 # 5b. Re-run 1yr from periodic solution (GPU, depends on NK)
-#     Filtered by TM_SOURCE
 # ============================================================
 
-if has_step run1yrNK; then
-    if run_const; then
-        # const branch (depends on NK const)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
-        RUNNK_CONST=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_run1yrNK_c" -l walltime=${WALLTIME_RUN_1YEAR} \
-            -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION} \
-            scripts/standard_runs/run_1year_from_periodic_sol.sh)
-        echo "[$STEP] Run NK 1yr (const): $RUNNK_CONST${NK_CONST:+ (afterok $NK_CONST)}"
-    fi
+RUNNK_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
-    if run_avg; then
-        # avg branch (depends on NK avg)
-        STEP=$((STEP + 1))
-        dep_flag=(); [ -n "${NK_AVG:-}" ] && dep_flag=(-W "depend=afterok:${NK_AVG}")
-        RUNNK_AVG=$(qsub "${dep_flag[@]}" \
-            -N "${MODEL_SHORT}_run1yrNK_a" -l walltime=${WALLTIME_RUN_1YEAR} \
-            -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-            -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION} \
-            scripts/standard_runs/run_1year_from_periodic_sol.sh)
-        echo "[$STEP] Run NK 1yr (avg): $RUNNK_AVG${NK_AVG:+ (afterok $NK_AVG)}"
-    fi
+if has_step run1yrNK; then
+    run_const && \
+        RUNNK_CONST=$(submit_job run1yrNK_c "$WALLTIME_RUN_1YEAR" \
+            scripts/standard_runs/run_1year_from_periodic_sol.sh \
+            --gpu --deps "${NK_CONST:-}" --vars "$RUNNK_VARS")
+
+    run_avg && \
+        RUNNK_AVG=$(submit_job run1yrNK_a "$WALLTIME_RUN_1YEAR" \
+            scripts/standard_runs/run_1year_from_periodic_sol.sh \
+            --gpu --deps "${NK_AVG:-}" --vars "$RUNNK_VARS")
 fi
 
 # ============================================================
 # 6. Plotting
 # ============================================================
 
-# 6a. plotTM (depends on: TMbuild + TMsnapshot — needs all matrix variants)
+# plotTM (depends on: TMbuild + TMsnapshot)
 if has_step plotTM; then
     deps=()
     [ -n "${TMBUILD_JOB:-}" ] && deps+=("${TMBUILD_JOB}")
     [ -n "${TMSNAP_JOB:-}" ] && deps+=("${TMSNAP_JOB}")
-    dep_flag=()
+    plotTM_deps=""
     if [ ${#deps[@]} -gt 0 ]; then
-        dep_str=$(IFS=:; echo "${deps[*]}")
-        dep_flag=(-W "depend=afterok:${dep_str}")
+        plotTM_deps=$(IFS=:; echo "${deps[*]}")
     fi
-    plot_tm_res=()
-    [ -n "${PLOT_TM_NCPUS:-}" ] && plot_tm_res+=(-l "ncpus=${PLOT_TM_NCPUS}")
-    [ -n "${PLOT_TM_MEM:-}" ] && plot_tm_res+=(-l "mem=${PLOT_TM_MEM}")
+    plotTM_overrides=()
+    [ -n "${PLOT_TM_NCPUS:-}" ] && plotTM_overrides+=(--ncpus "${PLOT_TM_NCPUS}")
+    [ -n "${PLOT_TM_MEM:-}" ] && plotTM_overrides+=(--mem "${PLOT_TM_MEM}")
     for pair in const:avg; do
         lx="${pair%%:*}"; ly="${pair#*:}"
-        STEP=$((STEP + 1))
-        job=$(qsub "${dep_flag[@]}" "${plot_tm_res[@]}" \
-            -N "${MODEL_SHORT}_plotTM_${ly}_vs_${lx}" -l walltime=${WALLTIME_PLOT} \
-            -v "${COMMON_VARS},TM_LABEL_X=${lx},TM_LABEL_Y=${ly}" \
-            scripts/plotting/plot_TM_datashader.sh)
-        PLOTTM_JOBS+=("$job"); PLOTTM_LABELS+=("${ly} vs ${lx}")
-        echo "[$STEP] Plot TM ${ly} vs ${lx}: $job${TMBUILD_JOB:+ (afterok $TMBUILD_JOB)}${TMSNAP_JOB:+, $TMSNAP_JOB}"
+        submit_job "plotTM_${ly}_vs_${lx}" "$WALLTIME_PLOT" \
+            scripts/plotting/plot_TM_datashader.sh \
+            --deps "$plotTM_deps" "${plotTM_overrides[@]}" \
+            --vars "TM_LABEL_X=${lx},TM_LABEL_Y=${ly}" > /dev/null
     done
 fi
 
-# 6b. plotNK (depends on: run1yrNK — needs the re-run snapshots)
-if has_step plotNK; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUNNK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${RUNNK_CONST}")
-    PLOTNK_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plotNK" -l walltime=${WALLTIME_PLOT_NK} \
-        -v ${COMMON_VARS},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY} \
-        scripts/plotting/plot_1year_from_periodic_sol.sh)
-    echo "[$STEP] Plot NK: $PLOTNK_JOB${RUNNK_CONST:+ (afterok $RUNNK_CONST)}"
-fi
+has_step plotNK && \
+    submit_job plotNK "$WALLTIME_PLOT_NK" \
+        scripts/plotting/plot_1year_from_periodic_sol.sh \
+        --deps "${RUNNK_CONST:-}" \
+        --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
 
-# 6c. plotNKtrace (depends on: NK — trace history plotting)
-if has_step plotNKtrace; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${NK_CONST:-}" ] && dep_flag=(-W "depend=afterok:${NK_CONST}")
-    PLOTNKTRACE_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plotNKtr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS} \
-        scripts/plotting/plot_trace_history_job.sh)
-    echo "[$STEP] Plot NK trace: $PLOTNKTRACE_JOB${NK_CONST:+ (afterok $NK_CONST)}"
-fi
+has_step plotNKtrace && \
+    submit_job plotNKtrace "$WALLTIME_PLOT" \
+        scripts/plotting/plot_trace_history_job.sh \
+        --deps "${NK_CONST:-}" > /dev/null
 
-# 6d. plot1yr (depends on: run1yr)
-if has_step plot1yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN1YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN1YR_JOB}")
-    PLOT1YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot1yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS},DURATION=1year \
-        scripts/plotting/plot_standardrun_age.sh)
-    echo "[$STEP] Plot 1yr: $PLOT1YR_JOB${RUN1YR_JOB:+ (afterok $RUN1YR_JOB)}"
-fi
+has_step plot1yr && \
+    submit_job plot1yr "$WALLTIME_PLOT" \
+        scripts/plotting/plot_standardrun_age.sh \
+        --deps "${RUN1YR_JOB:-}" --vars "DURATION=1year" > /dev/null
 
-# 6e. plot10yr (depends on: run10yr)
-if has_step plot10yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN10YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN10YR_JOB}")
-    PLOT10YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot10yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS},DURATION=10years \
-        scripts/plotting/plot_standardrun_age.sh)
-    echo "[$STEP] Plot 10yr: $PLOT10YR_JOB${RUN10YR_JOB:+ (afterok $RUN10YR_JOB)}"
-fi
+has_step plot10yr && \
+    submit_job plot10yr "$WALLTIME_PLOT" \
+        scripts/plotting/plot_standardrun_age.sh \
+        --deps "${RUN10YR_JOB:-}" --vars "DURATION=10years" > /dev/null
 
-# 6f. plot100yr (depends on: run100yr)
-if has_step plot100yr; then
-    STEP=$((STEP + 1))
-    dep_flag=(); [ -n "${RUN100YR_JOB:-}" ] && dep_flag=(-W "depend=afterok:${RUN100YR_JOB}")
-    PLOT100YR_JOB=$(qsub "${dep_flag[@]}" \
-        -N "${MODEL_SHORT}_plot100yr" -l walltime=${WALLTIME_PLOT} \
-        -v ${COMMON_VARS},DURATION=100years \
-        scripts/plotting/plot_standardrun_age.sh)
-    echo "[$STEP] Plot 100yr: $PLOT100YR_JOB${RUN100YR_JOB:+ (afterok $RUN100YR_JOB)}"
-fi
+has_step plot100yr && \
+    submit_job plot100yr "$WALLTIME_PLOT" \
+        scripts/plotting/plot_standardrun_age.sh \
+        --deps "${RUN100YR_JOB:-}" --vars "DURATION=100years" > /dev/null
 
 # ============================================================
 # Summary
 # ============================================================
 
-echo ""
-echo "=== $STEP jobs submitted for ${PARENT_MODEL} (TM_SOURCE=$TM_SOURCE) ==="
-echo ""
-
-# Flat summary — only shows submitted jobs, grouped by section
-has_any=false
-for label_job in \
-    "prep:$PREP_JOB" \
-    "grid:$GRID_JOB" \
-    "vel:$VEL_JOB" \
-    "clo:$CLO_JOB" \
-    "diagnose_w:$DIAGW_JOB" \
-    "run1yr:$RUN1YR_JOB" \
-    "run1yrfast:$RUN1YRFAST_JOB" \
-    "run10yr:$RUN10YR_JOB" \
-    "run100yr:$RUN100YR_JOB" \
-    "runlong:$RUNLONG_JOB" \
-    "TMbuild:$TMBUILD_JOB" \
-    "TMsnapshot:$TMSNAP_JOB" \
-    "TMsolve const/Pardiso:$TMSOLVE_CONST_CPU" \
-    "TMsolve const/CUDSS:$TMSOLVE_CONST_GPU" \
-    "TMsolve avg/Pardiso:$TMSOLVE_AVG_CPU" \
-    "TMsolve avg/CUDSS:$TMSOLVE_AVG_GPU" \
-    "NK const:$NK_CONST" \
-    "NK avg:$NK_AVG" \
-    "run1yrNK const:$RUNNK_CONST" \
-    "run1yrNK avg:$RUNNK_AVG" \
-; do
-    label="${label_job%%:*}"
-    job="${label_job#*:}"
-    if [ -n "$job" ]; then
-        printf "  %-25s %s\n" "$label" "$job"
-        has_any=true
-    fi
-done
-for i in "${!PLOTTM_JOBS[@]}"; do
-    printf "  %-25s %s\n" "plotTM ${PLOTTM_LABELS[$i]}" "${PLOTTM_JOBS[$i]}"
-    has_any=true
-done
-for label_job in \
-    "plotNK:$PLOTNK_JOB" \
-    "plotNKtrace:$PLOTNKTRACE_JOB" \
-    "plot1yr:$PLOT1YR_JOB" \
-    "plot10yr:$PLOT10YR_JOB" \
-    "plot100yr:$PLOT100YR_JOB" \
-; do
-    label="${label_job%%:*}"
-    job="${label_job#*:}"
-    if [ -n "$job" ]; then
-        printf "  %-25s %s\n" "$label" "$job"
-        has_any=true
-    fi
-done
-$has_any || echo "  (no jobs submitted)"
+print_summary "${PARENT_MODEL} (TM_SOURCE=$TM_SOURCE)"
