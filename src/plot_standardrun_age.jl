@@ -70,13 +70,7 @@ haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
-if GM_REDI
-    model_config = "$(model_config)_GMREDI"
-end
-if MONTHLY_KAPPAV
-    model_config = "$(model_config)_mkappaV"
-end
+model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 age_output_dir = joinpath(outputdir, "standardrun", model_config)
 

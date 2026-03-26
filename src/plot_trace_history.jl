@@ -52,7 +52,7 @@ include("shared_functions.jl")
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
+model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 NONLINEAR_SOLVER = get(ENV, "NONLINEAR_SOLVER", "anderson")
 solver_subdir = NONLINEAR_SOLVER == "newton" ? "NK" : "AA"

@@ -70,16 +70,9 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = "$(VELOCITY_SOURCE)_$(W_FORMULATION)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
-
 GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
-if GM_REDI
-    model_config = "$(model_config)_GMREDI"
-end
-if MONTHLY_KAPPAV
-    model_config = "$(model_config)_mkappaV"
-end
+model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 @info "Run configuration"
 @info "- PARENT_MODEL     = $parentmodel"

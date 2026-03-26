@@ -16,28 +16,32 @@
 #   compare   — compare serial vs distributed outputs (CPU, express queue)
 #               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
+#   prediagw  — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
 
 set -euo pipefail
 
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd "$repo_root"
 
-# Require clean git status before submitting jobs
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-    echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
-    git status --short >&2
-    exit 1
+# Require clean git status before submitting jobs (skip in dry-run mode)
+if [ "${DRY_RUN:-no}" != "yes" ]; then
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
+        git status --short >&2
+        exit 1
+    fi
 fi
 GIT_COMMIT=$(git rev-parse HEAD)
 
 source scripts/env_defaults.sh
+source scripts/submit_job.sh
 
 # --- Validate JOB_CHAIN ---
 JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -47,12 +51,6 @@ if [[ -z "$JOB_CHAIN" ]]; then
 fi
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
-
-# --- Partition + queue configuration ---
-# Already set by env_defaults.sh sourced above:
-#   GPU_QUEUE, PARTITION, PARTITION_X, PARTITION_Y, RANKS
-#   NGPUS, GPU_NCPUS, GPU_MEM, MEM_PER_GPU
-#   CPU_QUEUE, CPU_NCPUS, CPU_MEM, MEM_PER_CPU
 
 COMMON_VARS="PARENT_MODEL=${PARENT_MODEL},GIT_COMMIT=${GIT_COMMIT}"
 WALLTIME=00:30:00
@@ -64,127 +62,52 @@ echo "GIT_COMMIT=$GIT_COMMIT"
 echo "GPU_QUEUE=$GPU_QUEUE, PARTITION=$PARTITION (${PARTITION_X}x${PARTITION_Y}), RANKS=$RANKS, NGPUS=$NGPUS, GPU_MEM=$GPU_MEM"
 echo ""
 
-STEP=0
-HALOFILL_JOB="" HALOFILLCPU_JOB="" JLD2_JOB="" DIAG_JOB="" DIAGCPU_JOB="" DIAGCPUSERIAL_JOB="" COMPARE_JOB="" GRIDTEST_JOB="" MPI_JOB=""
+# --- Job submissions ---
 
-# --- halofill: fill_halo_regions! MWE (GPU) ---
-if has_step halofill; then
-    STEP=$((STEP + 1))
-    HALOFILL_JOB=$(qsub \
-        -N "${MODEL_SHORT}_halofill" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
-        scripts/tests/run_halofill_test.sh)
-    echo "[$STEP] halofill (GPU): $HALOFILL_JOB"
-fi
+has_step halofill && \
+    submit_job halofill "$WALLTIME" scripts/tests/run_halofill_test.sh \
+        --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION}" > /dev/null
 
-# --- halofillcpu: fill_halo_regions! MWE (CPU, 4 ranks, no GPUs) ---
-if has_step halofillcpu; then
-    STEP=$((STEP + 1))
-    HALOFILLCPU_JOB=$(qsub \
-        -N "${MODEL_SHORT}_halofillcpu" -l walltime=$WALLTIME \
-        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
-        -v ${COMMON_VARS} \
-        scripts/tests/run_halofill_test.sh)
-    echo "[$STEP] halofill (CPU): $HALOFILLCPU_JOB"
-fi
+has_step halofillcpu && \
+    submit_job halofillcpu "$WALLTIME" scripts/tests/run_halofill_test.sh \
+        --queue express --ngpus 0 --ncpus 4 --mem 47GB > /dev/null
 
-# --- jld2: JLD2Writer deadlock MWE (2 CPU ranks, express queue) ---
-if has_step jld2; then
-    STEP=$((STEP + 1))
-    JLD2_JOB=$(qsub \
-        -N "${MODEL_SHORT}_jld2" -l walltime=$WALLTIME \
-        -q express -l ngpus=0 -l ncpus=2 -l mem=16GB \
-        -v ${COMMON_VARS} \
-        scripts/tests/run_jld2writer_test.sh)
-    echo "[$STEP] jld2 (CPU): $JLD2_JOB"
-fi
+has_step jld2 && \
+    submit_job jld2 "$WALLTIME" scripts/tests/run_jld2writer_test.sh \
+        --queue express --ngpus 0 --ncpus 2 --mem 16GB > /dev/null
 
-# --- diag: 10-step diagnostic run ---
-if has_step diag; then
-    STEP=$((STEP + 1))
-    DIAG_JOB=$(qsub \
-        -N "${MODEL_SHORT}_diag" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
-        scripts/tests/run_diagnostic_steps.sh)
-    echo "[$STEP] diag: $DIAG_JOB"
-fi
+has_step diag && \
+    submit_job diag "$WALLTIME" scripts/tests/run_diagnostic_steps.sh \
+        --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION}" > /dev/null
 
-# --- diagcpu: 10-step diagnostic on CPU (distributed MPI, no GPUs, express queue) ---
-if has_step diagcpu; then
-    STEP=$((STEP + 1))
-    DIAGCPU_JOB=$(qsub \
-        -N "${MODEL_SHORT}_diagcpu" -l walltime=00:30:00 \
-        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
-        -v ${COMMON_VARS},PARTITION=${PARTITION} \
-        scripts/tests/run_diagnostic_steps.sh)
-    echo "[$STEP] diagcpu (CPU, ${PARTITION}): $DIAGCPU_JOB"
-fi
+has_step diagcpu && \
+    submit_job diagcpu 00:30:00 scripts/tests/run_diagnostic_steps.sh \
+        --queue express --ngpus 0 --ncpus 4 --mem 47GB \
+        --vars "PARTITION=${PARTITION}" > /dev/null
 
-# --- diagcpuserial: 10-step diagnostic on CPU (serial, no GPUs, express queue) ---
-if has_step diagcpuserial; then
-    STEP=$((STEP + 1))
-    DIAGCPUSERIAL_JOB=$(qsub \
-        -N "${MODEL_SHORT}_diagcpuser" -l walltime=00:30:00 \
-        -q express -l ngpus=0 -l ncpus=1 -l mem=47GB \
-        -v ${COMMON_VARS} \
-        scripts/tests/run_diagnostic_steps.sh)
-    echo "[$STEP] diagcpuserial (CPU, serial): $DIAGCPUSERIAL_JOB"
-fi
+has_step diagcpuserial && \
+    submit_job diagcpuserial 00:30:00 scripts/tests/run_diagnostic_steps.sh \
+        --queue express --ngpus 0 --ncpus 1 --mem 47GB > /dev/null
 
-# --- compare: compare serial vs distributed outputs (CPU, express queue) ---
 if has_step compare; then
-    STEP=$((STEP + 1))
     DURATION_TAG=${DURATION_TAG:-diag}
     GPU_TAG="${PARTITION_X}x${PARTITION_Y}"
-    COMPARE_JOB=$(qsub \
-        -N "${MODEL_SHORT}_compare" -l walltime=01:00:00 \
-        -q express -l ngpus=0 -l ncpus=12 -l mem=47GB \
-        -v ${COMMON_VARS},GPU_TAG=${GPU_TAG},DURATION_TAG=${DURATION_TAG} \
-        scripts/plotting/compare_runs_across_architectures.sh)
-    echo "[$STEP] compare (CPU, GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG): $COMPARE_JOB"
+    submit_job compare 01:00:00 scripts/plotting/compare_runs_across_architectures.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "GPU_TAG=${GPU_TAG},DURATION_TAG=${DURATION_TAG}" > /dev/null
 fi
 
-# --- gridtest: grid identity test (CPU, 4 ranks, express queue) ---
-if has_step gridtest; then
-    STEP=$((STEP + 1))
-    GRIDTEST_JOB=$(qsub \
-        -N "${MODEL_SHORT}_gridtest" -l walltime=00:30:00 \
-        -q express -l ngpus=0 -l ncpus=4 -l mem=47GB \
-        -v ${COMMON_VARS} \
-        scripts/tests/run_grid_identity_test.sh)
-    echo "[$STEP] gridtest (CPU, 4 ranks): $GRIDTEST_JOB"
-fi
+has_step gridtest && \
+    submit_job gridtest 00:30:00 scripts/tests/run_grid_identity_test.sh \
+        --queue express --ngpus 0 --ncpus 4 --mem 47GB > /dev/null
 
-# --- mpi: MPI smoke test ---
-if has_step mpi; then
-    STEP=$((STEP + 1))
-    MPI_JOB=$(qsub \
-        -N "${MODEL_SHORT}_mpi" -l walltime=$WALLTIME \
-        -q $GPU_QUEUE -l ngpus=$NGPUS -l ncpus=$GPU_NCPUS -l mem=$GPU_MEM \
-        -v ${COMMON_VARS},GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION} \
-        scripts/tests/run_mpi_test.sh)
-    echo "[$STEP] mpi: $MPI_JOB"
-fi
+has_step mpi && \
+    submit_job mpi "$WALLTIME" scripts/tests/run_mpi_test.sh \
+        --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION}" > /dev/null
 
-echo ""
-echo "=== $STEP jobs submitted for ${PARENT_MODEL} ==="
-echo ""
-for label_job in \
-    "halofill:$HALOFILL_JOB" \
-    "halofillcpu:$HALOFILLCPU_JOB" \
-    "jld2:$JLD2_JOB" \
-    "diag:$DIAG_JOB" \
-    "diagcpu:$DIAGCPU_JOB" \
-    "diagcpuserial:$DIAGCPUSERIAL_JOB" \
-    "compare:$COMPARE_JOB" \
-    "gridtest:$GRIDTEST_JOB" \
-    "mpi:$MPI_JOB" \
-; do
-    label="${label_job%%:*}"
-    job="${label_job#*:}"
-    if [ -n "$job" ]; then
-        printf "  %-24s %s\n" "$label" "$job"
-    fi
-done
+has_step prediagw && \
+    submit_job prediagw 01:00:00 scripts/plotting/compare_prescribed_vs_diagnosed_w.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB > /dev/null
+
+# --- Summary ---
+print_summary "${PARENT_MODEL}"

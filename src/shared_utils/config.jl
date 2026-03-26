@@ -19,6 +19,19 @@ function parse_config_env()
     return (; VELOCITY_SOURCE = VS, W_FORMULATION = WF, ADVECTION_SCHEME = AS, TIMESTEPPER = TS)
 end
 
+"""Build the unified MODEL_CONFIG directory tag from parsed config + optional env flags."""
+function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+    wf_tag = W_FORMULATION
+    if W_FORMULATION == "wprescribed"
+        pw = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
+        wf_tag = pw == "diagnosed" ? "wprediag" : "wparent"
+    end
+    mc = "$(VELOCITY_SOURCE)_$(wf_tag)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
+    lowercase(get(ENV, "GM_REDI", "no")) == "yes" && (mc = "$(mc)_GMREDI")
+    lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
+    return mc
+end
+
 """Convert ADVECTION_SCHEME string to Oceananigans advection object."""
 function advection_from_scheme(s::AbstractString)
     return s == "centered2" ? Centered(order = 2) :
