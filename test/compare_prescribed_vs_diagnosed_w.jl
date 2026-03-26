@@ -209,6 +209,33 @@ for (a, b) in pairs
         lowclip = :blue, highclip = :red,
     )
 
+    # Relative difference (reference = wdiagnosed; skip where age too small)
+    ref = age_fields[a]
+    reldiff = similar(diff)
+    for i in eachindex(diff)
+        if wet3D[i] && abs(ref[i]) > 1.0e-10
+            reldiff[i] = diff[i] / ref[i]
+        else
+            reldiff[i] = NaN
+        end
+    end
+    wet_reldiff = filter(!isnan, reldiff[wet3D])
+
+    if !isempty(wet_reldiff)
+        mean_abs_reldiff = mean(abs, wet_reldiff)
+        reldiff_scale = mean_abs_reldiff > 0 ? 3 * mean_abs_reldiff : 1.0e-10
+        reldiff_range = (-reldiff_scale, reldiff_scale)
+        reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
+        @info "Plotting relative difference: $pair_label (mean|reldiff| = $(@sprintf("%.2e", mean_abs_reldiff)))"
+        plot_age_diagnostics(
+            reldiff, grid, wet3D, vol_3D, plot_output_dir,
+            "reldiff_$(DURATION_TAG)_$(file_tag)";
+            colorrange = reldiff_range, levels = reldiff_levels,
+            colormap = cgrad(:balance, n_levels - 1, categorical = true),
+            lowclip = :blue, highclip = :red,
+        )
+    end
+
     flush(stdout); flush(stderr)
 end
 
