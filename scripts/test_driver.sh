@@ -18,6 +18,7 @@
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
 #   prediagw    — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
 #   prediagwNK  — compare NK periodic age from wdiagnosed vs wprescribed (parent & prediag)
+#   mkappaVNK   — compare NK periodic age: yearly vs monthly kappaV
 
 set -euo pipefail
 
@@ -42,7 +43,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK mkappaVNK"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -136,6 +137,16 @@ if has_step prediagwNK; then
     submit_job prediagwNK_dd 01:00:00 scripts/plotting/compare_runs.sh \
         --queue express --ngpus 0 --ncpus 12 --mem 47GB \
         --vars "SOURCE_A=NK:${DIAG}:${STAG},SOURCE_B=NK:${PREDIAG}:${STAG},COMPARE_LABEL=w_NK_diag_vs_prediag" > /dev/null
+fi
+
+# mkappaVNK: compare NK periodic age with yearly vs monthly kappaV
+if has_step mkappaVNK; then
+    BASE="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
+    MKAPPAV="${BASE}_mkappaV"
+    STAG="${LINEAR_SOLVER}_$([ "$LUMP_AND_SPRAY" = "yes" ] && echo LSprec || echo prec)"
+    submit_job mkappaVNK 01:00:00 scripts/plotting/compare_runs.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "SOURCE_A=NK:${BASE}:${STAG},SOURCE_B=NK:${MKAPPAV}:${STAG},COMPARE_LABEL=NK_yearly_vs_monthly_kappaV" > /dev/null
 fi
 
 # --- Summary ---
