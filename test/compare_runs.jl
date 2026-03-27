@@ -181,23 +181,31 @@ tag_b = spec_b.model_config
 type_a = String(spec_a.type)
 type_b = String(spec_b.type)
 
+# Reference age colorrange: fixed for NK, adaptive for serial
+if spec_a.type == :NK
+    ref_levels = 1:100:1600
+    ref_colorrange = (first(ref_levels), last(ref_levels))
+else
+    (; colorrange, levels) = adaptive_colorrange(age_a, wet3D; n_levels)
+    ref_colorrange = colorrange
+    ref_levels = levels
+end
+
 # Reference age: A
 @info "Plotting reference age: $tag_a ($type_a)"
-(; colorrange, levels) = adaptive_colorrange(age_a, wet3D; n_levels)
 plot_age_diagnostics(
     age_a, grid, wet3D, vol_3D, plot_output_dir,
     "age_$(tag_a)";
-    colorrange, levels,
+    colorrange = ref_colorrange, levels = ref_levels,
     title_prefix = "age ($type_a) $tag_a",
 )
 
 # Reference age: B
 @info "Plotting reference age: $tag_b ($type_b)"
-(; colorrange, levels) = adaptive_colorrange(age_b, wet3D; n_levels)
 plot_age_diagnostics(
     age_b, grid, wet3D, vol_3D, plot_output_dir,
     "age_$(tag_b)";
-    colorrange, levels,
+    colorrange = ref_colorrange, levels = ref_levels,
     title_prefix = "age ($type_b) $tag_b",
 )
 
