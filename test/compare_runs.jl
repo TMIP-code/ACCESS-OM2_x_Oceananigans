@@ -175,26 +175,34 @@ function adaptive_colorrange(age, wet3D; n_levels = 11)
     return (; colorrange = (lo, hi), levels)
 end
 
+# Short tags for filenames and titles
+tag_a = spec_a.model_config
+tag_b = spec_b.model_config
+type_a = String(spec_a.type)
+type_b = String(spec_b.type)
+
 # Reference age: A
-@info "Plotting reference age: A ($label_a)"
+@info "Plotting reference age: $tag_a ($type_a)"
 (; colorrange, levels) = adaptive_colorrange(age_a, wet3D; n_levels)
 plot_age_diagnostics(
     age_a, grid, wet3D, vol_3D, plot_output_dir,
-    "age_A";
+    "age_$(tag_a)";
     colorrange, levels,
+    title_prefix = "age ($type_a) $tag_a",
 )
 
 # Reference age: B
-@info "Plotting reference age: B ($label_b)"
+@info "Plotting reference age: $tag_b ($type_b)"
 (; colorrange, levels) = adaptive_colorrange(age_b, wet3D; n_levels)
 plot_age_diagnostics(
     age_b, grid, wet3D, vol_3D, plot_output_dir,
-    "age_B";
+    "age_$(tag_b)";
     colorrange, levels,
+    title_prefix = "age ($type_b) $tag_b",
 )
 
 # Absolute difference
-@info "Plotting absolute difference"
+@info "Plotting absolute difference: $tag_b minus $tag_a"
 wet_diff = diff[wet3D]
 mean_abs_diff = mean(abs, wet_diff)
 diff_scale = mean_abs_diff > 0 ? 3 * mean_abs_diff : 1.0e-10
@@ -202,11 +210,12 @@ diff_range = (-diff_scale, diff_scale)
 diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
 plot_age_diagnostics(
     diff, grid, wet3D, vol_3D, plot_output_dir,
-    "diff_B_minus_A";
+    "diff_$(tag_b)_minus_$(tag_a)";
     colorrange = diff_range, levels = diff_levels,
     colormap = cgrad(:balance, n_levels - 1, categorical = true),
     lowclip = :blue, highclip = :red,
     colorbar_label = "Δage (years)",
+    title_prefix = "Δage: $tag_b − $tag_a",
 )
 
 # Relative difference
@@ -217,11 +226,12 @@ if !isempty(wet_reldiff)
     reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
     plot_age_diagnostics(
         reldiff, grid, wet3D, vol_3D, plot_output_dir,
-        "reldiff_B_minus_A";
+        "reldiff_$(tag_b)_minus_$(tag_a)";
         colorrange = reldiff_range, levels = reldiff_levels,
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
         lowclip = :blue, highclip = :red,
         colorbar_label = "Δage / age",
+        title_prefix = "Δage/age: $tag_b − $tag_a",
     )
 end
 

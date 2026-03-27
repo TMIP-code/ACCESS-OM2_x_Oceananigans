@@ -152,6 +152,7 @@ function plot_age_diagnostics(
         target_depths = [100, 200, 500, 1000, 2000, 3000],
         target_k_indices = Int[],
         colorbar_label = "Age (years)",
+        title_prefix = label,
     )
     mkpath(output_dir)
 
@@ -188,7 +189,7 @@ function plot_age_diagnostics(
         fig = Figure(; size = (800, 500))
         ax = Axis(
             fig[1, 1];
-            title = "$label — $basin_name zonal average",
+            title = "$title_prefix — $basin_name zonal average",
             xlabel = "Latitude",
             ylabel = "Depth (m)",
             backgroundcolor = :lightgray,
@@ -227,7 +228,7 @@ function plot_age_diagnostics(
         fig = Figure(; size = (1000, 500))
         ax = Axis(
             fig[1, 1];
-            title = "$label at $title_tag",
+            title = "$title_prefix at $title_tag",
         )
 
         hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip, highclip)
