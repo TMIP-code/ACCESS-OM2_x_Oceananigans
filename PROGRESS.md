@@ -38,37 +38,37 @@ Full plan: `.claude/plans/compiled-seeking-mountain.md`
 
 ### ACCESS-OM2-1 (1deg)
 
-| # | TIME_WINDOW | Label | Prep | 1yr Run (wall) | NK Solve (Φ calls) | NK Plots |
-|---|-------------|-------|------|----------------|-------------------|----------|
-| 1 | `1958-1987` | First 30yr | submitted | - | - | - |
-| 2 | `1989-2018` | Last 30yr | submitted | - | - | - |
-| 3 | `1958-1977` | First 20yr | submitted | - | - | - |
-| 4 | `1999-2018` | Last 20yr | submitted | - | - | - |
-| 5 | `1958-1967` | First 10yr | submitted | - | - | - |
-| 6 | `2009-2018` | Last 10yr | submitted | - | - | - |
-| 7 | `1963-1972` | Max AABW 10yr (-16.6 Sv) | submitted | - | - | - |
-| 8 | `2006-2015` | Min AABW 10yr (-11.7 Sv) | submitted | - | - | - |
-| 9 | `1964-1966` | Max AABW 3yr (-17.9 Sv) | submitted | - | - | - |
-| 10 | `1998-2000` | Min AABW 3yr (-10.7 Sv) | submitted | - | - | - |
-| 11 | `1964` | Max AABW 1yr (-18.7 Sv) | submitted | - | - | - |
-| 12 | `2010` | Min AABW 1yr (-9.3 Sv) | submitted | - | - | - |
+| # | TIME_WINDOW | Label | prep | vel | clo | diagw | 1yr Run (wall) | TM Build | NK Solve (Φ calls) | NK Plots |
+|---|-------------|-------|------|-----|-----|-------|----------------|----------|-------------------|----------|
+| 1 | `1958-1987` | First 30yr | Q | - | - | - | - | - | - | - |
+| 2 | `1989-2018` | Last 30yr | Q | - | - | - | - | - | - | - |
+| 3 | `1958-1977` | First 20yr | Q | - | - | - | - | - | - | - |
+| 4 | `1999-2018` | Last 20yr | Q | - | - | - | - | - | - | - |
+| 5 | `1958-1967` | First 10yr | Q | - | - | - | - | - | - | - |
+| 6 | `2009-2018` | Last 10yr | Q | - | - | - | - | - | - | - |
+| 7 | `1963-1972` | Max AABW 10yr (-16.6 Sv) | Q | - | - | - | - | - | - | - |
+| 8 | `2006-2015` | Min AABW 10yr (-11.7 Sv) | Q | - | - | - | - | - | - | - |
+| 9 | `1964-1966` | Max AABW 3yr (-17.9 Sv) | Q | - | - | - | - | - | - | - |
+| 10 | `1998-2000` | Min AABW 3yr (-10.7 Sv) | Q | - | - | - | - | - | - | - |
+| 11 | `1964` | Max AABW 1yr (-18.7 Sv) | Q | - | - | - | - | - | - | - |
+| 12 | `2010` | Min AABW 1yr (-9.3 Sv) | Q | - | - | - | - | - | - | - |
 
 ### ACCESS-OM2-025 (0.25deg)
 
-| # | TIME_WINDOW | Label | Prep | 1yr Run (wall) | NK Solve (Φ calls) | NK Plots |
-|---|-------------|-------|------|----------------|-------------------|----------|
-| 1 | `1958-1987` | First 30yr | submitted | - | - | - |
-| 2 | `1989-2018` | Last 30yr | submitted | - | - | - |
-| 3 | `1958-1977` | First 20yr | submitted | - | - | - |
-| 4 | `1999-2018` | Last 20yr | submitted | - | - | - |
-| 5 | `1958-1967` | First 10yr | submitted | - | - | - |
-| 6 | `2009-2018` | Last 10yr | submitted | - | - | - |
-| 7 | `1963-1972` | Max AABW 10yr (-10.3 Sv) | submitted | - | - | - |
-| 8 | `2006-2015` | Min AABW 10yr (-6.8 Sv) | submitted | - | - | - |
-| 9 | `1980-1982` | Max AABW 3yr (-11.2 Sv) | submitted | - | - | - |
-| 10 | `1998-2000` | Min AABW 3yr (-6.4 Sv) | submitted | - | - | - |
-| 11 | `1980` | Max AABW 1yr (-12.8 Sv) | submitted | - | - | - |
-| 12 | `1998` | Min AABW 1yr (-5.3 Sv) | submitted | - | - | - |
+| # | TIME_WINDOW | Label | prep | vel | clo | diagw | 1yr Run (wall) | TM Build | NK Solve (Φ calls) | NK Plots |
+|---|-------------|-------|------|-----|-----|-------|----------------|----------|-------------------|----------|
+| 1 | `1958-1987` | First 30yr | ✓ | ✓ | ✓ | R | - | - | - | - |
+| 2 | `1989-2018` | Last 30yr | ✓ | ✓ | ✓ | R | - | - | - | - |
+| 3 | `1958-1977` | First 20yr | ✓ | ✓ | ✓ | ✓ | - | - | - | - |
+| 4 | `1999-2018` | Last 20yr | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 5 | `1958-1967` | First 10yr | ✓ | ✓ | ✓ | R | - | - | - | - |
+| 6 | `2009-2018` | Last 10yr | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 7 | `1963-1972` | Max AABW 10yr (-10.3 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 8 | `2006-2015` | Min AABW 10yr (-6.8 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 9 | `1980-1982` | Max AABW 3yr (-11.2 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 10 | `1998-2000` | Min AABW 3yr (-6.4 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 11 | `1980` | Max AABW 1yr (-12.8 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
+| 12 | `1998` | Min AABW 1yr (-5.3 Sv) | ✓ | ✓ | ✓ | Q | - | - | - | - |
 
 AABW metric: min(ψ_depthspace) for lat ≤ 50°S. Plots: `outputs/{model}/{experiment}/AABW/`
 
