@@ -231,7 +231,8 @@ if __name__ == "__main__":
     # Dask distributed client is required for parallel NetCDF I/O.
     # Without it, dask falls back to the threaded scheduler and netCDF4
     # segfaults because it is not thread-safe.
-    client = Client(n_workers=48, threads_per_worker=1)
+    n_workers = int(os.environ.get("PBS_NCPUS", os.cpu_count() or 48))
+    client = Client(n_workers=n_workers, threads_per_worker=1)
     print(f"Dask client: {client}")
 
     # ── Load catalog ────────────────────────────────────────────────────
