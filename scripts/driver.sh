@@ -244,7 +244,8 @@ NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
 
 has_step prep && \
     PREP_JOB=$(submit_job prep "$WALLTIME_PREP" \
-        scripts/prepreprocessing/periodicaverage.sh)
+        scripts/prepreprocessing/periodicaverage.sh \
+        --ncpus "${PREP_NCPUS:-48}" --mem "${PREP_MEM:-192GB}")
 
 has_step grid && \
     GRID_JOB=$(submit_job grid "$WALLTIME_GRID" \

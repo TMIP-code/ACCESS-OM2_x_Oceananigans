@@ -7,7 +7,9 @@ MODEL_SHORT=OM2-1
 GPU_QUEUE=${GPU_QUEUE:-gpuvolta}
 
 # --- Preprocessing ---
-WALLTIME_PREP=12:00:00
+WALLTIME_PREP=01:00:00            # actual ~16min (full), ~2min (cached)
+PREP_NCPUS=10
+PREP_MEM=40GB                     # actual ~20-45GB
 WALLTIME_GRID=00:30:00
 WALLTIME_VEL=00:30:00
 

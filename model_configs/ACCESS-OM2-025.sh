@@ -10,7 +10,9 @@ GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 CPU_QUEUE=${CPU_QUEUE:-hugemem}
 
 # --- Preprocessing ---
-WALLTIME_PREP=12:00:00
+WALLTIME_PREP=03:00:00            # actual ~25min (full)
+PREP_NCPUS=48
+PREP_MEM=192GB                    # actual ~160GB
 WALLTIME_GRID=00:30:00
 WALLTIME_VEL=01:00:00
 
