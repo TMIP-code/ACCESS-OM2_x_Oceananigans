@@ -26,7 +26,7 @@ WALLTIME_RUN_LONG=48:00:00
 WALLTIME_NK=48:00:00
 
 # --- Transport matrix: Jacobian build (create_matrix.jl) ---
-WALLTIME_TM_BUILD=00:30:00
+WALLTIME_TM_BUILD=02:00:00       # actual ~1h13m, 178GB mem
 
 # --- Transport matrix: snapshot + averaging (create_snapshot_matrices.jl) ---
 WALLTIME_TM_SNAPSHOT=01:00:00

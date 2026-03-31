@@ -38,37 +38,41 @@ Full plan: `.claude/plans/compiled-seeking-mountain.md`
 
 ### ACCESS-OM2-1 (1deg)
 
+Resubmitted full pipeline (prep overwrites all files to fix corrupt v from earlier failed run).
+
 | # | TIME_WINDOW | Label | prep | vel | clo | diagw | 1yr Run (wall) | TM Build | NK Solve (Φ calls) | NK Plots |
 |---|-------------|-------|------|-----|-----|-------|----------------|----------|-------------------|----------|
-| 1 | `1958-1987` | First 30yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 2 | `1989-2018` | Last 30yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 3 | `1958-1977` | First 20yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 4 | `1999-2018` | Last 20yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 5 | `1958-1967` | First 10yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 6 | `2009-2018` | Last 10yr | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 7 | `1963-1972` | Max AABW 10yr (-16.6 Sv) | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 8 | `2006-2015` | Min AABW 10yr (-11.7 Sv) | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 9 | `1964-1966` | Max AABW 3yr (-17.9 Sv) | ✓ | ✓ | ✓ | ✓ | ~9 min | ✓ | R | - |
-| 10 | `1998-2000` | Min AABW 3yr (-10.7 Sv) | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | R | - |
-| 11 | `1964` | Max AABW 1yr (-18.7 Sv) | ✓ | ✓ | ✓ | ✓ | ~9 min | ✓ | FAIL (zero pivot) | - |
-| 12 | `2010` | Min AABW 1yr (-9.3 Sv) | ✓ | ✓ | ✓ | ✓ | ~10 min | ✓ | FAIL (zero pivot) | - |
+| 1 | `1958-1987` | First 30yr | ✓ | R | ✓ | H | - | - | - | - |
+| 2 | `1989-2018` | Last 30yr | ✓ | R | ✓ | H | - | - | - | - |
+| 3 | `1958-1977` | First 20yr | ✓ | R | ✓ | H | - | - | - | - |
+| 4 | `1999-2018` | Last 20yr | ✓ | R | ✓ | H | - | - | - | - |
+| 5 | `1958-1967` | First 10yr | ✓ | R | ✓ | H | - | - | - | - |
+| 6 | `2009-2018` | Last 10yr | ✓ | R | ✓ | H | - | - | - | - |
+| 7 | `1963-1972` | Max AABW 10yr (-16.6 Sv) | ✓ | R | ✓ | H | - | - | - | - |
+| 8 | `2006-2015` | Min AABW 10yr (-11.7 Sv) | ✓ | R | ✓ | H | - | - | - | - |
+| 9 | `1964-1966` | Max AABW 3yr (-17.9 Sv) | ✓ | R | ✓ | H | - | - | - | - |
+| 10 | `1998-2000` | Min AABW 3yr (-10.7 Sv) | ✓ | R | ✓ | H | - | - | - | - |
+| 11 | `1964` | Max AABW 1yr (-18.7 Sv) | ✓ | R | ✓ | H | - | - | - | - |
+| 12 | `2010` | Min AABW 1yr (-9.3 Sv) | ✓ | R | ✓ | H | - | - | - | - |
 
 ### ACCESS-OM2-025 (0.25deg)
 
+TMbuild needs walltime increase (all 12 hit 30min limit). run1yr progressing (2 done, 3 running).
+
 | # | TIME_WINDOW | Label | prep | vel | clo | diagw | 1yr Run (wall) | TM Build | NK Solve (Φ calls) | NK Plots |
 |---|-------------|-------|------|-----|-----|-------|----------------|----------|-------------------|----------|
-| 1 | `1958-1987` | First 30yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 2 | `1989-2018` | Last 30yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 3 | `1958-1977` | First 20yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 4 | `1999-2018` | Last 20yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 5 | `1958-1967` | First 10yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 6 | `2009-2018` | Last 10yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 7 | `1963-1972` | Max AABW 10yr (-10.3 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 8 | `2006-2015` | Min AABW 10yr (-6.8 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 9 | `1980-1982` | Max AABW 3yr (-11.2 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 10 | `1998-2000` | Min AABW 3yr (-6.4 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 11 | `1980` | Max AABW 1yr (-12.8 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
-| 12 | `1998` | Min AABW 1yr (-5.3 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (walltime) | - | - |
+| 1 | `1958-1987` | First 30yr | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 2 | `1989-2018` | Last 30yr | ✓ | ✓ | ✓ | ✓ | ~20 min | FAIL (30min walltime) | - | - |
+| 3 | `1958-1977` | First 20yr | ✓ | ✓ | ✓ | ✓ | ~21 min | FAIL (30min walltime) | - | - |
+| 4 | `1999-2018` | Last 20yr | ✓ | ✓ | ✓ | ✓ | R | FAIL (30min walltime) | - | - |
+| 5 | `1958-1967` | First 10yr | ✓ | ✓ | ✓ | ✓ | R | FAIL (30min walltime) | - | - |
+| 6 | `2009-2018` | Last 10yr | ✓ | ✓ | ✓ | ✓ | R | FAIL (30min walltime) | - | - |
+| 7 | `1963-1972` | Max AABW 10yr (-10.3 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 8 | `2006-2015` | Min AABW 10yr (-6.8 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 9 | `1980-1982` | Max AABW 3yr (-11.2 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 10 | `1998-2000` | Min AABW 3yr (-6.4 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 11 | `1980` | Max AABW 1yr (-12.8 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
+| 12 | `1998` | Min AABW 1yr (-5.3 Sv) | ✓ | ✓ | ✓ | ✓ | Q | FAIL (30min walltime) | - | - |
 
 AABW metric: min(ψ_depthspace) for lat ≤ 50°S. Plots: `outputs/{model}/{experiment}/AABW/`
 
