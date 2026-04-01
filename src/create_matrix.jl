@@ -41,7 +41,7 @@ flush(stdout); flush(stderr)
     Cache(ADc_buf), Cache(GADc_buf),
 )
 
-M = copy(jac_buffer)  # units: 1/s
+M = jac_buffer  # units: 1/s
 @info "Jacobian M ($(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M)), density=$(@sprintf("%.2e", nnz(M) / length(M))))"
 flush(stdout); flush(stderr)
 @info "Sparsity pattern of M:"
@@ -58,7 +58,7 @@ plt = spy!(
     0.5 .. size(M, 2) + 0.5,
     M;
     colormap = :coolwarm,
-    colorrange = maximum(abs.(M)) .* (-1, 1),
+    colorrange = maximum(abs, M.nzval) .* (-1, 1),
     markersize = size(M, 2) / 1000,
 )
 ylims!(ax, size(M, 2) + 0.5, 0.5)
