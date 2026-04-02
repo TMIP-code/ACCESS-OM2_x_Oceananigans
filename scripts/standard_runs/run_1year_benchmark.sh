@@ -50,6 +50,7 @@ if [ "$PROFILE" = "yes" ] && [ "$NGPUS" -gt 1 ]; then
         nsys profile \
             --trace=nvtx,cuda,mpi \
             --cuda-memory-usage=true \
+            --capture-range=nvtx --nvtx-capture=benchmark \
             --force-overwrite=true \
             --output=${profile_base}_rank\${OMPI_COMM_WORLD_RANK} \
             $JULIA_CMD src/run_1year_benchmark.jl
@@ -58,6 +59,7 @@ elif [ "$PROFILE" = "yes" ]; then
     echo "Running with serial profiling"
     echo "logging output in $log_file"
     nsys profile --trace=nvtx,cuda --cuda-memory-usage=true \
+        --capture-range=nvtx --nvtx-capture=benchmark \
         --force-overwrite=true --output="${profile_base}" \
         $JULIA_CMD src/run_1year_benchmark.jl &> "$log_file"
 elif [ "$NGPUS" -gt 1 ]; then
