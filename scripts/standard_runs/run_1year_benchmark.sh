@@ -27,6 +27,8 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 
 # Nsight Systems profiling: set PROFILE=yes to wrap the run with nsys profile.
 # Produces .nsys-rep files in the log directory for analysis with Nsight Systems GUI.
+# Uses --capture-range=cudaProfilerApi so nsys only records data during the
+# benchmark section (CUDA.@profile external=true in run_1year_benchmark.jl).
 # Serial: nsys wraps julia directly (--trace=nvtx,cuda).
 # Distributed: bash -c wrapper profiles each rank with MPI tracing (--trace=nvtx,cuda,mpi).
 # Also sets JULIA_NVTX_CALLBACKS=gc to trace Julia GC events.
@@ -50,7 +52,7 @@ if [ "$PROFILE" = "yes" ] && [ "$NGPUS" -gt 1 ]; then
         nsys profile \
             --trace=nvtx,cuda,mpi \
             --cuda-memory-usage=true \
-            --capture-range=nvtx --nvtx-capture=benchmark \
+            --capture-range=cudaProfilerApi --capture-range-end=stop \
             --force-overwrite=true \
             --output=${profile_base}_rank\${OMPI_COMM_WORLD_RANK} \
             $JULIA_CMD src/run_1year_benchmark.jl
@@ -59,7 +61,7 @@ elif [ "$PROFILE" = "yes" ]; then
     echo "Running with serial profiling"
     echo "logging output in $log_file"
     nsys profile --trace=nvtx,cuda --cuda-memory-usage=true \
-        --capture-range=nvtx --nvtx-capture=benchmark \
+        --capture-range=cudaProfilerApi --capture-range-end=stop \
         --force-overwrite=true --output="${profile_base}" \
         $JULIA_CMD src/run_1year_benchmark.jl &> "$log_file"
 elif [ "$NGPUS" -gt 1 ]; then
