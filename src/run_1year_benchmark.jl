@@ -11,8 +11,12 @@ Environment variables (same as run_1year.jl):
   BENCHMARK_STEPS – if set, override stop_time to BENCHMARK_STEPS × Δt (e.g., 20 for profiling)
 """
 
-include("setup_model.jl")
-include("setup_simulation.jl")
+using NVTX
+
+NVTX.@range "setup" begin
+    include("setup_model.jl")
+    include("setup_simulation.jl")
+end
 
 using Oceananigans.Simulations: reset!
 
@@ -41,8 +45,10 @@ warmup_time = NWARMUP_STEPS * Δt
 @info "Warmup: $NWARMUP_STEPS timestep(s) to trigger JIT (warmup_time=$(warmup_time)s)"
 flush(stdout); flush(stderr)
 
-simulation.stop_time = warmup_time
-run!(simulation)
+NVTX.@range "warmup" begin
+    simulation.stop_time = warmup_time
+    run!(simulation)
+end
 
 @info "Warmup complete — resetting for benchmark"
 flush(stdout); flush(stderr)
@@ -59,7 +65,9 @@ simulation.stop_time = stop_time
 flush(stdout); flush(stderr)
 
 t_start = Base.time()
-run!(simulation)
+NVTX.@range "benchmark" begin
+    run!(simulation)
+end
 t_elapsed = Base.time() - t_start
 
 @info "Benchmark complete" elapsed_seconds = round(t_elapsed; digits = 1) elapsed_minutes = round(t_elapsed / 60; digits = 2)
