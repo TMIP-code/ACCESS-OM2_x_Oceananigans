@@ -8,20 +8,22 @@ Profile any benchmark run by adding `PROFILE=yes`:
 # Serial (1 GPU)
 PARENT_MODEL=ACCESS-OM2-1 PROFILE=yes JOB_CHAIN=run1yrfast bash scripts/driver.sh
 
-# Distributed (4 GPUs)
+# Distributed (4 GPUs, 2x2)
 PARENT_MODEL=ACCESS-OM2-1 PARTITION=2x2 PROFILE=yes JOB_CHAIN=run1yrfast bash scripts/driver.sh
 
-# Prescribed w
-PARENT_MODEL=ACCESS-OM2-025 W_FORMULATION=wprescribed PRESCRIBED_W_SOURCE=diagnosed \
-    PARTITION=2x2 PROFILE=yes JOB_CHAIN=run1yrfast bash scripts/driver.sh
+# Distributed (4 GPUs, 1x4) — needs partition step if 1x4 data doesn't exist
+PARENT_MODEL=ACCESS-OM2-1 PARTITION=1x4 PROFILE=yes JOB_CHAIN=partition-run1yrfast bash scripts/driver.sh
+
+# Custom step count (default: 20 when PROFILE=yes)
+PARENT_MODEL=ACCESS-OM2-025 BENCHMARK_STEPS=50 PROFILE=yes JOB_CHAIN=run1yrfast bash scripts/driver.sh
 ```
 
 ## What gets profiled
 
-- **Serial runs**: `nsys profile` wraps the Julia process directly.
-- **Distributed runs**: Only rank 0 is profiled (via a wrapper script). Other ranks run plain Julia. This avoids SIGTERM issues with `nsys` + `mpiexec` on PBS.
+- **Serial runs**: `nsys profile` wraps the Julia process directly (`--trace=nvtx,cuda`).
+- **Distributed runs**: All ranks are profiled via `bash -c` wrapper, each producing its own `.nsys-rep` file with MPI tracing (`--trace=nvtx,cuda,mpi`).
 - **GC tracing**: `JULIA_NVTX_CALLBACKS=gc` is set automatically to trace Julia garbage collection events.
-- **CUDA tracing**: `--trace=nvtx,cuda` captures GPU kernels, memory operations, and NVTX annotations.
+- **Step count**: `BENCHMARK_STEPS=20` (default when `PROFILE=yes`) limits the simulation to ~20 time steps after warmup, keeping profiles small.
 
 ## Output files
 
@@ -29,7 +31,9 @@ Profiles are saved in the log directory:
 ```
 logs/julia/{PARENT_MODEL}/{EXPERIMENT}/{TIME_WINDOW}/standardrun/
     {MODEL_CONFIG}_1yearfast_{JOB_ID}_profile.nsys-rep           # serial
-    {MODEL_CONFIG}_1yearfast_{JOB_ID}_profile_rank0.nsys-rep     # distributed
+    {MODEL_CONFIG}_1yearfast_{JOB_ID}_profile_rank0.nsys-rep     # distributed, rank 0
+    {MODEL_CONFIG}_1yearfast_{JOB_ID}_profile_rank1.nsys-rep     # distributed, rank 1
+    ...
 ```
 
 ## Viewing profiles
@@ -55,6 +59,9 @@ nsys stats --report=cuda_gpu_kern_sum profile.nsys-rep
 # CUDA API summary only
 nsys stats --report=cuda_api_sum profile.nsys-rep
 
+# MPI event summary (distributed runs only)
+nsys stats --report=mpi_event_sum profile_rank0.nsys-rep
+
 # Top-10 kernels
 nsys stats --report=cuda_gpu_kern_sum profile.nsys-rep | head -20
 ```
@@ -73,6 +80,7 @@ The GUI timeline shows:
 - **Orange bars**: CUDA memcpy (GPU-CPU transfers)
 - **NVTX ranges**: GC events, user annotations
 - **Gaps**: Idle time (sync, kernel launch overhead)
+- **MPI rows** (distributed): MPI send/recv/barrier calls per rank
 
 ## Key metrics to look for
 
@@ -85,25 +93,26 @@ The GUI timeline shows:
 | `_update_prescribed_∂t_σ!` | z-star update time |
 | GC NVTX ranges | Julia garbage collection pauses |
 | `cuMemcpy*` time | GPU-CPU data transfer overhead |
+| MPI send/recv time | Communication overhead between ranks (distributed) |
+| MPI barrier time | Synchronization overhead between ranks (distributed) |
 
 ## Profiling matrix
 
 For a complete performance picture, profile these configurations:
 
-| Model | Partition | W formulation | GPU |
-|-------|-----------|---------------|-----|
-| OM2-1 | serial | diagnosed | V100 |
-| OM2-1 | 2x2 | diagnosed | V100 |
-| OM2-1 | serial | prescribed | V100 |
-| OM2-1 | 2x2 | prescribed | V100 |
-| OM2-025 | serial | diagnosed | H200 |
-| OM2-025 | 2x2 | diagnosed | H200 |
-| OM2-025 | serial | prescribed | H200 |
-| OM2-025 | 2x2 | prescribed | H200 |
+| Model | Partition | GPUs | GPU type |
+|-------|-----------|------|----------|
+| OM2-1 | serial | 1 | V100 |
+| OM2-1 | 1x4 | 4 | V100 |
+| OM2-1 | 2x2 | 4 | V100 |
+| OM2-025 | serial | 1 | H200 |
+| OM2-025 | 1x4 | 4 | H200 |
+| OM2-025 | 2x2 | 4 | H200 |
+
+**Note:** 1x4 partitions produce NaN at iter 300+ in full runs (see BENCHMARKS.md), but ~20 profiling steps complete safely.
 
 ## Technical notes
 
-- Profiles are written to `$PBS_JOBFS` (local SSD) during the run, then copied to persistent storage. This avoids network FS distortion.
-- `--trace=mpi` does NOT work reliably with OpenMPI's `mpiexec` on PBS. MPI overhead must be inferred from CUDA memcpy patterns and idle gaps.
+- MPI tracing works via the `bash -c` wrapper pattern: `mpiexec ... bash -c "nsys profile --trace=nvtx,cuda,mpi ..."`. This lets nsys profile each MPI rank individually with per-rank output files.
 - `JULIA_CUDA_MEMORY_POOL=none` is set for MPI runs to avoid CUDA memory pool conflicts.
-- `jobfs=40GB` is requested for profiled runs (profiles can be 5-10 GB).
+- `BENCHMARK_STEPS` env var controls the number of time steps (default 20 when `PROFILE=yes`). This overrides `N_MONTHS` for profiling runs.

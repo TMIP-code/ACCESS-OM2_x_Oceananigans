@@ -26,67 +26,48 @@ NGPUS="${PBS_NGPUS:-1}"
 JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 
 # Nsight Systems profiling: set PROFILE=yes to wrap the run with nsys profile.
-# Produces a .nsys-rep file in the log directory for analysis with Nsight Systems GUI.
-# Following Oceananigans' distributed_scaling pattern: nsys wraps the entire MPI launcher
-# (not each rank individually), producing a single profile covering all ranks.
+# Produces .nsys-rep files in the log directory for analysis with Nsight Systems GUI.
+# Serial: nsys wraps julia directly (--trace=nvtx,cuda).
+# Distributed: bash -c wrapper profiles each rank with MPI tracing (--trace=nvtx,cuda,mpi).
 # Also sets JULIA_NVTX_CALLBACKS=gc to trace Julia GC events.
 PROFILE="${PROFILE:-no}"
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
-    # Limit simulation to 2 months to keep profile file small and finalization fast.
-    export N_MONTHS="${N_MONTHS:-2}"
-    echo "PROFILE=yes: limiting simulation to N_MONTHS=$N_MONTHS"
-    # Profile to local SSD ($PBS_JOBFS) then copy back — avoids network FS distortion.
-    PROFILE_DIR="${PBS_JOBFS:-/tmp}/nsys_profiles"
-    mkdir -p "$PROFILE_DIR"
-    profile_final="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
+    export BENCHMARK_STEPS="${BENCHMARK_STEPS:-20}"
+    echo "PROFILE=yes: limiting simulation to BENCHMARK_STEPS=$BENCHMARK_STEPS"
+    profile_base="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
     if [ "$NGPUS" -gt 1 ]; then
-        # MPI: profile only rank 0 via a wrapper script. Other ranks run plain julia.
-        # Wrapping the entire mpiexec with nsys causes SIGTERM on Gadi (PBS + OpenMPI).
-        # Per-rank nsys inside mpiexec also crashes. So we profile rank 0 only.
-        PROFILE_WRAPPER="$PROFILE_DIR/nsys_wrapper.sh"
-        cat > "$PROFILE_WRAPPER" << 'WRAPPER_EOF'
-#!/bin/bash
-if [ "$OMPI_COMM_WORLD_RANK" = "0" ]; then
-    exec nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --force-overwrite=true --output=PROFILE_OUTPUT_PLACEHOLDER "$@"
-else
-    exec "$@"
-fi
-WRAPPER_EOF
-        sed -i "s|PROFILE_OUTPUT_PLACEHOLDER|${PROFILE_DIR}/profile_rank0|" "$PROFILE_WRAPPER"
-        chmod +x "$PROFILE_WRAPPER"
-        echo "PROFILE=yes: profiling rank 0 only → ${profile_final}_rank0.nsys-rep"
+        echo "PROFILE=yes: profiling all $NGPUS ranks with MPI tracing"
     else
-        echo "PROFILE=yes: profiling serial run → ${profile_final}.nsys-rep"
+        echo "PROFILE=yes: profiling serial run → ${profile_base}.nsys-rep"
     fi
 fi
 
 if [ "$PROFILE" = "yes" ] && [ "$NGPUS" -gt 1 ]; then
-    JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $PROFILE_WRAPPER $JULIA_CMD"
+    echo "Running with MPI profiling (NGPUS=$NGPUS, all ranks)"
+    echo "logging output in $log_file"
+    mpiexec --bind-to socket --map-by socket -n "$NGPUS" bash -c "
+        nsys profile \
+            --trace=nvtx,cuda,mpi \
+            --cuda-memory-usage=true \
+            --force-overwrite=true \
+            --output=${profile_base}_rank\${OMPI_COMM_WORLD_RANK} \
+            $JULIA_CMD src/run_1year_benchmark.jl
+    " &> "$log_file"
 elif [ "$PROFILE" = "yes" ]; then
-    JULIA_LAUNCHER="nsys profile --trace=nvtx,cuda --cuda-memory-usage=true --force-overwrite=true --output=${PROFILE_DIR}/profile $JULIA_CMD"
+    echo "Running with serial profiling"
+    echo "logging output in $log_file"
+    nsys profile --trace=nvtx,cuda --cuda-memory-usage=true \
+        --force-overwrite=true --output="${profile_base}" \
+        $JULIA_CMD src/run_1year_benchmark.jl &> "$log_file"
 elif [ "$NGPUS" -gt 1 ]; then
-    JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD"
+    echo "Running (NGPUS=$NGPUS)"
+    echo "logging output in $log_file"
+    mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD \
+        src/run_1year_benchmark.jl &> "$log_file"
 else
-    JULIA_LAUNCHER="$JULIA_CMD"
+    echo "Running (serial)"
+    echo "logging output in $log_file"
+    $JULIA_CMD src/run_1year_benchmark.jl &> "$log_file"
 fi
-
-echo "Running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
-echo "logging output in $log_file"
-$JULIA_LAUNCHER src/run_1year_benchmark.jl &> "$log_file"
 echo "Done running src/run_1year_benchmark.jl for PARENT_MODEL=$PARENT_MODEL"
-
-# Copy nsys profiles from local SSD to persistent storage with unique names
-if [ "$PROFILE" = "yes" ]; then
-    echo "Copying nsys profiles from $PROFILE_DIR to $run_log_dir"
-    if [ "$NGPUS" -gt 1 ]; then
-        cp "${PROFILE_DIR}/profile_rank0.nsys-rep" "${profile_final}_rank0.nsys-rep" 2>/dev/null && \
-            echo "Profile copied: ${profile_final}_rank0.nsys-rep" || \
-            echo "WARNING: No profile_rank0.nsys-rep found in $PROFILE_DIR"
-    else
-        cp "${PROFILE_DIR}/profile.nsys-rep" "${profile_final}.nsys-rep" 2>/dev/null && \
-            echo "Profile copied: ${profile_final}.nsys-rep" || \
-            echo "WARNING: No profile.nsys-rep found in $PROFILE_DIR"
-    fi
-    ls -lh "${PROFILE_DIR}"/ 2>/dev/null
-fi
