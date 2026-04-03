@@ -80,7 +80,8 @@ output_dir = get(ENV, "ALLOC_PROFILE_DIR", "logs/alloc_profiles")
 mkpath(output_dir)
 job_id = get(ENV, "PBS_JOBID", "interactive")
 
-pprof_file = joinpath(output_dir, "alloc_profile_$(job_id).pb.gz")
+rank_suffix = arch isa Distributed ? "_rank$(arch.local_rank)" : ""
+pprof_file = joinpath(output_dir, "alloc_profile_$(job_id)$(rank_suffix).pb.gz")
 PProf.Allocs.pprof(results; out = pprof_file, web = false)
 @info "PProf protobuf saved" file = pprof_file
 

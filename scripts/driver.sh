@@ -322,8 +322,8 @@ has_step run1yrfast && \
 has_step allocprofile && \
     submit_job allocprofile 01:00:00 \
         scripts/standard_runs/run_1year_alloc_profile.sh \
-        --gpu-single --deps "$VEL_DEP" \
-        --vars "ALLOC_SAMPLE_RATE=${ALLOC_SAMPLE_RATE:-0.01},ALLOC_PROFILE_STEPS=${ALLOC_PROFILE_STEPS:-3}" > /dev/null
+        --gpu --deps "$VEL_DEP" \
+        --vars "PARTITION=${PARTITION},ALLOC_SAMPLE_RATE=${ALLOC_SAMPLE_RATE:-0.01},ALLOC_PROFILE_STEPS=${ALLOC_PROFILE_STEPS:-3}" > /dev/null
 
 has_step run10yr && \
     RUN10YR_JOB=$(submit_job run10yr "$WALLTIME_RUN_10YEARS" \

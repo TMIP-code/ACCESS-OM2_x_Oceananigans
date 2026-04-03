@@ -28,10 +28,17 @@ export ALLOC_SAMPLE_RATE="${ALLOC_SAMPLE_RATE:-0.01}"
 export ALLOC_PROFILE_STEPS="${ALLOC_PROFILE_STEPS:-3}"
 export NWARMUP_STEPS="${NWARMUP_STEPS:-3}"
 
+NGPUS="${PBS_NGPUS:-1}"
 JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 
-echo "Running allocation profiler (ALLOC_PROFILE_STEPS=$ALLOC_PROFILE_STEPS, ALLOC_SAMPLE_RATE=$ALLOC_SAMPLE_RATE)"
+echo "Running allocation profiler (ALLOC_PROFILE_STEPS=$ALLOC_PROFILE_STEPS, ALLOC_SAMPLE_RATE=$ALLOC_SAMPLE_RATE, NGPUS=$NGPUS)"
 echo "logging output in $log_file"
-$JULIA_CMD src/run_1year_alloc_profile.jl &> "$log_file"
+
+if [ "$NGPUS" -gt 1 ]; then
+    mpiexec --bind-to socket --map-by socket -n "$NGPUS" \
+        $JULIA_CMD src/run_1year_alloc_profile.jl &> "$log_file"
+else
+    $JULIA_CMD src/run_1year_alloc_profile.jl &> "$log_file"
+fi
 
 echo "Done — allocation profile saved in $ALLOC_PROFILE_DIR"
