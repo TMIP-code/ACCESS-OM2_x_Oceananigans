@@ -15,7 +15,7 @@ set -euo pipefail
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
 #   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
-#   plot1yr plot10yr plot100yr
+#   plot1yr plot10yr plot100yr plotMOC
 #
 # Shortcuts:
 #   preprocessing  = prep-grid-vel-clo
@@ -49,6 +49,7 @@ set -euo pipefail
 #   plot10yr    (afterok run10yr)
 #   plot100yr   (afterok run100yr)
 #   plotNKtrace (afterok NK)
+#   plotMOC     (afterok prep+grid)
 
 PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
 export PARENT_MODEL
@@ -98,7 +99,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
-    echo "    plot1yr plot10yr plot100yr"
+    echo "    plot1yr plot10yr plot100yr plotMOC"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -118,7 +119,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -181,7 +182,7 @@ JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1
 JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-clo-diagnose_w-partition}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
-JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM}"
+JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM-plotMOC}"
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
@@ -468,6 +469,20 @@ has_step plot100yr && \
     submit_job plot100yr "$WALLTIME_PLOT" \
         scripts/plotting/plot_standardrun_age.sh \
         --deps "${RUN100YR_JOB:-}" --vars "DURATION=100years" > /dev/null
+
+# plotMOC (depends on: prep + grid — needs ty_trans_monthly.nc and grid.jld2)
+if has_step plotMOC; then
+    plotMOC_deps=()
+    [ -n "${PREP_JOB:-}" ] && plotMOC_deps+=("${PREP_JOB}")
+    [ -n "${GRID_JOB:-}" ] && plotMOC_deps+=("${GRID_JOB}")
+    plotMOC_dep_str=""
+    if [ ${#plotMOC_deps[@]} -gt 0 ]; then
+        plotMOC_dep_str=$(IFS=:; echo "${plotMOC_deps[*]}")
+    fi
+    submit_job plotMOC "$WALLTIME_PLOT" \
+        scripts/plotting/plot_MOC.sh \
+        --deps "$plotMOC_dep_str" > /dev/null
+fi
 
 # ============================================================
 # Summary

@@ -48,22 +48,7 @@ grid = load_tripolar_grid(grid_file, arch)
 Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
 
-################################################################################
-# z-reversal kernel (MOM stores k=1 at top, Oceananigans at bottom)
-################################################################################
-
-@kernel function set_kreversed_kernel!(field, data, Nz)
-    i, j, k = @index(Global, NTuple)
-    @inbounds field[i, j, k] = data[i, j, Nz + 1 - k]
-end
-
-function set_kreversed!(field, data)
-    arch = architecture(field)
-    Nx, Ny, Nz = size(data)
-    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
-    launch!(arch, field.grid, kp, set_kreversed_kernel!, field, on_architecture(arch, data), Nz)
-    return nothing
-end
+# set_kreversed! is in shared_utils/data_loading.jl
 
 ################################################################################
 # Open NetCDF datasets

@@ -126,6 +126,110 @@ end
 
 
 ################################################################################
+# MOM → Oceananigans index convention helpers
+#
+# MOM vs Oceananigans differences:
+#   - Vertical coordinate is flipped: MOM k=1 is top, Oceananigans k=1 is bottom
+#   - B-grid velocities (u, v) live at NE corners in MOM, SW corners in Oceananigans
+#     → shift by +1 in both i (wrapping) and j
+#   - C-grid transports (tx, ty): tx shifts by +1 in i (wrapping), ty shifts by +1 in j
+#
+# One kernel handles all cases via (di, dj) index shifts:
+#   field[mod1(i + di, Nx), j + dj, Nz + 1 - k] = data[i, j, k]
+################################################################################
+
+using Oceananigans.Operators: δxᶜᵃᵃ, δyᵃᶜᵃ
+
+@kernel function _copy_MOM_to_Oceananigans!(field, data, Nx, Nz, di, dj)
+    i, j, k = @index(Global, NTuple)
+    @inbounds field[mod1(i + di, Nx), j + dj, Nz + 1 - k] = data[i, j, k]
+end
+
+"""
+    set_from_MOM!(field, grid, data; di=0, dj=0)
+
+Copy 3D MOM `data` into an Oceananigans `field`, flipping the vertical
+index and optionally shifting by `di` in i (wrapping) and `dj` in j.
+"""
+function set_from_MOM!(field, grid, data; di = 0, dj = 0)
+    arch = architecture(grid)
+    Nx, Ny, Nz = size(data)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
+    launch!(
+        arch, grid, kp, _copy_MOM_to_Oceananigans!,
+        field, on_architecture(arch, data), size(grid)[1], size(grid)[3], di, dj
+    )
+    return nothing
+end
+
+# Legacy alias
+set_kreversed!(field, data) = set_from_MOM!(field, field.grid, data)
+
+"""
+    fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
+
+Place MOM mass transports onto Oceananigans C-grid fields.
+tx shifts +1 in i (wrapping); ty shifts +1 in j; both flip vertical.
+Fills halo regions afterwards.
+"""
+function fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
+    set_from_MOM!(tx, grid, tx_data; di = 1)
+    set_from_MOM!(ty, grid, ty_data; dj = 1)
+    fill_halo_regions!(tx)
+    return fill_halo_regions!(ty)
+end
+
+"""
+    fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
+
+Place MOM B-grid velocities onto Oceananigans (Face,Face) fields.
+Shifts +1 in both i (wrapping) and j; flips vertical.
+Fills halo regions afterwards.
+"""
+function fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
+    set_from_MOM!(u, grid, u_data; di = 1, dj = 1)
+    set_from_MOM!(v, grid, v_data; di = 1, dj = 1)
+    fill_halo_regions!(u)
+    return fill_halo_regions!(v)
+end
+
+"""
+    fill_w_from_MOM_output!(w, grid, w_data)
+
+Place MOM w output onto an Oceananigans (Center,Center,Face) field.
+Flips vertical only. Fills halo regions afterwards.
+"""
+function fill_w_from_MOM_output!(w, grid, w_data)
+    set_from_MOM!(w, grid, w_data)
+    return fill_halo_regions!(w)
+end
+
+@kernel function _compute_tz_from_continuity!(tz, grid, tx, ty, Nz)
+    i, j = @index(Global, NTuple)
+    @inbounds begin
+        tz[i, j, 1] = 0.0
+        for k in 1:Nz
+            horizontal_div = δxᶜᵃᵃ(i, j, k, grid, tx) + δyᵃᶜᵃ(i, j, k, grid, ty)
+            tz[i, j, k + 1] = tz[i, j, k] - horizontal_div
+        end
+    end
+end
+
+"""
+    fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
+
+Compute vertical transport `tz` from horizontal transports `tx`, `ty`
+via the continuity equation. Fills halo regions afterwards.
+"""
+function fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny)
+    launch!(architecture(grid), grid, kp, _compute_tz_from_continuity!, tz, grid, tx, ty, Nz)
+    return fill_halo_regions!(tz)
+end
+
+
+################################################################################
 # Part-file loading helpers for split JLD2 output
 ################################################################################
 

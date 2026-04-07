@@ -5,6 +5,35 @@
 # zonal averages, horizontal slices, age diagnostic plots, and animation.
 ################################################################################
 
+################################################################################
+# Shared axis tick/label helpers
+################################################################################
+
+"""
+    latticklabel(lat) -> String
+
+Format a latitude value as "30°S", "0°", "30°N", etc.
+"""
+function latticklabel(lat)
+    lat = isinteger(lat) ? Int(lat) : lat
+    return if lat == 0
+        "0°"
+    elseif lat > 0
+        "$(lat)°N"
+    else
+        "$(-lat)°S"
+    end
+end
+
+const DEPTH_YLIM = (6000, 0)
+const DEPTH_YTICKS = 0:1000:6000
+const DEPTH_YTICKLABELS = string.(DEPTH_YTICKS)
+
+const MONTH_NAMES = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.Grids: on_architecture, znodes
@@ -453,6 +482,53 @@ function colormap_for_field(name)
 end
 
 """
+    mk_piecewise_linear(vs) -> ReversibleScale
+
+Create a piecewise-linear scale that maps non-uniform levels `vs` to
+uniform integer indices 0, 1, ..., n-1. Used for log-like colorbar spacing.
+From https://discourse.julialang.org/t/makie-nonlinear-color-levels-in-colorbar/118056/5
+"""
+function mk_piecewise_linear(vs)
+    @assert length(vs) > 1
+    function is_increasing(ss)
+        prev = ss[1]
+        for s in ss[2:end]
+            (s ≤ prev) && return false
+            prev = s
+        end
+        return true
+    end
+    @assert is_increasing(vs)
+    d1 = vs[2] - vs[1]
+    d2 = vs[end] - vs[end - 1]
+    un = size(vs, 1) - 1
+    function piecewise_linear(v)
+        return if v <= vs[1]
+            (v - vs[1]) / d1
+        elseif v ≥ vs[end]
+            (v - vs[end]) / d2 + un
+        else
+            i = findfirst(q -> v < q, vs) - 1
+            d = vs[i + 1] - vs[i]
+            (v - vs[i]) / d + i - 1
+        end
+    end
+    function its_inverse(u)
+        return if u ≤ 0
+            u * d1 + vs[1]
+        elseif u ≥ un
+            (u - un) * d2 + vs[end]
+        else
+            iu = floor(Int, u)
+            i = iu + 1
+            d = vs[i + 1] - vs[i]
+            (u - iu) * d + vs[i]
+        end
+    end
+    return ReversibleScale(piecewise_linear, its_inverse)
+end
+
+"""
     animate_surface_fields(field_specs, output_dir, prefix;
                            n_frames=144, framerate=24, show_halos=true)
 
@@ -507,28 +583,49 @@ function animate_surface_fields(
         slice_obs = Observable(copy(slice_f64))
         title_obs = Observable(@sprintf("%s surface (t = 0.0 months)", name))
 
-        # Auto-detect color range from the first frame (excluding NaN)
-        valid = filter(!isnan, vec(slice_f64))
-        if isempty(valid)
-            cmin, cmax = -1.0, 1.0
-        else
-            cmin = Float64(quantile(valid, 0.02))
-            cmax = Float64(quantile(valid, 0.98))
-        end
-        if cmin ≈ cmax
-            cmin -= 1.0
-            cmax += 1.0
-        end
-
         fig = Figure(; size = (1000, 500))
         ax = Axis(
             fig[1, 1]; title = title_obs,
             xlabel = show_halos ? "i (with halos)" : "i",
             ylabel = show_halos ? "j (with halos)" : "j"
         )
-        colormap = colormap_for_field(name)
-        hm = heatmap!(ax, slice_obs; colorrange = (cmin, cmax), colormap, nan_color = :black)
-        Colorbar(fig[1, 2], hm; label = name)
+
+        if name in ("MLD", "mld")
+            # Log-like piecewise-linear colorscale for MLD
+            mld_levels = [0, 50, 100, 200, 500, 1000, 2000]
+            colorscale = mk_piecewise_linear(mld_levels)
+            colorrange = extrema(mld_levels)
+            colormap = cgrad(:thermal, length(mld_levels); categorical = true)
+            highclip = colormap[end]
+            colormap = cgrad(colormap[1:(end - 1)]; categorical = true)
+            hm = heatmap!(
+                ax, slice_obs;
+                colorrange, colormap, colorscale, highclip, nan_color = :black
+            )
+            Colorbar(
+                fig[1, 2];
+                limits = (1, length(mld_levels)),
+                colormap, highclip,
+                ticks = (1:length(mld_levels), string.(mld_levels)),
+                label = "MLD (m)"
+            )
+        else
+            # Auto-detect color range from the first frame (excluding NaN)
+            valid = filter(!isnan, vec(slice_f64))
+            if isempty(valid)
+                cmin, cmax = -1.0, 1.0
+            else
+                cmin = Float64(quantile(valid, 0.02))
+                cmax = Float64(quantile(valid, 0.98))
+            end
+            if cmin ≈ cmax
+                cmin -= 1.0
+                cmax += 1.0
+            end
+            colormap = colormap_for_field(name)
+            hm = heatmap!(ax, slice_obs; colorrange = (cmin, cmax), colormap, nan_color = :black)
+            Colorbar(fig[1, 2], hm; label = name)
+        end
 
         filepath = joinpath(output_dir, "$(prefix)_surface_$(name).mp4")
         record(fig, filepath, 1:n_frames; framerate) do i
