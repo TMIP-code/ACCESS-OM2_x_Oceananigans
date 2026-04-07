@@ -33,6 +33,7 @@
 
 Config: `cgridtransports_wprediag_centered2_AB2_mkappaV`
 Full plan: `.claude/plans/compiled-seeking-mountain.md`
+julia --project -e 'using PProf; PProf.serve("logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1960-1979/alloc_profile/alloc_profile_164562888.gadi-pbs.pb.gz")'
 
 > **TODO:** Also run with Redi-GM enabled (`GMREDI=true`). Additionally, test a config *without* Redi-GM but with mass transports preprocessed to include GM velocities (i.e., GM contribution baked into the velocity field rather than parameterized online).
 
