@@ -109,12 +109,13 @@ end
 @info "Loading velocities from disk"
 flush(stdout); flush(stderr)
 
-if VELOCITY_SOURCE == "cgridtransports"
+if VELOCITY_SOURCE ∈ ("cgridtransports", "totaltransport")
     flush(stdout); flush(stderr)
-    u_file = joinpath(monthly_dir, "u_from_mass_transport_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_from_mass_transport_monthly.jld2")
-    w_file = joinpath(monthly_dir, "w_from_mass_transport_monthly.jld2")
-    @info """Loading velocities from MOM mass transport outputs files:
+    vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+    u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
+    v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
+    w_file = joinpath(monthly_dir, "w_from_$(vs_prefix)_monthly.jld2")
+    @info """Loading velocities from MOM $(vs_prefix) outputs files:
     - $(u_file)
     - $(v_file)
     - $(w_file)
@@ -188,7 +189,8 @@ if W_FORMULATION == "wprescribed"
     # Select w source: "diagnosed" (from Oceananigans continuity) or "parent" (from MOM output)
     PRESCRIBED_W_SOURCE = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
     if PRESCRIBED_W_SOURCE == "diagnosed"
-        w_file = joinpath(monthly_dir, "w_diagnosed_monthly.jld2")
+        w_diag_suffix = VELOCITY_SOURCE == "totaltransport" ? "w_diagnosed_totaltransport_monthly" : "w_diagnosed_monthly"
+        w_file = joinpath(monthly_dir, "$(w_diag_suffix).jld2")
     end
     # else: w_file already set from VELOCITY_SOURCE (mass_transport or interpolated)
     @info "Using prescribed w (source=$PRESCRIBED_W_SOURCE) from: $(w_file)"

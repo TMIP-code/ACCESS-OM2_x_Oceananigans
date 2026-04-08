@@ -150,6 +150,20 @@ dht_ds = open_dataset(joinpath(monthly_dir, "dht_monthly.nc"))
 tx_ds = open_dataset(joinpath(monthly_dir, "tx_trans_monthly.nc"))
 @info "  Opening ty_trans_monthly.nc"; flush(stdout); flush(stderr)
 ty_ds = open_dataset(joinpath(monthly_dir, "ty_trans_monthly.nc"))
+
+# Check for GM transport data (streamfunction on z-faces)
+tx_gm_path = joinpath(monthly_dir, "tx_trans_gm_monthly.nc")
+ty_gm_path = joinpath(monthly_dir, "ty_trans_gm_monthly.nc")
+has_gm_data = isfile(tx_gm_path) && isfile(ty_gm_path)
+if has_gm_data
+    @info "  Opening tx_trans_gm_monthly.nc"; flush(stdout); flush(stderr)
+    tx_gm_ds = open_dataset(tx_gm_path)
+    @info "  Opening ty_trans_gm_monthly.nc"; flush(stdout); flush(stderr)
+    ty_gm_ds = open_dataset(ty_gm_path)
+else
+    @info "  GM transport NetCDFs not found — skipping total transport output"
+end
+
 dht_var_name = hasproperty(dht_ds, :dht) ? :dht : error("Could not find variable `dht` in dht_monthly.nc")
 wt_var_name = hasproperty(wt_ds, :wt) ? :wt : hasproperty(wt_ds, :w) ? :w : error("Could not find variable `wt` or `w` in wt_monthly.nc")
 
@@ -174,6 +188,13 @@ u_mt_yearly_file = joinpath(yearly_dir, "u_from_mass_transport_yearly.jld2")
 v_mt_yearly_file = joinpath(yearly_dir, "v_from_mass_transport_yearly.jld2")
 w_mt_yearly_file = joinpath(yearly_dir, "w_from_mass_transport_yearly.jld2")
 
+u_tt_monthly_file = joinpath(monthly_dir, "u_from_total_transport_monthly.jld2")
+v_tt_monthly_file = joinpath(monthly_dir, "v_from_total_transport_monthly.jld2")
+w_tt_monthly_file = joinpath(monthly_dir, "w_from_total_transport_monthly.jld2")
+u_tt_yearly_file = joinpath(yearly_dir, "u_from_total_transport_yearly.jld2")
+v_tt_yearly_file = joinpath(yearly_dir, "v_from_total_transport_yearly.jld2")
+w_tt_yearly_file = joinpath(yearly_dir, "w_from_total_transport_yearly.jld2")
+
 # remove old files if they exist
 rm(u_monthly_file; force = true)
 rm(v_monthly_file; force = true)
@@ -189,6 +210,14 @@ rm(η_yearly_file; force = true)
 rm(u_mt_yearly_file; force = true)
 rm(v_mt_yearly_file; force = true)
 rm(w_mt_yearly_file; force = true)
+if has_gm_data
+    rm(u_tt_monthly_file; force = true)
+    rm(v_tt_monthly_file; force = true)
+    rm(w_tt_monthly_file; force = true)
+    rm(u_tt_yearly_file; force = true)
+    rm(v_tt_yearly_file; force = true)
+    rm(w_tt_yearly_file; force = true)
+end
 
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
 u_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
@@ -198,6 +227,12 @@ u_mt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend
 v_mt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
 w_mt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
 η_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_monthly_file, name = "η", time_indexing = Cyclical(stop_time))
+
+if has_gm_data
+    u_tt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_tt_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
+    v_tt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_tt_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
+    w_tt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_tt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
+end
 
 @info "All NetCDF datasets opened successfully"
 flush(stdout); flush(stderr)
@@ -244,6 +279,15 @@ w_mt = ZFaceField(grid; boundary_conditions = wbcs)
 tz_bcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
 tz = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
 
+if has_gm_data
+    tx_gm = XFaceField(grid; boundary_conditions = tx_bcs)
+    ty_gm = YFaceField(grid; boundary_conditions = ty_bcs)
+    u_tt = XFaceField(grid; boundary_conditions = ubcs)
+    v_tt = YFaceField(grid; boundary_conditions = vbcs)
+    w_tt = ZFaceField(grid; boundary_conditions = wbcs)
+    tz_tt = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
+end
+
 Axᶠᶜᶜ = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
 Ayᶜᶠᶜ = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
 Azᶜᶜᶠ = Field(grid_metric_operation((Center, Center, Face), Az, grid))
@@ -256,6 +300,11 @@ u_mt_acc = XFaceField(grid; boundary_conditions = ubcs)
 v_mt_acc = YFaceField(grid; boundary_conditions = vbcs)
 w_mt_acc = ZFaceField(grid; boundary_conditions = wbcs)
 η_acc = Field{Center, Center, Nothing}(grid)
+if has_gm_data
+    u_tt_acc = XFaceField(grid; boundary_conditions = ubcs)
+    v_tt_acc = YFaceField(grid; boundary_conditions = vbcs)
+    w_tt_acc = ZFaceField(grid; boundary_conditions = wbcs)
+end
 
 for month in 1:12
     println("month $month")
@@ -343,6 +392,44 @@ for month in 1:12
     set!(v_mt_monthly_ts, v_mt, month)
     set!(w_mt_monthly_ts, w_mt, month)
 
+    # ── u, v, w from total transports (resolved + GM) ──────────────────
+    if has_gm_data
+        println("- u, v, w from total transports (resolved + GM)"); flush(stdout)
+        tx_gm_data = readcubedata(tx_gm_ds.tx_trans_gm[month = At(month)]).data
+        map!(x -> isnan(x) ? zero(x) : x, tx_gm_data, tx_gm_data)
+        ty_gm_data = readcubedata(ty_gm_ds.ty_trans_gm[month = At(month)]).data
+        map!(x -> isnan(x) ? zero(x) : x, ty_gm_data, ty_gm_data)
+        fill_Cgrid_transport_from_MOM_output!(tx_gm, ty_gm, grid, tx_gm_data, ty_gm_data)
+        streamfunction_to_perlayer!(tx_gm, grid)
+        streamfunction_to_perlayer!(ty_gm, grid)
+        mask_immersed_field!(tx_gm, 0.0)
+        mask_immersed_field!(ty_gm, 0.0)
+        fill_halo_regions!(tx_gm)
+        fill_halo_regions!(ty_gm)
+
+        # Velocity from total transport = resolved + GM per-layer
+        u_tt .= (tx .+ tx_gm) / (ρ₀ * Axᶠᶜᶜ)
+        v_tt .= (ty .+ ty_gm) / (ρ₀ * Ayᶜᶠᶜ)
+        # Vertical velocity from continuity of total transport
+        tx_gm .+= tx  # tx_gm now holds total tx
+        ty_gm .+= ty  # ty_gm now holds total ty
+        fill_halo_regions!(tx_gm)
+        fill_halo_regions!(ty_gm)
+        fill_continuity_tz_from_tx_ty!(tz_tt, grid, tx_gm, ty_gm)
+        w_tt .= tz_tt / (ρ₀ * Azᶜᶜᶠ)
+
+        mask_immersed_field!(u_tt, 0.0)
+        mask_immersed_field!(v_tt, 0.0)
+        mask_immersed_field!(w_tt, 0.0)
+        fill_halo_regions!(u_tt)
+        fill_halo_regions!(v_tt)
+        fill_halo_regions!(w_tt)
+
+        set!(u_tt_monthly_ts, u_tt, month)
+        set!(v_tt_monthly_ts, v_tt, month)
+        set!(w_tt_monthly_ts, w_tt, month)
+    end
+
     # ── w ────────────────────────────────────────────────────────────────────
     println("- w"); flush(stdout)
     println("  - loading from MOM wt output")
@@ -404,6 +491,11 @@ for month in 1:12
     v_mt_acc .+= v_mt
     w_mt_acc .+= w_mt
     η_acc .+= η
+    if has_gm_data
+        u_tt_acc .+= u_tt
+        v_tt_acc .+= v_tt
+        w_tt_acc .+= w_tt
+    end
 
 end
 println("Done!")
@@ -428,6 +520,15 @@ println("Done!")
 
 @show η_monthly_ts
 @info "saved to $(η_monthly_file)"
+
+if has_gm_data
+    @show u_tt_monthly_ts
+    @info "saved to $(u_tt_monthly_file)"
+    @show v_tt_monthly_ts
+    @info "saved to $(v_tt_monthly_file)"
+    @show w_tt_monthly_ts
+    @info "saved to $(w_tt_monthly_file)"
+end
 
 @info "Computing time-averaged (yearly) fields"
 u_acc ./= 12
@@ -462,3 +563,19 @@ jldsave(η_yearly_file; η = Array(interior(η_acc, :, :, 1)))
 @info "saved yearly v_mt to $(v_mt_yearly_file)"
 @info "saved yearly w_mt to $(w_mt_yearly_file)"
 @info "saved yearly η to $(η_yearly_file)"
+
+if has_gm_data
+    @info "Computing time-averaged (yearly) total transport fields"
+    u_tt_acc ./= 12
+    v_tt_acc ./= 12
+    w_tt_acc ./= 12
+    fill_halo_regions!(u_tt_acc)
+    fill_halo_regions!(v_tt_acc)
+    fill_halo_regions!(w_tt_acc)
+    jldsave(u_tt_yearly_file; u = Array(interior(u_tt_acc)))
+    jldsave(v_tt_yearly_file; v = Array(interior(v_tt_acc)))
+    jldsave(w_tt_yearly_file; w = Array(interior(w_tt_acc)))
+    @info "saved yearly u_tt to $(u_tt_yearly_file)"
+    @info "saved yearly v_tt to $(v_tt_yearly_file)"
+    @info "saved yearly w_tt to $(w_tt_yearly_file)"
+end

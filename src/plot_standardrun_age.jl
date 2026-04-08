@@ -171,10 +171,11 @@ flush(stdout); flush(stderr)
 time_indexing = Cyclical(1year)
 
 # Velocity fields
-if VELOCITY_SOURCE == "cgridtransports"
-    u_file = joinpath(monthly_dir, "u_from_mass_transport_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_from_mass_transport_monthly.jld2")
-    w_file = joinpath(monthly_dir, "w_from_mass_transport_monthly.jld2")
+if VELOCITY_SOURCE ∈ ("cgridtransports", "totaltransport")
+    vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+    u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
+    v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
+    w_file = joinpath(monthly_dir, "w_from_$(vs_prefix)_monthly.jld2")
 elseif VELOCITY_SOURCE == "bgridvelocities"
     u_file = joinpath(monthly_dir, "u_interpolated_monthly.jld2")
     v_file = joinpath(monthly_dir, "v_interpolated_monthly.jld2")

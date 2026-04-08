@@ -229,6 +229,36 @@ function fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
 end
 
 
+@kernel function _streamfunction_to_perlayer!(field, Nz)
+    i, j = @index(Global, NTuple)
+    @inbounds begin
+        # GM transport data lives on z-faces (streamfunction).
+        # Per-layer transport at z-center k = ψ[k] - ψ[k+1], with ψ[Nz+1] = 0.
+        # Bottom-up loop so field[k+1] is still the original value when read.
+        for k in 1:(Nz - 1)
+            field[i, j, k] = field[i, j, k] - field[i, j, k + 1]
+        end
+        # k=Nz: ψ[Nz] - ψ[Nz+1] = ψ[Nz] - 0, stays unchanged (surface layer)
+    end
+end
+
+"""
+    streamfunction_to_perlayer!(field, grid)
+
+Convert a field of z-face GM streamfunction values (placed by
+`fill_Cgrid_transport_from_MOM_output!`) to per-layer z-center transport.
+Modifies `field` in-place.
+
+Convention (Oceananigans, k=1=bottom): T[k] = ψ[k] - ψ[k+1], ψ[Nz+1] = 0.
+"""
+function streamfunction_to_perlayer!(field, grid)
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny)
+    launch!(architecture(grid), grid, kp, _streamfunction_to_perlayer!, field, Nz)
+    return nothing
+end
+
+
 ################################################################################
 # Part-file loading helpers for split JLD2 output
 ################################################################################

@@ -117,10 +117,11 @@ flush(stdout); flush(stderr)
 @info "Loading time-averaged (yearly) velocity and η fields"
 flush(stdout); flush(stderr)
 
-if VELOCITY_SOURCE == "cgridtransports"
-    u_constant_file = joinpath(yearly_dir, "u_from_mass_transport_yearly.jld2")
-    v_constant_file = joinpath(yearly_dir, "v_from_mass_transport_yearly.jld2")
-    @info """Loading yearly velocities from mass-transport files:
+if VELOCITY_SOURCE ∈ ("cgridtransports", "totaltransport")
+    vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+    u_constant_file = joinpath(yearly_dir, "u_from_$(vs_prefix)_yearly.jld2")
+    v_constant_file = joinpath(yearly_dir, "v_from_$(vs_prefix)_yearly.jld2")
+    @info """Loading yearly velocities from $(vs_prefix) files:
     - $(u_constant_file)
     - $(v_constant_file)
     """
@@ -177,9 +178,13 @@ end
 ################################################################################
 
 if W_FORMULATION == "wprescribed"
-    w_constant_file = VELOCITY_SOURCE == "cgridtransports" ?
-        joinpath(yearly_dir, "w_from_mass_transport_yearly.jld2") :
+    w_constant_file = if VELOCITY_SOURCE == "totaltransport"
+        joinpath(yearly_dir, "w_from_total_transport_yearly.jld2")
+    elseif VELOCITY_SOURCE == "cgridtransports"
+        joinpath(yearly_dir, "w_from_mass_transport_yearly.jld2")
+    else
         joinpath(yearly_dir, "w_yearly.jld2")
+    end
     @info "Using prescribed w field from: $w_constant_file"
     flush(stdout); flush(stderr)
     wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
