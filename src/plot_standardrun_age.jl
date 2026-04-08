@@ -216,6 +216,7 @@ if isfile(mld_file)
     @info "Loading MLD FTS for surface animations"
     mld_ts = FieldTimeSeries(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
     push!(field_specs, ("MLD", mld_ts, nothing))
+    push!(field_specs, ("MLK", mld_ts, nothing))
 end
 
 # Optionally add κV at ~200m depth if monthly FTS exists

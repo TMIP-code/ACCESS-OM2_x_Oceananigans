@@ -611,6 +611,32 @@ function animate_surface_fields(
                 ticks = (1:length(mld_levels), string.(mld_levels)),
                 label = "MLD (m)"
             )
+        elseif name in ("MLK", "mlk")
+            # MLD plotted with grid z-face levels as piecewise-linear colorscale
+            zf = znodes(fts.grid, Face(); with_halos = false)
+            mlk_levels = sort(abs.(collect(zf)))
+            # Remove duplicate zeros if present
+            unique!(mlk_levels)
+            colorscale = mk_piecewise_linear(mlk_levels)
+            colorrange = extrema(mlk_levels)
+            n_levels = length(mlk_levels)
+            colormap = cgrad(:rainbow_bgyrm_35_85_c71_n256, n_levels; categorical = true)
+            highclip = colormap[end]
+            colormap = cgrad(colormap[1:(end - 1)]; categorical = true)
+            hm = heatmap!(
+                ax, slice_obs;
+                colorrange, colormap, colorscale, highclip, nan_color = :black
+            )
+            # Subsample ticks to avoid crowding (~10 ticks)
+            tick_stride = max(1, n_levels ÷ 10)
+            tick_indices = 1:tick_stride:n_levels
+            Colorbar(
+                fig[1, 2];
+                limits = (1, n_levels),
+                colormap, highclip,
+                ticks = (collect(tick_indices), string.(Int.(round.(mlk_levels[tick_indices])))),
+                label = "MLD on z-faces (m)"
+            )
         else
             # Auto-detect color range from the first frame (excluding NaN)
             valid = filter(!isnan, vec(slice_f64))
