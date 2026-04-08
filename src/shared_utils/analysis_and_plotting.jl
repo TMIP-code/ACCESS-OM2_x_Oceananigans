@@ -503,7 +503,9 @@ function mk_piecewise_linear(vs)
     d2 = vs[end] - vs[end - 1]
     un = size(vs, 1) - 1
     function piecewise_linear(v)
-        return if v <= vs[1]
+        return if isnan(v)
+            NaN
+        elseif v <= vs[1]
             (v - vs[1]) / d1
         elseif v ≥ vs[end]
             (v - vs[end]) / d2 + un
