@@ -140,13 +140,11 @@ tx_zeros = zeros(Nx, Ny - 1, Nz)
 """
 Compute the resolved MOC streamfunction from a ty_trans field on the grid.
 
-Extract interior, apply basin mask, sum over longitude, cumsum from surface
-downward minus total (ψ = 0 at the bottom). This matches the COSIMA convention
-used in `compute_AABW_depthspace.py` and the COSIMA report notebook:
-  ψ[k] = cumsum(surface→bottom)[k] − sum(all levels)
-
-In Oceananigans coords (k=1 = bottom), this is:
-  ψ = reverse(cumsum(reverse(ty))) − sum(ty)
+Extract interior, apply basin mask, sum over longitude, then compute ψ.
+The streamfunction lives on z-faces while ty_trans lives on z-centers:
+  ψ[k] = −∑(ty[1:k−1])   (Oceananigans coords, k=1 = bottom)
+i.e. negate the cumsum and shift by one level. This gives ψ = 0 at the
+bottom and matches the COSIMA convention (cumsum surface→bottom − total).
 
 Returns ψ in Sv as a (Ny_f, Nz') array with NaN for land.
 """
@@ -160,8 +158,11 @@ function compute_moc(ty, basin_mask)
     # Sum over longitude
     ty_zonal = dropdims(sum(ty_masked; dims = 1); dims = 1)  # (Ny_f, Nz')
 
-    # Streamfunction: cumsum from surface downward, minus total → ψ = 0 at bottom
-    ψ = reverse(cumsum(reverse(ty_zonal; dims = 2); dims = 2); dims = 2) .- sum(ty_zonal; dims = 2)
+    # Streamfunction on z-faces: negate cumsum, shift by one level → ψ = 0 at bottom
+    cs = cumsum(ty_zonal; dims = 2)
+    ψ = similar(cs)
+    ψ[:, 1] .= 0.0
+    ψ[:, 2:end] .= .-cs[:, 1:(end - 1)]
 
     # Convert kg/s to Sv
     ψ ./= (ρ₀ * 1.0e6)
