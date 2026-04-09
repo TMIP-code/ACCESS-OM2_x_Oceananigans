@@ -12,7 +12,7 @@ using Oceananigans.DistributedComputations: insert_connected_topology
 using Oceananigans.OrthogonalSphericalShellGrids: receiving_rank
 using OffsetArrays: OffsetArray
 using Oceananigans.Grids: Grids, Bounded, Flat, MutableVerticalDiscretization, OrthogonalSphericalShellGrid, Periodic,
-    RectilinearGrid, RightFaceFolded, validate_dimension_specification, generate_coordinate, on_architecture, znodes
+    RectilinearGrid, RightFaceFolded, topology, validate_dimension_specification, generate_coordinate, on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!, partition_tripolar_metric
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
