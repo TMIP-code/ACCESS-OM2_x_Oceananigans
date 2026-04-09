@@ -19,6 +19,7 @@
 #   prediagw    — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
 #   prediagwNK  — compare NK periodic age from wdiagnosed vs wprescribed (parent & prediag)
 #   mkappaVNK   — compare NK periodic age: yearly vs monthly kappaV
+#   tmsym       — check structural symmetry of M, LUMP/SPRAY, and Mc (CPU, express)
 
 set -euo pipefail
 
@@ -43,7 +44,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK mkappaVNK"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK mkappaVNK tmsym"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -148,6 +149,12 @@ if has_step mkappaVNK; then
         --queue express --ngpus 0 --ncpus 12 --mem 47GB \
         --vars "SOURCE_A=NK:${BASE}:${STAG},SOURCE_B=NK:${MKAPPAV}:${STAG},COMPARE_LABEL=NK_yearly_vs_monthly_kappaV" > /dev/null
 fi
+
+# tmsym: check structural symmetry of M, LUMP/SPRAY, and Mc
+has_step tmsym && \
+    submit_job tmsym 00:30:00 scripts/tests/run_TM_symmetry_test.sh \
+        --queue normal --ngpus 0 --ncpus 48 --mem 192GB \
+        --vars "${COMMON_VARS}" > /dev/null
 
 # --- Summary ---
 print_summary "${PARENT_MODEL}"
