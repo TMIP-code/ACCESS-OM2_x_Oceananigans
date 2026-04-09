@@ -271,8 +271,8 @@ linear_forcing = (; ADc = linear_dynamics)
 ADc0 = CenterField(grid)
 
 if GM_REDI
-    tracers = (; T = T_constant, S = S_constant, ADc = ADc0)
-    tracer_advection = (; T = nothing, S = nothing, ADc = advection_from_scheme(ADVECTION_SCHEME))
+    tracers = (; ADc = ADc0, T = T_constant, S = S_constant)
+    tracer_advection = (; ADc = advection_from_scheme(ADVECTION_SCHEME), T = nothing, S = nothing)
     buoyancy = SeawaterBuoyancy(equation_of_state = LinearEquationOfState())
     buoyancy_kw = (; buoyancy)
 else
@@ -350,13 +350,14 @@ function mytendency!(GADcvec, ADcvec, ADc_field, GADc_field)
 
     # Build tracers NamedTuple: must include T/S for GM-Redi buoyancy gradient computation
     if GM_REDI
-        tracers_for_tendency = (; T = jacobian_model.tracers.T, S = jacobian_model.tracers.S, ADc = ADc_field)
+        tracers_for_tendency = (; ADc = ADc_field, T = jacobian_model.tracers.T, S = jacobian_model.tracers.S)
     else
         tracers_for_tendency = (; ADc = ADc_field)
     end
 
+    iADc = findfirst(==(:ADc), keys(tracers_for_tendency))
     args = tuple(
-        Val(1),
+        Val(iADc),
         Val(:ADc),
         c_advection,
         jacobian_model.closure,
