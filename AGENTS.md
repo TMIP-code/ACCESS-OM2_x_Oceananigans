@@ -117,12 +117,12 @@ JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh                          # singl
 GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Volta GPUs
 ```
 
-JOB_CHAIN steps: `prep grid vel run1yr run1yrfast run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr`
-Shortcuts: `preprocessing` (= `prep-grid-vel`) `standardruns` `TMall` `plotall` `full`
+JOB_CHAIN steps: `prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC`
+Shortcuts: `preprocessing` (= `prep-grid-vel-clo-diagnose_w-partition`) `standardruns` `TMall` `plotall` `full`
 Range notation: `A..B` follows the dependency DAG (e.g., `run1yrNK..plotNK` = `run1yrNK-plotNK`)
 TM_SOURCE: `const` (default), `avg`, or `both` — filters TMsolve/NK/run1yrNK branches
 
-DAG dependencies: `prep → vel`, `grid → vel`, `vel → run*`, `vel → TMbuild`, etc.
+DAG: `prep→vel`, `grid→vel`, `vel→diagnose_w→{run1yr,TMbuild,...}`, `NK→run1yrNK→plotNK`
 
 Tests use a separate driver:
 ```bash
