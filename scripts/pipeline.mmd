@@ -26,7 +26,7 @@ graph TD
     prep & grid --> vel & clo
     vel --> diagnose_w
     vel & diagnose_w & clo & grid --> partition
-    vel & clo --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
+    diagnose_w & clo --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
     partition --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
     run1yr --> TMsnapshot & plot1yr
     run10yr --> plot10yr

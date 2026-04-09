@@ -36,14 +36,14 @@ set -euo pipefail
 #
 # Dependency DAG (source of truth: scripts/pipeline.mmd):
 #   prep ─┐
-#   grid ─┤→ vel ─┐
-#          └→ clo ─┤→ run1yr    (afterok vel+clo)
-#                   │→ run10yr   (afterok vel+clo, parallel)
-#                   │→ run100yr  (afterok vel+clo, parallel)
-#                   │→ runlong   (afterok vel+clo, parallel)
-#                   │→ TMbuild   (afterok vel+clo) → TMsolve(const) + NK(const) → run1yrNK → plotNK
-#                   │                             └→ plotTM (afterok TMbuild + TMsnapshot)
-#                   └→ run1yr → TMsnapshot     → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
+#   grid ─┤→ vel → diagnose_w ─┐
+#          └→ clo ──────────────┤→ run1yr    (afterok diagw+clo)
+#                                │→ run10yr   (afterok diagw+clo, parallel)
+#                                │→ run100yr  (afterok diagw+clo, parallel)
+#                                │→ runlong   (afterok diagw+clo, parallel)
+#                                │→ TMbuild   (afterok diagw+clo) → TMsolve(const) + NK(const) → run1yrNK → plotNK
+#                                │                               └→ plotTM (afterok TMbuild + TMsnapshot)
+#                                └→ run1yr → TMsnapshot          → TMsolve(avg) + NK(avg) → run1yrNK → plotNK
 #
 #   plot1yr     (afterok run1yr)
 #   plot10yr    (afterok run10yr)

@@ -47,12 +47,12 @@ graph TD
         TMsolve:::gpu & NK:::gpu & run1yrNK:::gpu
     end
     subgraph plotting
-        plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace
+        plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotMOC
     end
     prep & grid --> vel & clo
     vel --> diagnose_w
     vel & diagnose_w & clo & grid --> partition
-    vel & clo --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
+    diagnose_w & clo --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
     partition --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
     run1yr --> TMsnapshot & plot1yr
     run10yr --> plot10yr
@@ -60,6 +60,7 @@ graph TD
     TMbuild & TMsnapshot --> TMsolve & NK & plotTM
     NK --> run1yrNK & plotNKtrace
     run1yrNK --> plotNK
+    prep & grid --> plotMOC
 ```
 
 ### Selecting steps with `JOB_CHAIN`
