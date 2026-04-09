@@ -7,6 +7,7 @@ Usage:
     PARENT_MODEL=ACCESS-OM2-1 TIME_WINDOW=1958-1987 ... julia --project test/test_TM_symmetry.jl
 """
 
+using Oceananigans
 using JLD2
 using SparseArrays
 using LinearAlgebra
@@ -31,8 +32,8 @@ M_sym = Pardiso.isstructurallysymmetric(M)
 if !M_sym
     # Count asymmetric entries
     Mt = sparse(M')
-    n_only_M = 0
-    n_only_Mt = 0
+    local n_only_M = 0
+    local n_only_Mt = 0
     for j in 1:size(M, 2), i in nzrange(M, j)
         r = M.rowval[i]
         if !(r in view(Mt.rowval, nzrange(Mt, j)))
