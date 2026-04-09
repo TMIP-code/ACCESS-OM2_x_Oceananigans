@@ -27,7 +27,9 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
         wf_tag = pw == "diagnosed" ? "wprediag" : "wparent"
     end
     mc = "$(VELOCITY_SOURCE)_$(wf_tag)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
-    lowercase(get(ENV, "GM_REDI", "no")) == "yes" && (mc = "$(mc)_GMREDI")
+    gm = lowercase(get(ENV, "GM_REDI", "no"))
+    gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
+    gm == "adv" && (mc = "$(mc)_GMREDIadv")
     lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
     return mc
 end

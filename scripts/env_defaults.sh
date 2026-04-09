@@ -14,26 +14,19 @@ fi
 TIME_WINDOW=${TIME_WINDOW:-1960-1979}
 export EXPERIMENT TIME_WINDOW
 
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
-W_FORMULATION=${W_FORMULATION:-wdiagnosed}
-PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}  # diagnosed | parent (only used when W_FORMULATION=wprescribed)
-ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
-TIMESTEPPER=${TIMESTEPPER:-AB2}
-TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}
-# AA solver variables — no longer needed, will be removed in the near future.
-# AA_M=${AA_M:-40}
-# NLSAA_BETA=${NLSAA_BETA:-1.0}
-# SMAA_SIGMA_MIN=${SMAA_SIGMA_MIN:-0.0}
-# SMAA_STABILIZE=${SMAA_STABILIZE:-no}
-# SMAA_CHECK_OBJ=${SMAA_CHECK_OBJ:-no}
-# SMAA_ORDERS=${SMAA_ORDERS:-332}
-LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}
-MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}
-INITIAL_AGE=${INITIAL_AGE:-TMage}
-TM_SOURCE=${TM_SOURCE:-avg}
-GM_REDI=${GM_REDI:-no}
-MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}    # bgridvelocities | cgridtransports | totaltransport
+W_FORMULATION=${W_FORMULATION:-wdiagnosed}              # wdiagnosed | wprescribed
+PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (only when W_FORMULATION=wprescribed)
+ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5
+TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
+TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no
+LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # yes | no
+MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}             # raw | symfill | dropzeros | symdrop
+INITIAL_AGE=${INITIAL_AGE:-TMage}                       # TMage | 0 | <path to .jld2>
+TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
+GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
+MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 if [ "$W_FORMULATION" = "wprescribed" ]; then
     if [ "$PRESCRIBED_W_SOURCE" = "diagnosed" ]; then
@@ -42,9 +35,10 @@ if [ "$W_FORMULATION" = "wprescribed" ]; then
         MODEL_CONFIG="${VELOCITY_SOURCE}_wparent_${ADVECTION_SCHEME}_${TIMESTEPPER}"
     fi
 fi
-if [ "$GM_REDI" = "yes" ]; then
-    MODEL_CONFIG="${MODEL_CONFIG}_GMREDI"
-fi
+case "$GM_REDI" in
+    diff|yes)  MODEL_CONFIG="${MODEL_CONFIG}_GMREDI" ;;
+    adv)       MODEL_CONFIG="${MODEL_CONFIG}_GMREDIadv" ;;
+esac
 if [ "$MONTHLY_KAPPAV" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_mkappaV"
 fi

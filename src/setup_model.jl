@@ -16,7 +16,7 @@ Environment variables:
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
-  GM_REDI          – yes | no  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
+  GM_REDI          – no | diff | adv  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
   MONTHLY_KAPPAV   – yes | no  (default: no)  — use monthly time-varying vertical diffusivity from MLD
 """
 
@@ -29,6 +29,7 @@ include("select_architecture.jl")
 
 using Oceananigans.BuoyancyFormulations: SeawaterBuoyancy, LinearEquationOfState
 using Oceananigans.TurbulenceClosures
+using Oceananigans.TurbulenceClosures: AdvectiveFormulation, DiffusiveFormulation
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Architectures: CPU
@@ -58,7 +59,10 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
+GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
+GM_REDI = GM_REDI_STR in ("diff", "adv")
+GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
@@ -244,18 +248,19 @@ if MONTHLY_KAPPAV
 end
 
 if GM_REDI
-    # Per-tracer diffusivities: zero for ghost tracers T/S, real values for age
-    horizontal_diffusion = HorizontalScalarDiffusivity(κ = (; T = 0.0, S = 0.0, age = 300.0))
+    # No HorizontalScalarDiffusivity — isopycnal κ_symmetric in GM-Redi handles horizontal mixing
     implicit_vertical_diffusion = VerticalScalarDiffusivity(
         VerticallyImplicitTimeDiscretization();
         κ = (; T = 0.0, S = 0.0, age = κVField),
     )
+    gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
+        skew_flux_formulation = gm_formulation,
         κ_skew = (; T = 0.0, S = 0.0, age = 300.0),
         κ_symmetric = (; T = 0.0, S = 0.0, age = 300.0),
     )
-    closure = (horizontal_diffusion, implicit_vertical_diffusion, gm_redi)
-    @info "Closures: horizontal + vertical + GM-Redi (IsopycnalSkewSymmetricDiffusivity)"
+    closure = (implicit_vertical_diffusion, gm_redi)
+    @info "Closures: vertical + GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
 else
     implicit_vertical_diffusion = VerticalScalarDiffusivity(
         VerticallyImplicitTimeDiscretization();

@@ -35,6 +35,7 @@ arch_str = "CPU"
 flush(stdout); flush(stderr)
 
 using Oceananigans.TurbulenceClosures
+using Oceananigans.TurbulenceClosures: AdvectiveFormulation, DiffusiveFormulation
 using Oceananigans.Models.HydrostaticFreeSurfaceModels
 using Oceananigans.Models.HydrostaticFreeSurfaceModels: hydrostatic_free_surface_tracer_tendency,
     _update_zstar_scaling!, surface_kernel_parameters
@@ -83,7 +84,10 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
+GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
+GM_REDI = GM_REDI_STR in ("diff", "adv")
+GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
@@ -93,7 +97,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- W_FORMULATION    = $W_FORMULATION (NOTE: snapshots always use wprescribed)"
 @info "- ADVECTION_SCHEME = $ADVECTION_SCHEME"
 @info "- TIMESTEPPER      = $TIMESTEPPER"
-@info "- GM_REDI          = $GM_REDI"
+@info "- GM_REDI          = $GM_REDI (GM_REDI_STR=$GM_REDI_STR)"
 @info "- MONTHLY_KAPPAV   = $MONTHLY_KAPPAV"
 @info "- model_config     = $model_config"
 flush(stdout); flush(stderr)
@@ -222,17 +226,19 @@ is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
 set!(κVField, κVML * is_mld + κVBG * .!is_mld)
 
 if GM_REDI
-    horizontal_diffusion = HorizontalScalarDiffusivity(κ = (; T = 0.0, S = 0.0, ADc = 300.0))
+    # No HorizontalScalarDiffusivity — isopycnal κ_symmetric in GM-Redi handles horizontal mixing
     explicit_vertical_diffusion = VerticalScalarDiffusivity(
         ExplicitTimeDiscretization();
         κ = (; T = 0.0, S = 0.0, ADc = κVField)
     )
+    gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
+        skew_flux_formulation = gm_formulation,
         κ_skew = (; T = 0.0, S = 0.0, ADc = 300.0),
         κ_symmetric = (; T = 0.0, S = 0.0, ADc = 300.0)
     )
-    explicit_closure = (horizontal_diffusion, explicit_vertical_diffusion, gm_redi)
-    @info "Closures: horizontal + vertical + GM-Redi (all explicit)"
+    explicit_closure = (explicit_vertical_diffusion, gm_redi)
+    @info "Closures: vertical + GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
 else
     explicit_vertical_diffusion = VerticalScalarDiffusivity(ExplicitTimeDiscretization(); κ = κVField)
     horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)

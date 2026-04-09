@@ -9,6 +9,8 @@ using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
 using Oceananigans.Grids: znodes
 using Oceananigans.OutputWriters: JLD2Writer
+using Oceananigans.AbstractOperations: KernelFunctionOperation
+using Oceananigans.Operators: Axᶠᶜᶜ, Ayᶜᶠᶜ
 using Adapt: adapt
 using Statistics: mean
 using Printf: @sprintf
@@ -74,6 +76,33 @@ function setup_age_simulation(
         :w => model.velocities.w,
         :eta => model.free_surface.displacement,
     )
+    # Add GM bolus velocity + mass transport outputs for advective GM-Redi
+    GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+    GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")
+    if GM_REDI_STR == "adv"
+        output_fields[:u_GM] = model.closure_fields.u
+        output_fields[:v_GM] = model.closure_fields.v
+        output_fields[:w_GM] = model.closure_fields.w
+
+        # Mass transports (resolved and GM) via KernelFunctionOperation
+        u_resolved = model.velocities.u
+        v_resolved = model.velocities.v
+        u_gm = model.closure_fields.u
+        v_gm = model.closure_fields.v
+        grid = model.grid
+
+        @inline u_mass_transport(i, j, k, grid, u, ρ₀) = ρ₀ * u[i, j, k] * Axᶠᶜᶜ(i, j, k, grid)
+        @inline v_mass_transport(i, j, k, grid, v, ρ₀) = ρ₀ * v[i, j, k] * Ayᶜᶠᶜ(i, j, k, grid)
+
+        ρ₀ = 1035.0
+        output_fields[:U_transport] = Field(KernelFunctionOperation{Face, Center, Center}(u_mass_transport, grid, u_resolved, ρ₀))
+        output_fields[:V_transport] = Field(KernelFunctionOperation{Center, Face, Center}(v_mass_transport, grid, v_resolved, ρ₀))
+        output_fields[:U_GM_transport] = Field(KernelFunctionOperation{Face, Center, Center}(u_mass_transport, grid, u_gm, ρ₀))
+        output_fields[:V_GM_transport] = Field(KernelFunctionOperation{Center, Face, Center}(v_mass_transport, grid, v_gm, ρ₀))
+
+        @info "Added GM velocity + mass transport outputs (AdvectiveFormulation)"
+    end
+
     for (name, field) in output_fields
         simulation.output_writers[name] = JLD2Writer(
             model, Dict(string(name) => field);
