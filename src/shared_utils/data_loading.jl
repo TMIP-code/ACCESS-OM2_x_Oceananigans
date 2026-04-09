@@ -253,8 +253,8 @@ Modifies `field` in-place.
 Convention (Oceananigans, k=1=bottom): T[k] = ψ[k] - ψ[k+1], ψ[Nz+1] = 0.
 """
 function streamfunction_to_perlayer!(field, grid)
-    Nxw, Nyw, Nz = worksize(grid)
-    kp = KernelParameters(1:Nxw, 1:Nyw)
+    Wx, Wy, Nz = worksize(grid)
+    kp = KernelParameters(1:Wx, 1:Wy)
     launch!(architecture(grid), grid, kp, _streamfunction_to_perlayer!, field, Nz)
     return nothing
 end

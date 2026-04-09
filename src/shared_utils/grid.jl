@@ -16,7 +16,7 @@ using Oceananigans.Grids: Grids, Bounded, Flat, MutableVerticalDiscretization, O
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!, partition_tripolar_metric
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
-using Oceananigans.Utils: KernelParameters, launch!, worksize
+using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using KernelAbstractions: @kernel, @index
 using GPUArraysCore: @allowscalar
@@ -303,8 +303,10 @@ function tripolargrid_from_supergrid(
     AzCC = Field{Center, Center, Center}(grid; boundary_conditions)
 
     # Compute coordinates and metrics from supergrid
-    Nxw, Nyw = worksize(grid)[1:2]
-    kp = KernelParameters(1:Nxw, 1:Nyw)
+    # Note: the helper grid is a RectilinearGrid, not an RFTRG, so worksize(grid)
+    # would return (Nx, Ny) instead of (Nx, Ny+1). Set the work range explicitly.
+    Wx, Wy = Nx, Ny + 1
+    kp = KernelParameters(1:Wx, 1:Wy)
     launch!(
         CPU(), grid, kp,
         compute_coordinates_and_metrics_from_supergrid!,
@@ -617,8 +619,8 @@ Compute cell volumes as a CenterField on the same architecture as grid.
 """
 function compute_volume(grid)
     vol = CenterField(grid)
-    (Nxv, Nyv, Nzv) = size(vol)
-    kp = KernelParameters(1:Nxv, 1:Nyv, 1:Nzv)
+    Nx, Ny, Nz = size(grid)
+    kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
     launch!(CPU(), grid, kp, compute_volume!, vol, grid)
     return vol
 end
