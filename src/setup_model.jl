@@ -254,10 +254,14 @@ if GM_REDI
         κ = (; T = 0.0, S = 0.0, age = κVField),
     )
     gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
+    # AdvectiveFormulation requires scalar κ_skew (Oceananigans limitation);
+    # this is fine since T/S have tracer_advection=nothing and are prescribed each step.
+    gm_κ_skew = GM_ADVECTIVE ? 300.0 : (; T = 0.0, S = 0.0, age = 300.0)
+    gm_κ_symmetric = GM_ADVECTIVE ? 300.0 : (; T = 0.0, S = 0.0, age = 300.0)
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
         skew_flux_formulation = gm_formulation,
-        κ_skew = (; T = 0.0, S = 0.0, age = 300.0),
-        κ_symmetric = (; T = 0.0, S = 0.0, age = 300.0),
+        κ_skew = gm_κ_skew,
+        κ_symmetric = gm_κ_symmetric,
     )
     closure = (implicit_vertical_diffusion, gm_redi)
     @info "Closures: vertical + GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
