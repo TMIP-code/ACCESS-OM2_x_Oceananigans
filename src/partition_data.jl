@@ -19,7 +19,7 @@ flush(stdout); flush(stderr)
 using Oceananigans
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
-using Oceananigans.DistributedComputations: Distributed, global_index_offset
+using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
@@ -98,10 +98,7 @@ dist_grid = load_tripolar_grid(grid_file, arch)
 ug_dist = dist_grid isa ImmersedBoundaryGrid ? dist_grid.underlying_grid : dist_grid
 local_Nx, local_Ny = ug_dist.Nx, ug_dist.Ny
 
-# Compute global index offsets using Oceananigans' function
-x_offset, y_offset, _ = global_index_offset(arch, (Nx, Ny, 1))
-
-@info "Rank $rank: Local grid size = ($local_Nx, $local_Ny, $Nz), offsets = ($x_offset, $y_offset)"
+@info "Rank $rank: Local grid size = ($local_Nx, $local_Ny, $Nz)"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -139,14 +136,9 @@ jldopen(grid_rank_file, "w") do f
     # z-faces (shared across all ranks)
     f["z_faces"] = gd["z_faces"]
 
-    # Bottom height (partitioned from serial grid using distributed offsets)
-    if serial_grid isa ImmersedBoundaryGrid
-        bottom_parent = Array(parent(serial_grid.immersed_boundary.bottom_height.data))
-        # bottom_height is a 2D Field at (Center, Center, Nothing) — parent has z-dim = 1
-        nz_bottom = size(bottom_parent, 3)
-        global_i_range = (1 + x_offset):(local_Nx + x_offset + 2Hx)
-        global_j_range = (1 + y_offset):(local_Ny + y_offset + 2Hy)
-        f["bottom"] = bottom_parent[global_i_range, global_j_range, 1:nz_bottom]
+    # Bottom height (from the distributed grid, already partitioned)
+    if dist_grid isa ImmersedBoundaryGrid
+        f["bottom"] = Array(parent(dist_grid.immersed_boundary.bottom_height.data))
     end
 
     # Conformal mapping parameters
@@ -158,8 +150,6 @@ jldopen(grid_rank_file, "w") do f
     # Partition metadata
     f["rank"] = rank
     f["partition"] = "$(px)x$(py)"
-    f["x_offset"] = x_offset
-    f["y_offset"] = y_offset
 end
 
 @info "Rank $rank: Grid saved to $grid_rank_file"
