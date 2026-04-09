@@ -10,3 +10,4 @@ settings
 .claude/scheduled_tasks.lock
 .claude/.nfs*
 test*.jld2
+plans/
