@@ -19,7 +19,7 @@ flush(stdout); flush(stderr)
 using Oceananigans
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
-using Oceananigans.DistributedComputations: Distributed
+using Oceananigans.DistributedComputations: Distributed, local_size, concatenate_local_sizes
 using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: on_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
@@ -98,7 +98,18 @@ dist_grid = load_tripolar_grid(grid_file, arch)
 ug_dist = dist_grid isa ImmersedBoundaryGrid ? dist_grid.underlying_grid : dist_grid
 local_Nx, local_Ny = ug_dist.Nx, ug_dist.Ny
 
-@info "Rank $rank: Local grid size = ($local_Nx, $local_Ny, $Nz)"
+# Compute global index ranges for FTS partitioning (mirrors grid.jl logic)
+lsize = local_size(arch, (Nx, Ny, Nz))
+nxlocal = concatenate_local_sizes(lsize, arch, 1)
+nylocal = concatenate_local_sizes(lsize, arch, 2)
+xrank = ifelse(isnothing(arch.partition.x), 0, arch.local_index[1] - 1)
+yrank = ifelse(isnothing(arch.partition.y), 0, arch.local_index[2] - 1)
+x_offset = sum(nxlocal[1:xrank])
+y_offset = sum(nylocal[1:yrank])
+global_i_range = (1 + x_offset):(local_Nx + x_offset + 2Hx)
+global_j_range = (1 + y_offset):(local_Ny + y_offset + 2Hy)
+
+@info "Rank $rank: Local grid size = ($local_Nx, $local_Ny, $Nz), offsets = ($x_offset, $y_offset)"
 flush(stdout); flush(stderr)
 
 ################################################################################
