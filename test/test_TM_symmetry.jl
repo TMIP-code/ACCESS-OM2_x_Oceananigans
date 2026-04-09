@@ -30,7 +30,7 @@ M = load(M_file, "M")
 M_sym = Pardiso.isstructurallysymmetric(M)
 @info "  Pardiso.isstructurallysymmetric(M) = $M_sym"
 if !M_sym
-    # Count asymmetric entries
+    # Count asymmetric entries (both directions)
     Mt = sparse(M')
     local n_only_M = 0
     local n_only_Mt = 0
@@ -40,7 +40,22 @@ if !M_sym
             n_only_M += 1
         end
     end
-    @warn "  M has $n_only_M entries not mirrored in M'"
+    for j in 1:size(Mt, 2), i in nzrange(Mt, j)
+        r = Mt.rowval[i]
+        if !(r in view(M.rowval, nzrange(M, j)))
+            n_only_Mt += 1
+        end
+    end
+    @warn "  Asymmetric entries: $n_only_M in M but not M', $n_only_Mt in M' but not M"
+    @info "  nnz(M)=$(nnz(M)), nnz(M')=$(nnz(Mt))"
+    # Check diagonal coverage
+    local n_missing_diag = 0
+    for j in 1:size(M, 2)
+        if !(j in view(M.rowval, nzrange(M, j)))
+            n_missing_diag += 1
+        end
+    end
+    @info "  Missing diagonal entries: $n_missing_diag / $(size(M, 1))"
 end
 
 # Test 2: LUMP/SPRAY via OceanTransportMatrixBuilder
