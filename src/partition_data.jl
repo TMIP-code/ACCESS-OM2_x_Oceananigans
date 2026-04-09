@@ -111,15 +111,7 @@ flush(stdout); flush(stderr)
 @info "Rank $rank: Saving per-rank grid to $grid_partition_dir"
 flush(stdout); flush(stderr)
 
-# Extract local grid arrays from the global grid using the same irange/jrange
-# as build_underlying_grid(gd, arch::Distributed) — but save to JLD2 instead of
-# building a grid object.
-# The parent arrays of the global grid are 1-based and include halos.
-# For rank with offsets (x_offset, y_offset), the local parent slice is:
-global_i_range = (1 + x_offset):(local_Nx + x_offset + 2Hx)
-global_j_range = (1 + y_offset):(local_Ny + y_offset + 2Hy)
-
-# Save all grid arrays as plain Arrays (stripped from OffsetArrays)
+# Save metrics directly from the distributed grid (already correctly partitioned)
 metric_names = [
     :λᶜᶜᵃ, :λᶠᶜᵃ, :λᶜᶠᵃ, :λᶠᶠᵃ,
     :φᶜᶜᵃ, :φᶠᶜᵃ, :φᶜᶠᵃ, :φᶠᶠᵃ,
@@ -139,21 +131,21 @@ jldopen(grid_rank_file, "w") do f
     f["Hz"] = Hz
     f["Lz"] = gd["Lz"]
 
-    # Coordinate and metric arrays (partitioned from global)
+    # Coordinate and metric arrays (from the distributed grid)
     for name in metric_names
-        global_metric = getproperty(ug_serial, name)
-        local_data = Array(parent(global_metric))[global_i_range, global_j_range]
-        f[string(name)] = local_data
+        f[string(name)] = Array(parent(getproperty(ug_dist, name)))
     end
 
     # z-faces (shared across all ranks)
     f["z_faces"] = gd["z_faces"]
 
-    # Bottom height (partitioned)
+    # Bottom height (partitioned from serial grid using distributed offsets)
     if serial_grid isa ImmersedBoundaryGrid
         bottom_parent = Array(parent(serial_grid.immersed_boundary.bottom_height.data))
         # bottom_height is a 2D Field at (Center, Center, Nothing) — parent has z-dim = 1
         nz_bottom = size(bottom_parent, 3)
+        global_i_range = (1 + x_offset):(local_Nx + x_offset + 2Hx)
+        global_j_range = (1 + y_offset):(local_Ny + y_offset + 2Hy)
         f["bottom"] = bottom_parent[global_i_range, global_j_range, 1:nz_bottom]
     end
 
@@ -183,18 +175,16 @@ flush(stdout); flush(stderr)
 
 n_mismatches = 0
 for name in metric_names
-    global_metric = getproperty(ug_serial, name)
-    global_parent = Array(parent(global_metric))
+    dist_parent = Array(parent(getproperty(ug_dist, name)))
     local_saved = load(grid_rank_file, string(name))
-    serial_slice = global_parent[global_i_range, global_j_range]
-    if local_saved != serial_slice
-        n_diff = sum(local_saved .!= serial_slice)
+    if local_saved != dist_parent
+        n_diff = sum(local_saved .!= dist_parent)
         @error "Rank $rank: Grid metric $name MISMATCH ($n_diff cells differ)"
         n_mismatches += n_diff
     end
 end
 if n_mismatches == 0
-    @info "Rank $rank: Grid verification PASSED (all metrics match serial)"
+    @info "Rank $rank: Grid verification PASSED (all metrics match distributed grid)"
 else
     @error "Rank $rank: Grid verification FAILED ($n_mismatches total mismatches)"
 end

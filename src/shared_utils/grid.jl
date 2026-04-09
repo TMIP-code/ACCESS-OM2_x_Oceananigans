@@ -7,15 +7,16 @@
 
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, NoFluxBoundaryCondition, fill_halo_regions!
 using Oceananigans.DistributedComputations: Distributed, local_size, concatenate_local_sizes, ranks
-using Oceananigans.Grids: FullyConnected, RightConnected
+using Oceananigans.Grids: FullyConnected, LeftConnectedRightFaceFolded, LeftConnectedRightFaceConnected, RightConnected
+using Oceananigans.DistributedComputations: insert_connected_topology
 using Oceananigans.OrthogonalSphericalShellGrids: receiving_rank
 using OffsetArrays: OffsetArray
 using Oceananigans.Grids: Grids, Bounded, Flat, MutableVerticalDiscretization, OrthogonalSphericalShellGrid, Periodic,
     RectilinearGrid, RightFaceFolded, validate_dimension_specification, generate_coordinate, on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
-using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!
+using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, fold_set!, partition_tripolar_metric
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
-using Oceananigans.Utils: KernelParameters, launch!
+using Oceananigans.Utils: KernelParameters, launch!, worksize
 using Oceananigans.AbstractOperations: volume
 using KernelAbstractions: @kernel, @index
 using GPUArraysCore: @allowscalar
@@ -30,7 +31,7 @@ using LinearAlgebra: dot, Diagonal
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx, ny  # supergrid size in x (nx = 2 * Nx, ny = 2 * (Ny - 1))
+        nx, ny  # supergrid size in x (nx = 2 * Nx, ny = 2 * Ny)
     )
 
     # Note this kernel will fill "interior halos" sometimes.
@@ -237,11 +238,10 @@ function tripolargrid_from_supergrid(
     first_pole_longitude = @allowscalar x[i_north_pole, 1]
 
     # Horizontal grid size
-    # Note the RightFaceFolded topology requires an extra row on the north since my FPivot PR
     Nx = nx ÷ 2
-    Ny = ny ÷ 2 + 1
+    Ny = ny ÷ 2
     @assert nx == 2Nx
-    @assert ny == 2(Ny - 1)
+    @assert ny == 2Ny
 
     # Halo size
     Hx, Hy, Hz = halosize
@@ -303,7 +303,8 @@ function tripolargrid_from_supergrid(
     AzCC = Field{Center, Center, Center}(grid; boundary_conditions)
 
     # Compute coordinates and metrics from supergrid
-    kp = KernelParameters(1:Nx, 1:Ny)
+    Nxw, Nyw = worksize(grid)[1:2]
+    kp = KernelParameters(1:Nxw, 1:Nyw)
     launch!(
         CPU(), grid, kp,
         compute_coordinates_and_metrics_from_supergrid!,
@@ -315,7 +316,7 @@ function tripolargrid_from_supergrid(
         x, y,   # supergrid coordinates
         dx, dy, # supergrid distances
         area,   # supergrid areas
-        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2(Ny - 1))
+        nx, ny  # supergrid size in x (nx = 2Nx, ny = 2Ny)
     )
 
     # Fill halos (important as we overwrote some halo regions above)
@@ -490,40 +491,33 @@ function build_underlying_grid(gd, arch::Distributed, FT = Float64)
     iend = xrank == workers[1] - 1 ? Nx : sum(nxlocal[1:(xrank + 1)])
     irange = (istart - Hx):(iend + Hx)
 
-    # 4. Partition coordinate and metric arrays (mirrors partition_tripolar_metric)
-    function partition_metric(metric_name)
-        metric = getproperty(global_grid, metric_name)
-        offsets = metric.offsets
-        partitioned = metric[irange, jrange]
-        if partitioned isa OffsetArray
-            partitioned = partitioned.parent
-        end
-        return OffsetArray(partitioned, offsets...)
-    end
-
-    λᶜᶜᵃ = partition_metric(:λᶜᶜᵃ)
-    λᶠᶜᵃ = partition_metric(:λᶠᶜᵃ)
-    λᶜᶠᵃ = partition_metric(:λᶜᶠᵃ)
-    λᶠᶠᵃ = partition_metric(:λᶠᶠᵃ)
-    φᶜᶜᵃ = partition_metric(:φᶜᶜᵃ)
-    φᶠᶜᵃ = partition_metric(:φᶠᶜᵃ)
-    φᶜᶠᵃ = partition_metric(:φᶜᶠᵃ)
-    φᶠᶠᵃ = partition_metric(:φᶠᶠᵃ)
-    Δxᶜᶜᵃ = partition_metric(:Δxᶜᶜᵃ)
-    Δxᶠᶜᵃ = partition_metric(:Δxᶠᶜᵃ)
-    Δxᶜᶠᵃ = partition_metric(:Δxᶜᶠᵃ)
-    Δxᶠᶠᵃ = partition_metric(:Δxᶠᶠᵃ)
-    Δyᶜᶜᵃ = partition_metric(:Δyᶜᶜᵃ)
-    Δyᶠᶜᵃ = partition_metric(:Δyᶠᶜᵃ)
-    Δyᶜᶠᵃ = partition_metric(:Δyᶜᶠᵃ)
-    Δyᶠᶠᵃ = partition_metric(:Δyᶠᶠᵃ)
-    Azᶜᶜᵃ = partition_metric(:Azᶜᶜᵃ)
-    Azᶠᶜᵃ = partition_metric(:Azᶠᶜᵃ)
-    Azᶜᶠᵃ = partition_metric(:Azᶜᶠᵃ)
-    Azᶠᶠᵃ = partition_metric(:Azᶠᶠᵃ)
+    # 4. Partition coordinate and metric arrays (using upstream partition_tripolar_metric)
+    λᶜᶜᵃ = partition_tripolar_metric(global_grid, :λᶜᶜᵃ, irange, jrange)
+    λᶠᶜᵃ = partition_tripolar_metric(global_grid, :λᶠᶜᵃ, irange, jrange)
+    λᶜᶠᵃ = partition_tripolar_metric(global_grid, :λᶜᶠᵃ, irange, jrange)
+    λᶠᶠᵃ = partition_tripolar_metric(global_grid, :λᶠᶠᵃ, irange, jrange)
+    φᶜᶜᵃ = partition_tripolar_metric(global_grid, :φᶜᶜᵃ, irange, jrange)
+    φᶠᶜᵃ = partition_tripolar_metric(global_grid, :φᶠᶜᵃ, irange, jrange)
+    φᶜᶠᵃ = partition_tripolar_metric(global_grid, :φᶜᶠᵃ, irange, jrange)
+    φᶠᶠᵃ = partition_tripolar_metric(global_grid, :φᶠᶠᵃ, irange, jrange)
+    Δxᶜᶜᵃ = partition_tripolar_metric(global_grid, :Δxᶜᶜᵃ, irange, jrange)
+    Δxᶠᶜᵃ = partition_tripolar_metric(global_grid, :Δxᶠᶜᵃ, irange, jrange)
+    Δxᶜᶠᵃ = partition_tripolar_metric(global_grid, :Δxᶜᶠᵃ, irange, jrange)
+    Δxᶠᶠᵃ = partition_tripolar_metric(global_grid, :Δxᶠᶠᵃ, irange, jrange)
+    Δyᶜᶜᵃ = partition_tripolar_metric(global_grid, :Δyᶜᶜᵃ, irange, jrange)
+    Δyᶠᶜᵃ = partition_tripolar_metric(global_grid, :Δyᶠᶜᵃ, irange, jrange)
+    Δyᶜᶠᵃ = partition_tripolar_metric(global_grid, :Δyᶜᶠᵃ, irange, jrange)
+    Δyᶠᶠᵃ = partition_tripolar_metric(global_grid, :Δyᶠᶠᵃ, irange, jrange)
+    Azᶜᶜᵃ = partition_tripolar_metric(global_grid, :Azᶜᶜᵃ, irange, jrange)
+    Azᶠᶜᵃ = partition_tripolar_metric(global_grid, :Azᶠᶜᵃ, irange, jrange)
+    Azᶜᶠᵃ = partition_tripolar_metric(global_grid, :Azᶜᶠᵃ, irange, jrange)
+    Azᶠᶠᵃ = partition_tripolar_metric(global_grid, :Azᶠᶠᵃ, irange, jrange)
 
     # 5. Determine local topologies
-    LY = yrank == 0 ? RightConnected : FullyConnected
+    Rx, Ry = workers[1], workers[2]
+    rx, ry = xrank + 1, yrank + 1
+    global_fold_topology = topology(global_grid, 2)  # RightFaceFolded
+    LY = insert_connected_topology(global_fold_topology, Ry, ry, Rx, rx)
     LX = workers[1] == 1 ? Periodic : FullyConnected
     ny = nylocal[yrank + 1]
     nx = nxlocal[xrank + 1]

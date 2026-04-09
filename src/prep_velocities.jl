@@ -329,7 +329,7 @@ for month in 1:12
     println("- dht consistency check"); flush(stdout)
     dht_data = readcubedata(getproperty(dht_ds, dht_var_name)[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, dht_data, dht_data)
-    size(dht_data) == (Nx, Ny - 1, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $(Ny - 1), $Nz)")
+    size(dht_data) == (Nx, Ny, Nz) || error("Unexpected dht monthly shape $(size(dht_data)); expected ($Nx, $Ny, $Nz)")
     set_kreversed!(dht_diag, dht_data)
     mask_immersed_field!(dht_diag, NaN)
 

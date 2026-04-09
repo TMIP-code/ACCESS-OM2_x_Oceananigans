@@ -133,7 +133,7 @@ ty = YFaceField(grid; boundary_conditions = ty_bcs)
 ty_gm = YFaceField(grid; boundary_conditions = ty_bcs)
 
 # Dummy tx_data (zeros) — we only need ty but the kernel handles both
-tx_zeros = zeros(Nx, Ny - 1, Nz)
+tx_zeros = zeros(Nx, Ny, Nz)
 
 # ── Streamfunction computation ────────────────────────────────────────────
 
