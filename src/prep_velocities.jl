@@ -288,9 +288,12 @@ if has_gm_data
     tz_tt = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
 end
 
-Axᶠᶜᶜ = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
-Ayᶜᶠᶜ = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
-Azᶜᶜᶠ = Field(grid_metric_operation((Center, Center, Face), Az, grid))
+# TODO: Alternatives to precomputed area Fields:
+#   1) Use AbstractOperation directly (no Field/compute!; lazy eval per iteration, negligible cost)
+#   2) Use kernels with Oceananigans.Operators.Axᶠᶜᶜ/Ayᶜᶠᶜ/Azᶜᶜᶠ (fused, no allocations; more code)
+AxFCC = Field(grid_metric_operation((Face, Center, Center), Ax, grid))
+AyCFC = Field(grid_metric_operation((Center, Face, Center), Ay, grid))
+AzCCF = Field(grid_metric_operation((Center, Center, Face), Az, grid))
 
 # Time-average accumulators (reuse same BCs as the corresponding periodic fields)
 u_acc = XFaceField(grid; boundary_conditions = ubcs)
@@ -372,14 +375,14 @@ for month in 1:12
     fill_halo_regions!(tx)
     fill_halo_regions!(ty)
 
-    compute!(Axᶠᶜᶜ)
-    compute!(Ayᶜᶠᶜ)
-    compute!(Azᶜᶜᶠ)
+    compute!(AxFCC)
+    compute!(AyCFC)
+    compute!(AzCCF)
 
-    u_mt .= tx / (ρ₀ * Axᶠᶜᶜ)
-    v_mt .= ty / (ρ₀ * Ayᶜᶠᶜ)
+    u_mt .= tx / (ρ₀ * AxFCC)
+    v_mt .= ty / (ρ₀ * AyCFC)
     fill_continuity_tz_from_tx_ty!(tz, grid, tx, ty)
-    w_mt .= tz / (ρ₀ * Azᶜᶜᶠ)
+    w_mt .= tz / (ρ₀ * AzCCF)
 
     mask_immersed_field!(u_mt, 0.0)
     mask_immersed_field!(v_mt, 0.0)
@@ -408,15 +411,15 @@ for month in 1:12
         fill_halo_regions!(ty_gm)
 
         # Velocity from total transport = resolved + GM per-layer
-        u_tt .= (tx .+ tx_gm) / (ρ₀ * Axᶠᶜᶜ)
-        v_tt .= (ty .+ ty_gm) / (ρ₀ * Ayᶜᶠᶜ)
+        u_tt .= (tx .+ tx_gm) / (ρ₀ * AxFCC)
+        v_tt .= (ty .+ ty_gm) / (ρ₀ * AyCFC)
         # Vertical velocity from continuity of total transport
         tx_gm .+= tx  # tx_gm now holds total tx
         ty_gm .+= ty  # ty_gm now holds total ty
         fill_halo_regions!(tx_gm)
         fill_halo_regions!(ty_gm)
         fill_continuity_tz_from_tx_ty!(tz_tt, grid, tx_gm, ty_gm)
-        w_tt .= tz_tt / (ρ₀ * Azᶜᶜᶠ)
+        w_tt .= tz_tt / (ρ₀ * AzCCF)
 
         mask_immersed_field!(u_tt, 0.0)
         mask_immersed_field!(v_tt, 0.0)
