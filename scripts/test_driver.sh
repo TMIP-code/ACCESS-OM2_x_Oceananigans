@@ -153,7 +153,7 @@ fi
 # tmsym: check structural symmetry of M, LUMP/SPRAY, and Mc
 has_step tmsym && \
     submit_job tmsym 00:30:00 scripts/tests/run_TM_symmetry_test.sh \
-        --queue normal --ngpus 0 --ncpus 48 --mem 192GB \
+        --queue express --ngpus 0 --ncpus 48 --mem 192GB \
         --vars "${COMMON_VARS}" > /dev/null
 
 # --- Summary ---
