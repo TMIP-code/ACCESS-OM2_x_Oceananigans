@@ -447,7 +447,7 @@ fi
 has_step plotNK && \
     submit_job plotNK "$WALLTIME_PLOT_NK" \
         scripts/plotting/plot_1year_from_periodic_sol.sh \
-        --deps "${RUNNK_CONST:-}" \
+        --deps "${RUNNK_CONST:-${NK_CONST:-}}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
 
 has_step plotNKtrace && \
