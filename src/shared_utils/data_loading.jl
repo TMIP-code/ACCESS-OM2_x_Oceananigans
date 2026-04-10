@@ -9,7 +9,6 @@ using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Fields: location, instantiated_location
 using Oceananigans.Grids: on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
-using Oceananigans.OrthogonalSphericalShellGrids: fold_set!
 using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
 using Oceananigans.Architectures: CPU, GPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
@@ -25,7 +24,7 @@ using Oceananigans.Utils: worksize
 Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, loading
 directly fails because the `FieldTimeSeries` constructor passes global-sized file data to
 `offset_data`, which expects local-sized data. Workaround: load on a serial CPU grid first,
-then partition to distributed ranks via `fold_set!`.
+then partition to distributed ranks via `set!`.
 """
 function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing, partition_dir = nothing)
     return FieldTimeSeries(file, name; architecture = arch, grid, backend, time_indexing)
@@ -47,21 +46,19 @@ function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_i
         end
     end
 
-    # Fallback: load global FTS on CPU, partition via fold_set!, fill halos
+    # Fallback: load global FTS on CPU, partition via set!, fill halos
     @info "Loading FTS '$name' via CPU grid for distributed partitioning"
     cpu_fts = FieldTimeSeries(
         file, name; architecture = CPU(), grid = cpu_grid,
-        backend = InMemory(), time_indexing
+        backend = InMemory(), time_indexing,
     )
     dist_fts = FieldTimeSeries(
         instantiated_location(cpu_fts), grid, cpu_fts.times;
         backend = InMemory(), time_indexing,
         boundary_conditions = cpu_fts.boundary_conditions,
     )
-    conformal_mapping = grid.underlying_grid.conformal_mapping
-    y_loc = instantiated_location(cpu_fts)[2]
     for n in eachindex(cpu_fts.times)
-        fold_set!(dist_fts[n], Array(interior(cpu_fts[n])), conformal_mapping, typeof(y_loc))
+        set!(dist_fts[n], Array(interior(cpu_fts[n])))
     end
     fill_halo_regions!(dist_fts)
     return dist_fts
@@ -99,8 +96,7 @@ end
 """
     load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
-Load MLD data and create a vertical diffusivity field. For `Distributed` architectures,
-keeps data on CPU so `set!` dispatches to `fold_set!` with global arrays.
+Load MLD data and create a vertical diffusivity field.
 """
 function load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
     mld_ds = open_dataset(mld_file)
@@ -118,9 +114,7 @@ function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, N
     z_center = collect(znodes(grid, Center(), Center(), Center()))
     is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
     κVField = CenterField(grid)
-    # Use fold_set! directly (DistributedTripolarField dispatch doesn't match ImmersedBoundaryGrid)
-    conformal_mapping = grid.underlying_grid.conformal_mapping
-    fold_set!(κVField, Array(κVML * is_mld + κVBG * .!is_mld), conformal_mapping, Center)
+    set!(κVField, Array(κVML * is_mld + κVBG * .!is_mld))
     fill_halo_regions!(κVField)
     return κVField
 end

@@ -149,7 +149,7 @@ if arch isa Distributed
         partition_dir = pd
         @info "Using pre-partitioned FTS data from $partition_dir"
     else
-        @info "No pre-partitioned data at $pd — using runtime fold_set! partitioning"
+        @info "No pre-partitioned data at $pd — using runtime set! partitioning"
     end
 end
 fts_kw = arch isa Distributed ? (; cpu_grid, partition_dir) : (;)

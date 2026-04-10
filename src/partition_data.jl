@@ -4,7 +4,7 @@ Pre-partition grid and FTS data for distributed (MPI) simulations.
 Runs under MPI on CPU. Each rank writes its own JLD2 files containing
 local grid arrays and FTS snapshots with correct halos, sliced directly
 from the serial global data. This eliminates the need for runtime
-`fold_set!` + `fill_halo_regions!` on distributed FTS fields.
+`set!` + `fill_halo_regions!` on distributed FTS fields.
 
 Usage (via driver.sh):
     PARENT_MODEL=ACCESS-OM2-1 PARTITION=2x2 JOB_CHAIN=partition bash scripts/driver.sh
