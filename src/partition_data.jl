@@ -21,7 +21,7 @@ using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.DistributedComputations: Distributed, local_size, concatenate_local_sizes
 using Oceananigans.Fields: instantiated_location
-using Oceananigans.Grids: on_architecture
+using Oceananigans.Grids: on_architecture, total_size
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.OutputReaders: FieldTimeSeries, InMemory, Cyclical
 using Oceananigans.Units: day, days, second, seconds
@@ -249,14 +249,15 @@ for (file_prefix, field_name) in fts_fields
     loc = instantiated_location(cpu_fts)
     rank_fts_file = joinpath(fts_partition_dir, "$(file_prefix)_monthly_rank$(rank).jld2")
 
-    # Build a temporary local field on the dist_grid at this FTS location to
-    # determine the correct local parent shape (location- and topology-aware).
+    # Build a temporary local field on the dist_grid at this FTS location and
+    # use total_size (interior + halos) to determine the correct local parent
+    # shape, so it's location- and topology-aware automatically.
     # TODO: refactor partition_data.jl to use Oceananigans' own partition/set!
     # routines end-to-end instead of slicing parent arrays manually. The hand
     # rolled global_i/j_range logic is fragile and missed Face-vs-Center
     # semantics on fold-owning ranks (see commit history for the bug).
     local_field = Field(loc, dist_grid)
-    lpx, lpy, lpz = size(parent(local_field.data))
+    lpx, lpy, lpz = total_size(local_field)
     fts_i_range = (1 + x_offset):(x_offset + lpx)
     fts_j_range = (1 + y_offset):(y_offset + lpy)
     @info "Rank $rank: '$field_name' local parent = ($lpx, $lpy, $lpz), fts_i_range = $fts_i_range, fts_j_range = $fts_j_range"
