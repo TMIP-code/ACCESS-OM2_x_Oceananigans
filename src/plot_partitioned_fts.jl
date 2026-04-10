@@ -172,11 +172,10 @@ for (file_prefix, field_name) in fts_fields
         end
 
         # Read the per-rank partition file
-        rank_data, Hx_r, Hy_r, local_Nx, local_Ny = jldopen(rank_file, "r") do f
+        rank_data, location_saved, local_Nx, local_Ny = jldopen(rank_file, "r") do f
             (
                 f["data/1"],
-                f["Hx"],
-                f["Hy"],
+                f["location"],
                 f["local_Nx"],
                 f["local_Ny"],
             )
@@ -187,20 +186,15 @@ for (file_prefix, field_name) in fts_fields
         # Convention used by partition_data.jl: rank = rx * py + ry
         rx = r ÷ py
         ry = r % py
-        # Compute x_offset / y_offset using the same convention as
-        # partition_data.jl (sum of local sizes of preceding ranks).
-        # Here we assume even partitioning (cell counts = grid.Nx ÷ px, grid.Ny ÷ py)
-        # because partition_data.jl writes local_Nx / local_Ny per rank but the
-        # offsets are reconstructed from local_size accumulation across ranks.
-        # For a 1x2 / 2x2 setup these are simply ry * local_Ny and rx * local_Nx.
         x_offset = rx * local_Nx
         y_offset = ry * local_Ny
 
-        global_i_range = (1 + x_offset):(local_Nx + x_offset + 2 * Hx_r)
-        global_j_range = (1 + y_offset):(local_Ny + y_offset + 2 * Hy_r)
-
-        # Slice the serial parent the same way partition_data.jl does
-        # so the diff captures any inconsistency in the saved file.
+        # Compute the EXPECTED serial slice using the actual rank_data shape so
+        # the diff is "what's saved" vs "what serial parent has at the same
+        # offset". This is location-aware: a CF Face field on a fold-owning
+        # rank correctly takes one extra y row.
+        global_i_range = (1 + x_offset):(x_offset + nx_r)
+        global_j_range = (1 + y_offset):(y_offset + ny_r)
         serial_slice = serial_parent[global_i_range, global_j_range, :]
         nx_ss, ny_ss, nz_ss = size(serial_slice)
 

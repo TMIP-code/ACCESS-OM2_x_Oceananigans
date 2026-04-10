@@ -249,6 +249,19 @@ for (file_prefix, field_name) in fts_fields
     loc = instantiated_location(cpu_fts)
     rank_fts_file = joinpath(fts_partition_dir, "$(file_prefix)_monthly_rank$(rank).jld2")
 
+    # Build a temporary local field on the dist_grid at this FTS location to
+    # determine the correct local parent shape (location- and topology-aware).
+    # TODO: refactor partition_data.jl to use Oceananigans' own partition/set!
+    # routines end-to-end instead of slicing parent arrays manually. The hand
+    # rolled global_i/j_range logic is fragile and missed Face-vs-Center
+    # semantics on fold-owning ranks (see commit history for the bug).
+    local_field = Field(loc, dist_grid)
+    lpx, lpy, lpz = size(parent(local_field.data))
+    fts_i_range = (1 + x_offset):(x_offset + lpx)
+    fts_j_range = (1 + y_offset):(y_offset + lpy)
+    @info "Rank $rank: '$field_name' local parent = ($lpx, $lpy, $lpz), fts_i_range = $fts_i_range, fts_j_range = $fts_j_range"
+    flush(stdout); flush(stderr)
+
     @info "Rank $rank: Saving $Nt snapshots of '$field_name' to $rank_fts_file"
     flush(stdout); flush(stderr)
 
@@ -268,16 +281,10 @@ for (file_prefix, field_name) in fts_fields
         for n in 1:Nt
             serial_parent = Array(parent(cpu_fts[n].data))
             if n == 1
-                @info "Rank $rank: '$field_name' serial_parent size = $(size(serial_parent)), slice = ($global_i_range, $global_j_range, :), result size = $(size(serial_parent[global_i_range, global_j_range, :]))"
+                @info "Rank $rank: '$field_name' serial_parent size = $(size(serial_parent)), slice = ($fts_i_range, $fts_j_range, :), result size = $(size(serial_parent[fts_i_range, fts_j_range, :]))"
                 flush(stdout); flush(stderr)
             end
-            nz_fts = size(serial_parent, 3)
-            # For 2D fields (eta), z-dim may be 1 — no z-halos to slice
-            if nz_fts <= 2Hz
-                local_parent = serial_parent[global_i_range, global_j_range, :]
-            else
-                local_parent = serial_parent[global_i_range, global_j_range, :]
-            end
+            local_parent = serial_parent[fts_i_range, fts_j_range, :]
             f["data/$n"] = local_parent
         end
     end
@@ -285,8 +292,7 @@ for (file_prefix, field_name) in fts_fields
     # Verify first snapshot against serial
     local_saved = load(rank_fts_file, "data/1")
     serial_parent = Array(parent(cpu_fts[1].data))
-    nz_fts = size(serial_parent, 3)
-    serial_slice = serial_parent[global_i_range, global_j_range, :]
+    serial_slice = serial_parent[fts_i_range, fts_j_range, :]
     if local_saved == serial_slice
         @info "Rank $rank: FTS '$field_name' verification PASSED"
     else
