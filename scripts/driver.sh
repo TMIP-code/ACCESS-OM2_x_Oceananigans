@@ -99,7 +99,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
-    echo "    plot1yr plot10yr plot100yr plotMOC"
+    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -119,7 +119,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -182,7 +182,7 @@ JOB_CHAIN="${JOB_CHAIN//full/preprocessing-run1yr-TMall-NK-run1yrNK-plotNK-plot1
 JOB_CHAIN="${JOB_CHAIN//preprocessing/prep-grid-vel-clo-diagnose_w-partition}"
 JOB_CHAIN="${JOB_CHAIN//standardruns/run1yr-run10yr-run100yr-runlong}"
 JOB_CHAIN="${JOB_CHAIN//TMall/TMbuild-TMsnapshot-TMsolve}"
-JOB_CHAIN="${JOB_CHAIN//plotall/plot1yr-plot10yr-plot100yr-plotNK-plotTM-plotMOC}"
+JOB_CHAIN="${JOB_CHAIN//plotall/plotgrid-plot1yr-plot10yr-plot100yr-plotNK-plotTM-plotMOC}"
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
@@ -475,6 +475,12 @@ has_step plot100yr && \
     submit_job plot100yr "$WALLTIME_PLOT" \
         scripts/plotting/plot_standardrun_age.sh \
         --deps "${RUN100YR_JOB:-}" --vars "DURATION=100years" > /dev/null
+
+# plotgrid (depends on: grid)
+has_step plotgrid && \
+    submit_job plotgrid "$WALLTIME_PLOT" \
+        scripts/plotting/plot_grid_metrics.sh \
+        --deps "${GRID_JOB:-}" > /dev/null
 
 # plotMOC (depends on: prep + grid — needs ty_trans_monthly.nc and grid.jld2)
 if has_step plotMOC; then

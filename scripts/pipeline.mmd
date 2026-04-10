@@ -21,7 +21,7 @@ graph TD
         TMsolve:::gpu & NK:::gpu & run1yrNK:::gpu
     end
     subgraph plotting
-        plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotMOC
+        plotgrid & plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotMOC
     end
     prep & grid --> vel & clo
     vel --> diagnose_w
@@ -34,4 +34,5 @@ graph TD
     TMbuild & TMsnapshot --> TMsolve & NK & plotTM
     NK --> run1yrNK & plotNKtrace
     run1yrNK --> plotNK
+    grid --> plotgrid
     prep & grid --> plotMOC
