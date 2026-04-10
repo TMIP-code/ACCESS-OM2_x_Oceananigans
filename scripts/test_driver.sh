@@ -15,6 +15,8 @@
 #   diagcpuserial — 10-step diagnostic on CPU (serial, no GPUs, express queue)
 #   compare   — compare serial vs distributed outputs (CPU, express queue)
 #               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
+#   plotpartitions — plot per-rank partitioned FTS files (from preprocessed_inputs/.../partitions/{P}/)
+#                    against the global FTS, no simulation needed (CPU, express queue)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
 #   prediagw    — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
 #   prediagwNK  — compare NK periodic age from wdiagnosed vs wprescribed (parent & prediag)
@@ -44,7 +46,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare gridtest mpi prediagw prediagwNK mkappaVNK tmsym"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridtest mpi prediagw prediagwNK mkappaVNK tmsym"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -103,6 +105,11 @@ if has_step compare; then
         --queue express --ngpus 0 --ncpus 12 --mem 47GB \
         --vars "GPU_TAG=${GPU_TAG},DURATION_TAG=${DURATION_TAG}" > /dev/null
 fi
+
+has_step plotpartitions && \
+    submit_job plotpartitions 00:30:00 scripts/plotting/plot_partitioned_fts.sh \
+        --queue express --ngpus 0 --ncpus 12 --mem 47GB \
+        --vars "PARTITION=${PARTITION}" > /dev/null
 
 has_step gridtest && \
     submit_job gridtest 00:30:00 scripts/tests/run_grid_identity_test.sh \
