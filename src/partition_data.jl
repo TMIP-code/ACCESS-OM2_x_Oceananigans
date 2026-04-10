@@ -110,6 +110,9 @@ global_i_range = (1 + x_offset):(local_Nx + x_offset + 2Hx)
 global_j_range = (1 + y_offset):(local_Ny + y_offset + 2Hy)
 
 @info "Rank $rank: Local grid size = ($local_Nx, $local_Ny, $Nz), offsets = ($x_offset, $y_offset)"
+@info "Rank $rank: nxlocal = $nxlocal, nylocal = $nylocal"
+@info "Rank $rank: global_i_range = $global_i_range  (length $(length(global_i_range)))"
+@info "Rank $rank: global_j_range = $global_j_range  (length $(length(global_j_range)))"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -264,6 +267,10 @@ for (file_prefix, field_name) in fts_fields
 
         for n in 1:Nt
             serial_parent = Array(parent(cpu_fts[n].data))
+            if n == 1
+                @info "Rank $rank: '$field_name' serial_parent size = $(size(serial_parent)), slice = ($global_i_range, $global_j_range, :), result size = $(size(serial_parent[global_i_range, global_j_range, :]))"
+                flush(stdout); flush(stderr)
+            end
             nz_fts = size(serial_parent, 3)
             # For 2D fields (eta), z-dim may be 1 — no z-halos to slice
             if nz_fts <= 2Hz
