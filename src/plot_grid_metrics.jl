@@ -73,20 +73,13 @@ function plot_metric(grid, metric_symbol; prefix = "")
         xlabel = "i",
         ylabel = "j",
         aspect = DataAspect(),
-        xticks = [1 - Hx, 1, Nx, Nx + Hx],
-        yticks = [1 - Hy, 1, Ny, Ny + Hy],
+        xticks = [1, Nx],
+        yticks = [1, Ny],
     )
     extraopt = (; nan_color = :gray)
     hm = heatmap!(ax, (1 - Hx):(Nx + Hx), (1 - Hy):(Ny + Hy), xdata[:, :].parent; extraopt...)
-    pl = poly!(
-        ax, [0.5, Nx + 0.5, Nx + 0.5, 0.5, 0.5], [0.5, 0.5, Ny + 0.5, Ny + 0.5, 0.5];
-        color = (:red, 0.0),
-        strokewidth = 2,
-        linestyle = :solid,
-        strokecolor = :red,
-    )
-    scatter!(ax, [pivot_i], [pivot_j]; color = :purple, marker = :star5, markersize = 15)
-    ax.title = "$(prefix) $metric_symbol"
+    scatter!(ax, [pivot_i], [pivot_j]; color = :red, marker = :star5, markersize = 15)
+    ax.title = "$metric_symbol"
     Colorbar(fig[2, 1], hm; vertical = false, tellwidth = false)
     save("$(prefix)_$(metric_symbol).png", fig)
     return fig
