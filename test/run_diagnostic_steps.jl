@@ -13,23 +13,17 @@ PARENT_MODEL=ACCESS-OM2-1 julia --project test/run_diagnostic_steps.jl
 
 include("../src/setup_model.jl")
 
-################################################################################
-# Initial condition
-################################################################################
+# Override stop_time to 10 timesteps for the diagnostic run
+stop_time = 10 * Δt
 
-@info "Setting initial condition: age = 0"
-flush(stdout); flush(stderr)
-
-set!(model, age = Returns(0.0))
+include("../src/setup_simulation.jl")
 
 ################################################################################
-# Simulation (10 time steps, output every step)
+# Output writers (initial condition is set by setup_simulation.jl)
 ################################################################################
 
-diag_stop_time = 10 * Δt
-
-simulation, age_output_dir = setup_age_simulation(
-    model, Δt, diag_stop_time, outputdir, model_config, "diag";
+age_output_dir = setup_age_simulation(
+    simulation, outputdir, model_config, "diag";
     output_interval = Δt,
     progress_interval = Δt,
 )
