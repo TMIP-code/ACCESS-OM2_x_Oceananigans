@@ -14,7 +14,7 @@ flush(stdout); flush(stderr)
 
 using Oceananigans
 using Oceananigans.Grids: RightFaceFolded, RightCenterFolded, topology
-using GLMakie
+using CairoMakie
 using JLD2
 
 include("shared_functions.jl")
