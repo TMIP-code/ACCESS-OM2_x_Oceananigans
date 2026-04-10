@@ -14,6 +14,9 @@ include("setup_model.jl")
 include("setup_simulation.jl")
 
 using Oceananigans.TimeSteppers: time_step!
+using Oceananigans.Fields: instantiated_location
+using Oceananigans.Models: fields
+import Oceananigans.Architectures
 
 ALLOC_BATCH_STEPS = parse(Int, get(ENV, "ALLOC_BATCH_STEPS", "20"))
 
@@ -50,6 +53,27 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 CUDA.@time for _ in 1:ALLOC_BATCH_STEPS
     time_step!(model, Δt)
+end
+flush(stdout); flush(stderr)
+
+################################################################################
+# convert_to_device probe (does TimeSeriesInterpolation allocate per call?)
+################################################################################
+
+@info "Probing convert_to_device(args) allocation"
+flush(stdout); flush(stderr)
+
+let tracer = first(values(model.tracers))
+    args = (
+        tracer.data, tracer.boundary_conditions, tracer.indices,
+        instantiated_location(tracer), model.grid, model.clock, fields(model),
+    )
+    # First call (may include compilation)
+    @time Oceananigans.Architectures.convert_to_device(model.architecture, args)
+    # Second call (steady-state)
+    @time Oceananigans.Architectures.convert_to_device(model.architecture, args)
+    # Third call to confirm it's stable
+    @time Oceananigans.Architectures.convert_to_device(model.architecture, args)
 end
 flush(stdout); flush(stderr)
 
