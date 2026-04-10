@@ -97,7 +97,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"
-    echo "    prep grid vel clo diagnose_w run1yr run1yrfast allocprofile run10yr run100yr runlong"
+    echo "    prep grid vel clo diagnose_w run1yr run1yrfast allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
     echo ""
@@ -119,7 +119,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -325,6 +325,11 @@ has_step run1yrfast && \
     RUN1YRFAST_JOB=$(submit_job run1yrfast "$WALLTIME_RUN_1YEAR" \
         scripts/standard_runs/run_1year_benchmark.sh \
         --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION},PROFILE=${PROFILE:-no}")
+
+has_step allocbench && \
+    submit_job allocbench "$WALLTIME_RUN_1YEAR" \
+        scripts/standard_runs/run_alloc_benchmark.sh \
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION},ALLOC_BATCH_STEPS=${ALLOC_BATCH_STEPS:-20}" > /dev/null
 
 has_step allocprofile && \
     submit_job allocprofile 01:00:00 \

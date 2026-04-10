@@ -12,7 +12,7 @@ graph TD
         diagnose_w:::gpu & partition
     end
     subgraph standardruns
-        run1yr:::gpu & run1yrfast:::gpu & run10yr:::gpu & run100yr:::gpu & runlong:::gpu
+        run1yr:::gpu & run1yrfast:::gpu & allocbench:::gpu & run10yr:::gpu & run100yr:::gpu & runlong:::gpu
     end
     subgraph TM building
         TMbuild & TMsnapshot
@@ -26,8 +26,8 @@ graph TD
     prep & grid --> vel & clo
     vel --> diagnose_w
     vel & diagnose_w & clo & grid --> partition
-    diagnose_w & clo --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
-    partition --> run1yr & run1yrfast & run10yr & run100yr & runlong & TMbuild
+    diagnose_w & clo --> run1yr & run1yrfast & allocbench & run10yr & run100yr & runlong & TMbuild
+    partition --> run1yr & run1yrfast & allocbench & run10yr & run100yr & runlong & TMbuild
     run1yr --> TMsnapshot & plot1yr
     run10yr --> plot10yr
     run100yr --> plot100yr
