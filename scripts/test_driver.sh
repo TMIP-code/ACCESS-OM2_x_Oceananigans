@@ -89,7 +89,7 @@ has_step diag && \
 
 has_step diagcpu && \
     submit_job diagcpu 00:30:00 scripts/tests/run_diagnostic_steps.sh \
-        --queue express --ngpus 0 --ncpus 4 --mem 47GB \
+        --queue express --ngpus 0 --ncpus "$RANKS" --mem 47GB \
         --vars "PARTITION=${PARTITION}" > /dev/null
 
 has_step diagcpuserial && \
