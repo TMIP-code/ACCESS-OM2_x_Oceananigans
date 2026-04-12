@@ -1054,60 +1054,66 @@ for zname in zstar_fields
             @info "    rank $r: FIRST DIVERGENCE at iter $first_div, overall max|diff|=$(@sprintf("%.3e", max_diff_over_all)) over $(length(common)) iterations"
         end
 
-        # Plot spatial diff at the LAST shared iteration
+        # Plot spatial diff at selected iterations: iter 0, iter 1, and last
         if !isempty(common)
-            last_it = last(common)
-            si_last = findfirst(==(last_it), serial_iters)
-            ri_last = findfirst(==(last_it), rank_iters)
-            sd_last = serial_data[si_last]
-            rd_last = rank_data[ri_last]
+            plot_iters = unique([first(common)])
+            length(common) > 1 && push!(plot_iters, common[2])  # iter 1 (if exists)
+            last(common) ∉ plot_iters && push!(plot_iters, last(common))  # last iter
 
-            local sd_slice_last
-            if size(sd_last) == size(rd_last)
-                sd_slice_last = sd_last
+            # Fixed colorranges to see interior structure past outermost-halo outliers
+            diff_scale_z = if zname == "dt_sigma"
+                2.0e-16
+            elseif zname in ("sigma_cc", "eta_n")
+                1.0e-7
             else
-                nx_s2, ny_s2 = size(sd_last, 1), size(sd_last, 2)
-                nx_r2, ny_r2 = size(rd_last, 1), size(rd_last, 2)
-                x_off2 = rx * (Nx ÷ px)
-                y_off2 = ry * (Ny ÷ py)
-                x_s2 = 1 + x_off2
-                y_s2 = 1 + y_off2
-                x_e2 = x_s2 + nx_r2 - 1
-                y_e2 = y_s2 + ny_r2 - 1
-                sd_slice_last = ndims(sd_last) == 3 ? sd_last[x_s2:x_e2, y_s2:y_e2, :] : sd_last[x_s2:x_e2, y_s2:y_e2]
+                1.0e-10
             end
 
-            if size(sd_slice_last) == size(rd_last)
-                diff_last = rd_last .- sd_slice_last
-                # Pick a z-slice (these are 2D+1 fields; take the only z-slice)
+            for plot_it in plot_iters
+                plot_it ∈ common || continue
+                si_p = findfirst(==(plot_it), serial_iters)
+                ri_p = findfirst(==(plot_it), rank_iters)
+                sd_p = serial_data[si_p]
+                rd_p = rank_data[ri_p]
+
+                local sd_slice_p
+                if size(sd_p) == size(rd_p)
+                    sd_slice_p = sd_p
+                else
+                    nx_s2, ny_s2 = size(sd_p, 1), size(sd_p, 2)
+                    nx_r2, ny_r2 = size(rd_p, 1), size(rd_p, 2)
+                    x_off2 = rx * (Nx ÷ px)
+                    y_off2 = ry * (Ny ÷ py)
+                    x_s2 = 1 + x_off2
+                    y_s2 = 1 + y_off2
+                    x_e2 = x_s2 + nx_r2 - 1
+                    y_e2 = y_s2 + ny_r2 - 1
+                    sd_slice_p = ndims(sd_p) == 3 ? sd_p[x_s2:x_e2, y_s2:y_e2, :] : sd_p[x_s2:x_e2, y_s2:y_e2]
+                end
+
+                size(sd_slice_p) == size(rd_p) || continue
+
+                diff_p = rd_p .- sd_slice_p
                 k_z = 1
-                diff_2d = ndims(diff_last) == 3 ? diff_last[:, :, k_z] : diff_last
-                rd_2d = ndims(rd_last) == 3 ? rd_last[:, :, k_z] : rd_last
-                sd_2d = ndims(sd_slice_last) == 3 ? sd_slice_last[:, :, k_z] : sd_slice_last
+                diff_2d = ndims(diff_p) == 3 ? diff_p[:, :, k_z] : diff_p
+                rd_2d = ndims(rd_p) == 3 ? rd_p[:, :, k_z] : rd_p
+                sd_2d = ndims(sd_slice_p) == 3 ? sd_slice_p[:, :, k_z] : sd_slice_p
                 nxp, nyp = size(diff_2d)
 
-                absdiff_last = abs.(filter(!isnan, diff_2d))
-                max_abs_last = isempty(absdiff_last) ? 0.0 : maximum(absdiff_last)
+                absdiff_p = abs.(filter(!isnan, diff_2d))
+                max_abs_p = isempty(absdiff_p) ? 0.0 : maximum(absdiff_p)
                 mean_serial = mean(abs, filter(!isnan, sd_2d))
                 mean_dist = mean(abs, filter(!isnan, rd_2d))
 
                 @info @sprintf(
                     "    rank %d %s iter %d: max|diff|=%.3e mean|serial|=%.3e mean|dist|=%.3e",
-                    r, zname, last_it, max_abs_last, mean_serial, mean_dist,
+                    r, zname, plot_it, max_abs_p, mean_serial, mean_dist,
                 )
 
-                # Fixed colorranges to see interior structure past outermost-halo outliers
-                diff_scale_z = if zname == "dt_sigma"
-                    2.0e-16
-                elseif zname in ("sigma_cc", "eta_n")
-                    1.0e-7
-                else
-                    max_abs_last > 0 ? max_abs_last : 1.0e-10
-                end
                 fig = Figure(; size = (1000, 600))
                 ax = Axis(
                     fig[1, 1];
-                    title = "$zname rank $r DIFF iter $last_it (max=$(@sprintf("%.2e", max_abs_last)))",
+                    title = "$zname rank $r DIFF iter $plot_it (max=$(@sprintf("%.2e", max_abs_p)))",
                     xlabel = "i (with halos)", ylabel = "j (with halos)",
                     backgroundcolor = :lightgray,
                 )
@@ -1118,19 +1124,19 @@ for zname in zstar_fields
                     lowclip = :blue, highclip = :red,
                 )
                 Colorbar(fig[1, 2], hm; label = "$zname diff")
-                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_diff_$(DURATION_TAG)_iter$(last_it).png"), fig)
+                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_diff_$(DURATION_TAG)_iter$(plot_it).png"), fig)
 
                 # Also plot the rank's raw value for reference
                 fig2 = Figure(; size = (1000, 600))
                 ax2 = Axis(
                     fig2[1, 1];
-                    title = "$zname rank $r (iter $last_it)",
+                    title = "$zname rank $r (iter $plot_it)",
                     xlabel = "i (with halos)", ylabel = "j (with halos)",
                     backgroundcolor = :lightgray,
                 )
                 hm2 = heatmap!(ax2, 1:nxp, 1:nyp, rd_2d; nan_color = :lightgray)
                 Colorbar(fig2[1, 2], hm2; label = zname)
-                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_$(DURATION_TAG)_iter$(last_it).png"), fig2)
+                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_$(DURATION_TAG)_iter$(plot_it).png"), fig2)
             end
         end
     end
