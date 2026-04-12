@@ -87,12 +87,26 @@ Mc = LUMP * M * SPRAY
 Mc_sym = Pardiso.isstructurallysymmetric(Mc)
 @info "  Pardiso.isstructurallysymmetric(Mc) = $Mc_sym"
 
+# Test 4: symdrop makes M pass Pardiso check
+@info "Test 4: symdrop → Pardiso.isstructurallysymmetric"
+M_symdrop = process_sparse_matrix(copy(M), "symdrop")
+M_symdrop_sym = Pardiso.isstructurallysymmetric(M_symdrop)
+@info "  After symdrop: nnz=$(nnz(M_symdrop)), structurally symmetric = $M_symdrop_sym"
+
+# Test 5: symfill makes M pass Pardiso check
+@info "Test 5: symfill → Pardiso.isstructurallysymmetric"
+M_symfill = process_sparse_matrix(copy(M), "symfill")
+M_symfill_sym = Pardiso.isstructurallysymmetric(M_symfill)
+@info "  After symfill: nnz=$(nnz(M_symfill)), structurally symmetric = $M_symfill_sym"
+
 # Summary
 @info "="^60
 @info "Summary"
-@info "  M structurally symmetric:    $M_sym"
-@info "  LUMP == SPRAY' pattern:      $lump_match"
-@info "  Mc structurally symmetric:   $Mc_sym"
-all_pass = M_sym && lump_match && Mc_sym
-@info "  All checks passed:           $all_pass"
+@info "  M structurally symmetric:        $M_sym"
+@info "  LUMP == SPRAY' pattern:          $lump_match"
+@info "  Mc structurally symmetric:       $Mc_sym"
+@info "  M symdrop → symmetric:           $M_symdrop_sym"
+@info "  M symfill → symmetric:           $M_symfill_sym"
+all_pass = M_sym && lump_match && Mc_sym && M_symdrop_sym && M_symfill_sym
+@info "  All checks passed:               $all_pass"
 all_pass || @warn "Some symmetry checks failed — investigate before using Pardiso"

@@ -401,13 +401,14 @@ flush(stdout); flush(stderr)
     Cache(ADc_buf), Cache(GADc_buf),
 )
 
-S_sym = S .| S'
-@info "Sparsity: nnz(S) = $(nnz(S)), nnz(S_sym) = $(nnz(S_sym))"
+# No symmetrization — coloring matches the raw Jacobian pattern.
+# Structural symmetry for Pardiso is enforced downstream on Q_precond.
+@info "Sparsity: nnz(S) = $(nnz(S))"
 flush(stdout); flush(stderr)
 
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
-    sparsity_detector = KnownJacobianSparsityDetector(S_sym),
+    sparsity_detector = KnownJacobianSparsityDetector(S),
     coloring_algorithm = GreedyColoringAlgorithm(),
 )
 
@@ -510,10 +511,7 @@ M_avg = SparseMatrixCSC(
     jac_buffer.colptr, jac_buffer.rowval, copy(nzval_avg),
 )
 
-if !Pardiso.isstructurallysymmetric(M_avg)
-    error("Averaged matrix is NOT structurally symmetric (nnz=$(nnz(M_avg)))")
-end
-@info "Structural symmetry check passed"
+@info "M_avg: $(size(M_avg, 1))×$(size(M_avg, 2)), nnz=$(nnz(M_avg))"
 
 avg_dir = joinpath(matrices_dir, "avg")
 mkpath(avg_dir)

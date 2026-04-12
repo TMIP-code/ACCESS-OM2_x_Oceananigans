@@ -29,6 +29,12 @@ Environment variables (in addition to setup_model.jl):
   LUMP_AND_SPRAY – yes | no  (default: no)
                    yes: lump-and-spray coarsening (Bardin et al., 2014)
                    no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
+  MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
+                   Processing applied to Q_precond before Pardiso factorization.
+                   raw:       no processing (Pardiso requires structurally symmetric M)
+                   symfill:   add zero entries at (j,i) for every existing (i,j)
+                   dropzeros: remove stored zeros
+                   symdrop:   keep (i,j) only if (j,i) also exists, then drop zeros
   TM_SOURCE      – const | avg  (default: const)
                    Subdirectory under TM/{model_config}/ to load M from.
 """
@@ -60,6 +66,9 @@ LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
 lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
 
+MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
+(MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
+
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
@@ -70,6 +79,7 @@ matrices_dir = joinpath(outputdir, "TM", model_config)
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
 @info "- TM_SOURCE = $TM_SOURCE"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
+@info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout); flush(stderr)
 
@@ -134,14 +144,16 @@ flush(stdout); flush(stderr)
 # Preconditioner setup
 ################################################################################
 
+@info "Processing Q_precond (MATRIX_PROCESSING=$MATRIX_PROCESSING)"
+Q_precond = process_sparse_matrix(Q_precond, MATRIX_PROCESSING)
+
 @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
 flush(stdout); flush(stderr)
 
 if LINEAR_SOLVER == "Pardiso"
     error_msg = """
         Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
-        The transport matrix M should have symmetric sparsity from matrix_setup.jl.
-        Check that no operation (dropzeros, scalar multiply, etc.) broke the pattern.
+        Use MATRIX_PROCESSING=symdrop or symfill to enforce structural symmetry.
     """
     Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
     matrix_type = Pardiso.REAL_SYM

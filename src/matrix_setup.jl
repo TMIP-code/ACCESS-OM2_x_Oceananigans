@@ -404,15 +404,15 @@ flush(stdout); flush(stderr)
     Cache(ADc_buf), Cache(GADc_buf),
 )
 
-# Step 2: Symmetrize sparsity pattern (S[i,j] ↔ S[j,i])
-S_sym = S .| S'
-@info "Sparsity: nnz(S) = $(nnz(S)), nnz(S_sym) = $(nnz(S_sym))"
+# No symmetrization — coloring matches the raw Jacobian pattern.
+# Structural symmetry for Pardiso is enforced downstream on Q_precond.
+@info "Sparsity: nnz(S) = $(nnz(S))"
 flush(stdout); flush(stderr)
 
-# Step 3: Prepare Jacobian with known (symmetric) sparsity pattern
+# Step 2: Prepare Jacobian with known sparsity pattern
 sparse_forward_backend = AutoSparse(
     AutoForwardDiff();
-    sparsity_detector = KnownJacobianSparsityDetector(S_sym),
+    sparsity_detector = KnownJacobianSparsityDetector(S),
     coloring_algorithm = GreedyColoringAlgorithm(),
 )
 
