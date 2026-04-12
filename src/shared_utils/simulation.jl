@@ -110,7 +110,8 @@ function setup_age_simulation(
             filename = joinpath(age_output_dir, "$(name)_$(duration_tag)"),
             overwrite_existing = true,
             with_halos = true,
-            array_type = Array{Float64},  # default is Array{Float32}, which would truncate
+            # TODO: add array_type = Array{Float64} once the ReadOnlyMemoryError
+            # in solve_batched_tridiagonal_system_z! on serial CPU is resolved.
             including = [],  # workaround for #5410: serializeproperty! deadlocks on distributed
         )
     end
