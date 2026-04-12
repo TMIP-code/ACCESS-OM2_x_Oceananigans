@@ -83,30 +83,27 @@ MPI.Barrier(comm)
 # Compare per-rank metric parents against serial parent slices
 ################################################################################
 
-metrics = (
-    :λᶜᶜᵃ, :λᶠᶜᵃ, :λᶜᶠᵃ, :λᶠᶠᵃ,
-    :φᶜᶜᵃ, :φᶠᶜᵃ, :φᶜᶠᵃ, :φᶠᶠᵃ,
-    :Δxᶜᶜᵃ, :Δxᶠᶜᵃ, :Δxᶜᶠᵃ, :Δxᶠᶠᵃ,
-    :Δyᶜᶜᵃ, :Δyᶠᶜᵃ, :Δyᶜᶠᵃ, :Δyᶠᶠᵃ,
-    :Azᶜᶜᵃ, :Azᶠᶜᵃ, :Azᶜᶠᵃ, :Azᶠᶠᵃ,
-)
-
-total_mismatches = 0
-for name in metrics
-    serial_parent = Array(parent(getproperty(serial_ug, name)))
-    dist_parent = Array(parent(getproperty(dist_ug, name)))
+function compare_parent!(name::String, serial_parent, dist_parent)
     npx_local, npy_local = size(dist_parent, 1), size(dist_parent, 2)
-
     i_range = (1 + x_offset):(x_offset + npx_local)
     j_range = (1 + y_offset):(y_offset + npy_local)
 
     if last(i_range) > size(serial_parent, 1) || last(j_range) > size(serial_parent, 2)
         @error "Rank $rank: $name slice out of bounds (serial=$(size(serial_parent)), slice=($i_range, $j_range))"
-        total_mismatches += 1
-        continue
+        return 1
     end
 
-    serial_slice = serial_parent[i_range, j_range]
+    # Slice the serial parent to the same shape; 3D/2D handled uniformly via size check
+    serial_slice = if ndims(serial_parent) == 3
+        serial_parent[i_range, j_range, :]
+    else
+        serial_parent[i_range, j_range]
+    end
+
+    if size(serial_slice) != size(dist_parent)
+        @error "Rank $rank: $name shape mismatch: dist=$(size(dist_parent)) serial_slice=$(size(serial_slice))"
+        return 1
+    end
 
     diff = dist_parent .- serial_slice
     absdiff = abs.(filter(!isnan, diff))
@@ -121,15 +118,55 @@ for name in metrics
 
     status = max_abs == 0 ? "OK" : "MISMATCH"
     @info @sprintf(
-        "Rank %d: %-8s %-9s max|diff|=%.3e n_nonzero=%d worst=%s",
-        rank, string(name), status, max_abs, n_non_zero, worst_ij,
+        "Rank %d: %-10s %-9s max|diff|=%.3e n_nonzero=%d worst=%s",
+        rank, name, status, max_abs, n_non_zero, worst_ij,
     )
-
-    if max_abs > 0
-        total_mismatches += 1
-    end
-
     flush(stdout); flush(stderr)
+    return max_abs == 0 ? 0 : 1
+end
+
+horizontal_metrics = (
+    :λᶜᶜᵃ, :λᶠᶜᵃ, :λᶜᶠᵃ, :λᶠᶠᵃ,
+    :φᶜᶜᵃ, :φᶠᶜᵃ, :φᶜᶠᵃ, :φᶠᶠᵃ,
+    :Δxᶜᶜᵃ, :Δxᶠᶜᵃ, :Δxᶜᶠᵃ, :Δxᶠᶠᵃ,
+    :Δyᶜᶜᵃ, :Δyᶠᶜᵃ, :Δyᶜᶠᵃ, :Δyᶠᶠᵃ,
+    :Azᶜᶜᵃ, :Azᶠᶜᵃ, :Azᶜᶠᵃ, :Azᶠᶠᵃ,
+)
+
+total_mismatches = 0
+for name in horizontal_metrics
+    total_mismatches += compare_parent!(
+        string(name),
+        Array(parent(getproperty(serial_ug, name))),
+        Array(parent(getproperty(dist_ug, name))),
+    )
+end
+
+# bottom_height (from PartialCellBottom immersed boundary)
+if serial_grid isa ImmersedBoundaryGrid && dist_grid isa ImmersedBoundaryGrid
+    serial_ib = serial_grid.immersed_boundary
+    dist_ib = dist_grid.immersed_boundary
+    if hasproperty(serial_ib, :bottom_height) && hasproperty(dist_ib, :bottom_height)
+        total_mismatches += compare_parent!(
+            "bottom",
+            Array(parent(serial_ib.bottom_height.data)),
+            Array(parent(dist_ib.bottom_height.data)),
+        )
+    end
+end
+
+# z-star scaling fields (σᶜᶜⁿ, σᶠᶜⁿ, σᶜᶠⁿ, σᶠᶠⁿ, ηⁿ, ∂t_σ)
+# These live in ug.z (MutableVerticalDiscretization) as OffsetArrays
+if hasproperty(serial_ug.z, :σᶜᶜⁿ) && hasproperty(dist_ug.z, :σᶜᶜⁿ)
+    for zname in (:σᶜᶜⁿ, :σᶠᶜⁿ, :σᶜᶠⁿ, :σᶠᶠⁿ, :ηⁿ, :∂t_σ)
+        hasproperty(serial_ug.z, zname) || continue
+        hasproperty(dist_ug.z, zname) || continue
+        total_mismatches += compare_parent!(
+            string(zname),
+            Array(parent(getproperty(serial_ug.z, zname))),
+            Array(parent(getproperty(dist_ug.z, zname))),
+        )
+    end
 end
 
 MPI.Barrier(comm)

@@ -184,6 +184,7 @@ function Φ!(age_out, age_in; source_rate = 1.0)
             schedule = TimeInterval(stop_time),
             filename = trace_prefix,
             overwrite_existing = true,
+            array_type = Array{Float64},
         )
     end
 

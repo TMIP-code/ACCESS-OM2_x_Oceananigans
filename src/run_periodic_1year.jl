@@ -84,6 +84,7 @@ simulation.output_writers[:fields] = JLD2Writer(
     schedule = TimeInterval(prescribed_Δt / 2),  # half-monthly snapshots (25 total)
     filename = output_prefix,
     overwrite_existing = true,
+    array_type = Array{Float64},
 )
 
 @info "Running 1-year simulation from converged periodic state"

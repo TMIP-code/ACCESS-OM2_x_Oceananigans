@@ -139,6 +139,7 @@ simulation.output_writers[:w] = JLD2Writer(
     filename = w_output_file,
     overwrite_existing = true,
     with_halos = true,
+    array_type = Array{Float64},
     including = [],
 )
 

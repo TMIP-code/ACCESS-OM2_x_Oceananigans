@@ -110,6 +110,7 @@ function setup_age_simulation(
             filename = joinpath(age_output_dir, "$(name)_$(duration_tag)"),
             overwrite_existing = true,
             with_halos = true,
+            array_type = Array{Float64},  # default is Array{Float32}, which would truncate
             including = [],  # workaround for #5410: serializeproperty! deadlocks on distributed
         )
     end
