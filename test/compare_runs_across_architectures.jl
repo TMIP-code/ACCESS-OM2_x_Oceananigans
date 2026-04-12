@@ -378,7 +378,8 @@ if serial_vel_exists && dist_vel_exists
                     field_name, klabel, max_abs, mean_abs, rms
                 )
 
-                diff_scale = mean_abs > 0 ? 3 * mean_abs : 1.0e-10
+                # Use tight fixed range for w to see interior structure (auto range is dominated by halo outliers)
+                diff_scale = field_name == "w" ? 1.0e-10 : (mean_abs > 0 ? 3 * mean_abs : 1.0e-10)
                 fig = Figure(; size = (900, 500))
                 ax = Axis(
                     fig[1, 1];
@@ -570,7 +571,7 @@ for field_name in halo_fields
             mean_abs = mean(abs, diff_slice)
             @info "  $field_name rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
 
-            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            diff_scale = field_name == "w" ? 1.0e-10 : (max_abs > 0 ? max_abs : 1.0e-10)
             fig = Figure(; size = (1000, 600))
             ax = Axis(
                 fig[1, 1];
@@ -730,7 +731,7 @@ for field_name in manual_fields
             mean_abs = mean(abs, diff_slice)
             @info "  $field_name manual rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
 
-            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            diff_scale = field_name == "w" ? 1.0e-10 : (max_abs > 0 ? max_abs : 1.0e-10)
             fig = Figure(; size = (1000, 600))
             ax = Axis(
                 fig[1, 1];
@@ -878,7 +879,7 @@ for field_name in fts_fields
             mean_abs = mean(abs, diff_slice)
             @info "  $field_name FTS rank $r diff: max|diff|=$(@sprintf("%.2e", max_abs)) mean|diff|=$(@sprintf("%.2e", mean_abs))"
 
-            diff_scale = max_abs > 0 ? max_abs : 1.0e-10
+            diff_scale = field_name == "w" ? 1.0e-10 : (max_abs > 0 ? max_abs : 1.0e-10)
             fig = Figure(; size = (1000, 600))
             ax = Axis(
                 fig[1, 1];
