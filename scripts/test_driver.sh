@@ -20,6 +20,7 @@
 #   gridmetrics    — bit-exact check of distributed grid metrics vs serial grid metrics at the
 #                    same global positions (CPU MPI, express queue)
 #   mpi       — MPI smoke test (rank/device info, 10-iteration simulation)
+#   reducedfield — show(CenterField) on 2x2 tripolar (reduced field bug MWE, 4 CPUs)
 #   prediagw    — compare 1-year age from wdiagnosed vs wprescribed (parent & prediag)
 #   prediagwNK  — compare NK periodic age from wdiagnosed vs wprescribed (parent & prediag)
 #   mkappaVNK   — compare NK periodic age: yearly vs monthly kappaV
@@ -48,7 +49,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridmetrics gridtest mpi prediagw prediagwNK mkappaVNK tmsym"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -125,6 +126,10 @@ has_step gridtest && \
 has_step mpi && \
     submit_job mpi "$WALLTIME" scripts/tests/run_mpi_test.sh \
         --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION}" > /dev/null
+
+has_step reducedfield && \
+    submit_job reducedfield 00:10:00 scripts/tests/run_reduced_field_test.sh \
+        --queue express --ngpus 0 --ncpus 4 --mem 47GB > /dev/null
 
 # Helper: build MODEL_CONFIG for a given w-formulation tag
 _wmc() {

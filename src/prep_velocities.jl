@@ -219,19 +219,24 @@ if has_gm_data
     rm(w_tt_yearly_file; force = true)
 end
 
+# Boundary conditions for velocity FTS (sign flip at north fold for u/v, no flip for w/η)
+ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = FPivotZipperBoundaryCondition(-1))
+vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = FPivotZipperBoundaryCondition(-1))
+wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
+
 # Create FieldTimeSeries with OnDisk backend directly to write data as we process it
-u_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
-v_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
-w_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
-u_mt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
-v_mt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
-w_mt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
+u_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_monthly_file, name = "u", time_indexing = Cyclical(stop_time), boundary_conditions = ubcs)
+v_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_monthly_file, name = "v", time_indexing = Cyclical(stop_time), boundary_conditions = vbcs)
+w_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_monthly_file, name = "w", time_indexing = Cyclical(stop_time), boundary_conditions = wbcs)
+u_mt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_mt_monthly_file, name = "u", time_indexing = Cyclical(stop_time), boundary_conditions = ubcs)
+v_mt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_mt_monthly_file, name = "v", time_indexing = Cyclical(stop_time), boundary_conditions = vbcs)
+w_mt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_mt_monthly_file, name = "w", time_indexing = Cyclical(stop_time), boundary_conditions = wbcs)
 η_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = η_monthly_file, name = "η", time_indexing = Cyclical(stop_time))
 
 if has_gm_data
-    u_tt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_tt_monthly_file, name = "u", time_indexing = Cyclical(stop_time))
-    v_tt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_tt_monthly_file, name = "v", time_indexing = Cyclical(stop_time))
-    w_tt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_tt_monthly_file, name = "w", time_indexing = Cyclical(stop_time))
+    u_tt_monthly_ts = FieldTimeSeries{Face, Center, Center}(grid, fts_times; backend = OnDisk(), path = u_tt_monthly_file, name = "u", time_indexing = Cyclical(stop_time), boundary_conditions = ubcs)
+    v_tt_monthly_ts = FieldTimeSeries{Center, Face, Center}(grid, fts_times; backend = OnDisk(), path = v_tt_monthly_file, name = "v", time_indexing = Cyclical(stop_time), boundary_conditions = vbcs)
+    w_tt_monthly_ts = FieldTimeSeries{Center, Center, Face}(grid, fts_times; backend = OnDisk(), path = w_tt_monthly_file, name = "w", time_indexing = Cyclical(stop_time), boundary_conditions = wbcs)
 end
 
 @info "All NetCDF datasets opened successfully"
@@ -259,33 +264,25 @@ ff_bcs = FieldBoundaryConditions(grid, (Face(), Face(), Center()); north = north
 u_Bgrid = Field((Face(), Face(), Center()), grid; boundary_conditions = ff_bcs)
 v_Bgrid = Field((Face(), Face(), Center()), grid; boundary_conditions = ff_bcs)
 
-ubcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = FPivotZipperBoundaryCondition(-1))
-vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = FPivotZipperBoundaryCondition(-1))
 u = XFaceField(grid; boundary_conditions = ubcs)
 v = YFaceField(grid; boundary_conditions = vbcs)
-
-wbcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
 w = ZFaceField(grid; boundary_conditions = wbcs)
 
-north_t = FPivotZipperBoundaryCondition(-1)
-tx_bcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = north_t)
-ty_bcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = north_t)
-tx = XFaceField(grid; boundary_conditions = tx_bcs)
-ty = YFaceField(grid; boundary_conditions = ty_bcs)
+tx = XFaceField(grid; boundary_conditions = ubcs)
+ty = YFaceField(grid; boundary_conditions = vbcs)
 
 u_mt = XFaceField(grid; boundary_conditions = ubcs)
 v_mt = YFaceField(grid; boundary_conditions = vbcs)
 w_mt = ZFaceField(grid; boundary_conditions = wbcs)
-tz_bcs = FieldBoundaryConditions(grid, (Center(), Center(), Face()); north = FPivotZipperBoundaryCondition(1))
-tz = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
+tz = Field{Center, Center, Face}(grid; boundary_conditions = wbcs)
 
 if has_gm_data
-    tx_gm = XFaceField(grid; boundary_conditions = tx_bcs)
-    ty_gm = YFaceField(grid; boundary_conditions = ty_bcs)
+    tx_gm = XFaceField(grid; boundary_conditions = ubcs)
+    ty_gm = YFaceField(grid; boundary_conditions = vbcs)
     u_tt = XFaceField(grid; boundary_conditions = ubcs)
     v_tt = YFaceField(grid; boundary_conditions = vbcs)
     w_tt = ZFaceField(grid; boundary_conditions = wbcs)
-    tz_tt = Field{Center, Center, Face}(grid; boundary_conditions = tz_bcs)
+    tz_tt = Field{Center, Center, Face}(grid; boundary_conditions = wbcs)
 end
 
 # TODO: Alternatives to precomputed area Fields:
