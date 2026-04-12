@@ -1010,20 +1010,29 @@ for zname in zstar_fields
             rd = rank_data[ri]
 
             # If shapes match, compare directly (global-sized z-star field).
-            # Otherwise slice the serial using the same offset convention as partition_data.jl.
+            # Otherwise slice the serial using offsets derived from even
+            # partitioning (Ny/py per rank in y, Nx/px per rank in x).
             local sd_slice
             if size(sd) == size(rd)
                 sd_slice = sd
             else
-                x_start = x_offsets[rx + 1] + 1
-                y_start = y_offsets[ry + 1] + 1
-                x_end = x_start + size(rd, 1) - 1
-                y_end = y_start + size(rd, 2) - 1
-                if x_end > size(sd, 1) || y_end > size(sd, 2)
+                nx_s, ny_s = size(sd, 1), size(sd, 2)
+                nx_r, ny_r = size(rd, 1), size(rd, 2)
+                # Compute offsets from even partition of interior cells
+                # (each rank gets Ny÷py cells, offset = ry * Ny÷py)
+                Hx_z = (nx_s - Nx) ÷ 2
+                Hy_z = Hx_z  # halos are symmetric
+                x_off = rx * (Nx ÷ px)
+                y_off = ry * (Ny ÷ py)
+                x_start = 1 + x_off
+                y_start = 1 + y_off
+                x_end = x_start + nx_r - 1
+                y_end = y_start + ny_r - 1
+                if x_end > nx_s || y_end > ny_s
                     @warn "    $zname iter $it rank $r slice out of bounds — skipping"
                     continue
                 end
-                sd_slice = sd[x_start:x_end, y_start:y_end, :]
+                sd_slice = ndims(sd) == 3 ? sd[x_start:x_end, y_start:y_end, :] : sd[x_start:x_end, y_start:y_end]
             end
 
             diff = rd .- sd_slice
