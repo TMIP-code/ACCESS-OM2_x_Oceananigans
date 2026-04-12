@@ -31,6 +31,7 @@ using Oceananigans
 using Oceananigans.Architectures: CPU
 using Oceananigans.DistributedComputations: Distributed, Partition, local_size, concatenate_local_sizes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
+using JLD2
 using Printf
 
 include("../src/shared_functions.jl")
