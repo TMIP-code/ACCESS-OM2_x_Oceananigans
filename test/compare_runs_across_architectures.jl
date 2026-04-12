@@ -379,7 +379,7 @@ if serial_vel_exists && dist_vel_exists
                 )
 
                 # Use tight fixed range for w to see interior structure (auto range is dominated by halo outliers)
-                diff_scale = field_name == "w" ? 1.0e-10 : (mean_abs > 0 ? 3 * mean_abs : 1.0e-10)
+                diff_scale = field_name == "w" ? 1.0e-12 : (mean_abs > 0 ? 3 * mean_abs : 1.0e-10)
                 fig = Figure(; size = (900, 500))
                 ax = Axis(
                     fig[1, 1];
