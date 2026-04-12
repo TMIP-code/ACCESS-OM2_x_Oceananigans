@@ -12,7 +12,7 @@ using Oceananigans.DistributedComputations: insert_connected_topology
 using Oceananigans.OrthogonalSphericalShellGrids: receiving_rank
 using OffsetArrays: OffsetArray
 using Oceananigans.Grids: Grids, Bounded, Flat, MutableVerticalDiscretization, OrthogonalSphericalShellGrid, Periodic,
-    RectilinearGrid, RightFaceFolded, topology, validate_dimension_specification, generate_coordinate, on_architecture, znodes
+    RectilinearGrid, RightFaceFolded, new_data, topology, validate_dimension_specification, generate_coordinate, on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 using Oceananigans.OrthogonalSphericalShellGrids: Tripolar, TripolarGrid, continue_south!, partition_tripolar_metric
 using Oceananigans.Architectures: CPU, GPU, architecture, child_architecture
@@ -525,7 +525,37 @@ function build_underlying_grid(gd, arch::Distributed, FT = Float64)
     nx = nxlocal[xrank + 1]
 
     # 6. z and radius from global grid
-    z = on_architecture(arch, global_grid.z)
+    # For MutableVerticalDiscretization (z-star), the σ/η/∂t_σ fields are 2D
+    # (horizontal + halos) and must be LOCAL-sized for each rank. The global
+    # grid's z passes them through as global-sized, which causes
+    # _update_zstar_scaling! to write to wrong indices (it uses
+    # surface_kernel_parameters based on local Ny, not global Ny).
+    # Fix: re-create the MutableVerticalDiscretization with local-sized fields.
+    global_z = global_grid.z
+    if global_z isa MutableVerticalDiscretization
+        child_arch = child_architecture(arch)
+        local_topo = (LX, LY, Bounded)
+        local_args = (local_topo, (nx, ny, Nz), (Hx, Hy, Hz))
+        # z-face/center arrays are 1D (z-only), shared across ranks
+        cᵃᵃᶠ = on_architecture(child_arch, global_z.cᵃᵃᶠ)
+        cᵃᵃᶜ = on_architecture(child_arch, global_z.cᵃᵃᶜ)
+        Δᵃᵃᶠ = on_architecture(child_arch, global_z.Δᵃᵃᶠ)
+        Δᵃᵃᶜ = on_architecture(child_arch, global_z.Δᵃᵃᶜ)
+        # σ/η/∂t_σ are 2D+halo, must be local-sized
+        σᶜᶜⁿ = new_data(FT, child_arch, (Center, Center, Nothing), local_args...)
+        σᶠᶜⁿ = new_data(FT, child_arch, (Face, Center, Nothing), local_args...)
+        σᶜᶠⁿ = new_data(FT, child_arch, (Center, Face, Nothing), local_args...)
+        σᶠᶠⁿ = new_data(FT, child_arch, (Face, Face, Nothing), local_args...)
+        σᶜᶜ⁻ = new_data(FT, child_arch, (Center, Center, Nothing), local_args...)
+        ηⁿ = new_data(FT, child_arch, (Center, Center, Nothing), local_args...)
+        ∂t_σ = new_data(FT, child_arch, (Center, Center, Nothing), local_args...)
+        for σ in (σᶜᶜ⁻, σᶜᶜⁿ, σᶠᶜⁿ, σᶜᶠⁿ, σᶠᶠⁿ)
+            fill!(σ, 1)
+        end
+        z = MutableVerticalDiscretization(cᵃᵃᶠ, cᵃᵃᶜ, Δᵃᵃᶠ, Δᵃᵃᶜ, ηⁿ, σᶜᶜⁿ, σᶠᶜⁿ, σᶜᶠⁿ, σᶠᶠⁿ, σᶜᶜ⁻, ∂t_σ)
+    else
+        z = on_architecture(arch, global_z)
+    end
     radius = global_grid.radius
 
     # 7. Fix fold connectivity (mirror Oceananigans distributed_tripolar_grid.jl lines 216-238)
