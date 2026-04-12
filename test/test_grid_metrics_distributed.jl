@@ -84,20 +84,26 @@ MPI.Barrier(comm)
 ################################################################################
 
 function compare_parent!(name::String, serial_parent, dist_parent)
-    npx_local, npy_local = size(dist_parent, 1), size(dist_parent, 2)
-    i_range = (1 + x_offset):(x_offset + npx_local)
-    j_range = (1 + y_offset):(y_offset + npy_local)
-
-    if last(i_range) > size(serial_parent, 1) || last(j_range) > size(serial_parent, 2)
-        @error "Rank $rank: $name slice out of bounds (serial=$(size(serial_parent)), slice=($i_range, $j_range))"
-        return 1
-    end
-
-    # Slice the serial parent to the same shape; 3D/2D handled uniformly via size check
-    serial_slice = if ndims(serial_parent) == 3
-        serial_parent[i_range, j_range, :]
+    # If shapes match exactly, the distributed field is global-sized (e.g. z-star
+    # MutableVerticalDiscretization fields are shared across ranks). In that case
+    # just compare the full arrays directly.
+    serial_slice = if size(serial_parent) == size(dist_parent)
+        serial_parent
     else
-        serial_parent[i_range, j_range]
+        npx_local, npy_local = size(dist_parent, 1), size(dist_parent, 2)
+        i_range = (1 + x_offset):(x_offset + npx_local)
+        j_range = (1 + y_offset):(y_offset + npy_local)
+
+        if last(i_range) > size(serial_parent, 1) || last(j_range) > size(serial_parent, 2)
+            @error "Rank $rank: $name slice out of bounds (serial=$(size(serial_parent)), slice=($i_range, $j_range))"
+            return 1
+        end
+
+        if ndims(serial_parent) == 3
+            serial_parent[i_range, j_range, :]
+        else
+            serial_parent[i_range, j_range]
+        end
     end
 
     if size(serial_slice) != size(dist_parent)
