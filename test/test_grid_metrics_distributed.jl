@@ -133,9 +133,9 @@ horizontal_metrics = (
     :Azᶜᶜᵃ, :Azᶠᶜᵃ, :Azᶜᶠᵃ, :Azᶠᶠᵃ,
 )
 
-total_mismatches = 0
+total_mismatches = Ref(0)
 for name in horizontal_metrics
-    total_mismatches += compare_parent!(
+    total_mismatches[] += compare_parent!(
         string(name),
         Array(parent(getproperty(serial_ug, name))),
         Array(parent(getproperty(dist_ug, name))),
@@ -147,7 +147,7 @@ if serial_grid isa ImmersedBoundaryGrid && dist_grid isa ImmersedBoundaryGrid
     serial_ib = serial_grid.immersed_boundary
     dist_ib = dist_grid.immersed_boundary
     if hasproperty(serial_ib, :bottom_height) && hasproperty(dist_ib, :bottom_height)
-        total_mismatches += compare_parent!(
+        total_mismatches[] += compare_parent!(
             "bottom",
             Array(parent(serial_ib.bottom_height.data)),
             Array(parent(dist_ib.bottom_height.data)),
@@ -161,7 +161,7 @@ if hasproperty(serial_ug.z, :σᶜᶜⁿ) && hasproperty(dist_ug.z, :σᶜᶜⁿ
     for zname in (:σᶜᶜⁿ, :σᶠᶜⁿ, :σᶜᶠⁿ, :σᶠᶠⁿ, :ηⁿ, :∂t_σ)
         hasproperty(serial_ug.z, zname) || continue
         hasproperty(dist_ug.z, zname) || continue
-        total_mismatches += compare_parent!(
+        total_mismatches[] += compare_parent!(
             string(zname),
             Array(parent(getproperty(serial_ug.z, zname))),
             Array(parent(getproperty(dist_ug.z, zname))),
@@ -171,7 +171,7 @@ end
 
 MPI.Barrier(comm)
 
-global_mismatches = MPI.Allreduce(total_mismatches, +, comm)
+global_mismatches = MPI.Allreduce(total_mismatches[], +, comm)
 if rank == 0
     if global_mismatches == 0
         @info "PASS: all grid metrics match bit-for-bit across all ranks"
