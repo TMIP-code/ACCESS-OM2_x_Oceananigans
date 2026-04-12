@@ -1053,6 +1053,79 @@ for zname in zstar_fields
             any_mismatch = true
             @info "    rank $r: FIRST DIVERGENCE at iter $first_div, overall max|diff|=$(@sprintf("%.3e", max_diff_over_all)) over $(length(common)) iterations"
         end
+
+        # Plot spatial diff at the LAST shared iteration
+        if !isempty(common)
+            last_it = last(common)
+            si_last = findfirst(==(last_it), serial_iters)
+            ri_last = findfirst(==(last_it), rank_iters)
+            sd_last = serial_data[si_last]
+            rd_last = rank_data[ri_last]
+
+            local sd_slice_last
+            if size(sd_last) == size(rd_last)
+                sd_slice_last = sd_last
+            else
+                nx_s2, ny_s2 = size(sd_last, 1), size(sd_last, 2)
+                nx_r2, ny_r2 = size(rd_last, 1), size(rd_last, 2)
+                x_off2 = rx * (Nx ÷ px)
+                y_off2 = ry * (Ny ÷ py)
+                x_s2 = 1 + x_off2
+                y_s2 = 1 + y_off2
+                x_e2 = x_s2 + nx_r2 - 1
+                y_e2 = y_s2 + ny_r2 - 1
+                sd_slice_last = ndims(sd_last) == 3 ? sd_last[x_s2:x_e2, y_s2:y_e2, :] : sd_last[x_s2:x_e2, y_s2:y_e2]
+            end
+
+            if size(sd_slice_last) == size(rd_last)
+                diff_last = rd_last .- sd_slice_last
+                # Pick a z-slice (these are 2D+1 fields; take the only z-slice)
+                k_z = 1
+                diff_2d = ndims(diff_last) == 3 ? diff_last[:, :, k_z] : diff_last
+                rd_2d = ndims(rd_last) == 3 ? rd_last[:, :, k_z] : rd_last
+                sd_2d = ndims(sd_slice_last) == 3 ? sd_slice_last[:, :, k_z] : sd_slice_last
+                nxp, nyp = size(diff_2d)
+
+                absdiff_last = abs.(filter(!isnan, diff_2d))
+                max_abs_last = isempty(absdiff_last) ? 0.0 : maximum(absdiff_last)
+                mean_serial = mean(abs, filter(!isnan, sd_2d))
+                mean_dist = mean(abs, filter(!isnan, rd_2d))
+
+                @info @sprintf(
+                    "    rank %d %s iter %d: max|diff|=%.3e mean|serial|=%.3e mean|dist|=%.3e",
+                    r, zname, last_it, max_abs_last, mean_serial, mean_dist,
+                )
+
+                diff_scale_z = max_abs_last > 0 ? max_abs_last : 1.0e-10
+                fig = Figure(; size = (1000, 600))
+                ax = Axis(
+                    fig[1, 1];
+                    title = "$zname rank $r DIFF iter $last_it (max=$(@sprintf("%.2e", max_abs_last)))",
+                    xlabel = "i (with halos)", ylabel = "j (with halos)",
+                    backgroundcolor = :lightgray,
+                )
+                hm = heatmap!(
+                    ax, 1:nxp, 1:nyp, diff_2d;
+                    colorrange = (-diff_scale_z, diff_scale_z),
+                    colormap = :balance, nan_color = :lightgray,
+                    lowclip = :blue, highclip = :red,
+                )
+                Colorbar(fig[1, 2], hm; label = "$zname diff")
+                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_diff_$(DURATION_TAG)_iter$(last_it).png"), fig)
+
+                # Also plot the rank's raw value for reference
+                fig2 = Figure(; size = (1000, 600))
+                ax2 = Axis(
+                    fig2[1, 1];
+                    title = "$zname rank $r (iter $last_it)",
+                    xlabel = "i (with halos)", ylabel = "j (with halos)",
+                    backgroundcolor = :lightgray,
+                )
+                hm2 = heatmap!(ax2, 1:nxp, 1:nyp, rd_2d; nan_color = :lightgray)
+                Colorbar(fig2[1, 2], hm2; label = zname)
+                save(joinpath(plot_output_dir, "$(zname)_rank$(r)_$(DURATION_TAG)_iter$(last_it).png"), fig2)
+            end
+        end
     end
 
     flush(stdout); flush(stderr)
