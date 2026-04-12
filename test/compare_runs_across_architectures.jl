@@ -1096,7 +1096,14 @@ for zname in zstar_fields
                     r, zname, last_it, max_abs_last, mean_serial, mean_dist,
                 )
 
-                diff_scale_z = max_abs_last > 0 ? max_abs_last : 1.0e-10
+                # Fixed colorranges to see interior structure past outermost-halo outliers
+                diff_scale_z = if zname == "dt_sigma"
+                    2.0e-16
+                elseif zname in ("sigma_cc", "eta_n")
+                    1.0e-7
+                else
+                    max_abs_last > 0 ? max_abs_last : 1.0e-10
+                end
                 fig = Figure(; size = (1000, 600))
                 ax = Axis(
                     fig[1, 1];
