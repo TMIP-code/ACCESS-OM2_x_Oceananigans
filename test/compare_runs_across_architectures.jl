@@ -955,5 +955,98 @@ else
     @info "No bottom height file — skipping"
 end
 
+################################################################################
+# z-star field comparison (sigma_cc, dt_sigma, eta_n) per iteration
+################################################################################
+# These are saved by save_zstar_fields in setup_simulation.jl as per-iteration
+# snapshots of the ug.z MutableVerticalDiscretization state. We compare them
+# at every iteration to detect when distributed and serial first diverge.
+
+zstar_fields = ["sigma_cc", "dt_sigma", "eta_n"]
+
+@info "Comparing z-star callback fields per iteration (serial vs distributed)"
+flush(stdout); flush(stderr)
+
+for zname in zstar_fields
+    serial_zfile = joinpath(serial_dir, "$(zname)_$(DURATION_TAG).jld2")
+    if !isfile(serial_zfile)
+        @info "  $zname: no serial file — skipping"
+        continue
+    end
+
+    # Read all iterations from the serial file
+    serial_iters, serial_data = jldopen(serial_zfile, "r") do f
+        iters = sort(parse.(Int, collect(keys(f["timeseries/$zname"]))))
+        data = [f["timeseries/$zname/$it"] for it in iters]
+        (iters, data)
+    end
+
+    @info "  $zname: $(length(serial_iters)) iterations found"
+
+    # For each rank, load its data and compare to serial at each iteration
+    any_mismatch = false
+    for ry in 0:(py - 1), rx in 0:(px - 1)
+        r = rx * py + ry
+        rank_zfile = joinpath(distributed_dir, "$(zname)_$(DURATION_TAG)_rank$(r).jld2")
+        if !isfile(rank_zfile)
+            @info "    rank $r: no file — skipping"
+            continue
+        end
+
+        rank_iters, rank_data = jldopen(rank_zfile, "r") do f
+            iters = sort(parse.(Int, collect(keys(f["timeseries/$zname"]))))
+            data = [f["timeseries/$zname/$it"] for it in iters]
+            (iters, data)
+        end
+
+        # Compare at shared iterations
+        common = intersect(serial_iters, rank_iters)
+        first_div = -1
+        max_diff_over_all = 0.0
+        for it in common
+            si = findfirst(==(it), serial_iters)
+            ri = findfirst(==(it), rank_iters)
+            sd = serial_data[si]
+            rd = rank_data[ri]
+
+            # If shapes match, compare directly (global-sized z-star field).
+            # Otherwise slice the serial using the same offset convention as partition_data.jl.
+            local sd_slice
+            if size(sd) == size(rd)
+                sd_slice = sd
+            else
+                x_start = x_offsets[rx + 1] + 1
+                y_start = y_offsets[ry + 1] + 1
+                x_end = x_start + size(rd, 1) - 1
+                y_end = y_start + size(rd, 2) - 1
+                if x_end > size(sd, 1) || y_end > size(sd, 2)
+                    @warn "    $zname iter $it rank $r slice out of bounds — skipping"
+                    continue
+                end
+                sd_slice = sd[x_start:x_end, y_start:y_end, :]
+            end
+
+            diff = rd .- sd_slice
+            absdiff = abs.(filter(!isnan, diff))
+            max_abs = isempty(absdiff) ? 0.0 : maximum(absdiff)
+            if max_abs > max_diff_over_all
+                max_diff_over_all = max_abs
+            end
+            if max_abs > 0 && first_div == -1
+                first_div = it
+            end
+        end
+
+        if first_div == -1
+            @info "    rank $r: all $(length(common)) iterations bit-identical (max|diff|=0)"
+        else
+            any_mismatch = true
+            @info "    rank $r: FIRST DIVERGENCE at iter $first_div, overall max|diff|=$(@sprintf("%.3e", max_diff_over_all)) over $(length(common)) iterations"
+        end
+    end
+
+    flush(stdout); flush(stderr)
+end
+
 @info "compare_runs_across_architectures.jl complete (GPU_TAG=$GPU_TAG, DURATION_TAG=$DURATION_TAG)"
 flush(stdout); flush(stderr)
