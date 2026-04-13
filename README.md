@@ -199,16 +199,35 @@ The 4 core config variables determine the model setup and output directory paths
 
 | Variable | Valid values | Default | Description |
 |----------|-------------|---------|-------------|
-| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities` | `cgridtransports` | Source of prescribed velocities |
+| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities`, `totaltransport` | `cgridtransports` | Source of prescribed velocities (`totaltransport` = resolved + GM from parent) |
 | `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` | Vertical velocity treatment |
 | `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` | Tracer advection scheme |
 | `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` | Time-stepping scheme |
+| `GM_REDI` | `no`, `diff`, `adv` | `no` | Online Redi-GM parameterization (diffusive or advective formulation) |
 
 Timestepper values map to Oceananigans symbols:
 - `AB2` = `:QuasiAdamsBashforth2` (default quasi-Adams-Bashforth 2nd order)
 - `SRK{N}` = `:SplitRungeKutta{N}` (split Runge-Kutta with N = 2..5 stages)
 
-The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `cgridtransports_wdiagnosed_centered2_AB2`) determines output directory paths and log filenames.
+The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `cgridtransports_wdiagnosed_centered2_AB2`) determines output directory paths and log filenames. When `GM_REDI` is enabled, `_GMREDI` or `_GMREDIadv` is appended to the tag.
+
+### GM transport options
+
+There are four ways to include GM (Gent-McWilliams) effects in the tracer transport. See [`docs/GM_TRANSPORT.md`](docs/GM_TRANSPORT.md) for full details.
+
+```bash
+# No GM (default)
+JOB_CHAIN=full bash scripts/driver.sh
+
+# GM from parent model (resolved + GM combined velocities)
+VELOCITY_SOURCE=totaltransport JOB_CHAIN=full bash scripts/driver.sh
+
+# Online diffusive Redi-GM
+GM_REDI=diff JOB_CHAIN=full bash scripts/driver.sh
+
+# Online advective Redi-GM
+GM_REDI=adv JOB_CHAIN=full bash scripts/driver.sh
+```
 
 ### Solver-specific variables
 
@@ -292,6 +311,9 @@ Per-time-window data files under `<TIME_WINDOW>/monthly/` and `<TIME_WINDOW>/yea
 - `u_from_mass_transport_monthly.jld2` / `u_from_mass_transport_yearly.jld2`
 - `v_from_mass_transport_monthly.jld2` / `v_from_mass_transport_yearly.jld2`
 - `w_from_mass_transport_monthly.jld2` / `w_from_mass_transport_yearly.jld2`
+- `u_from_total_transport_monthly.jld2` / `u_from_total_transport_yearly.jld2` (if GM data available)
+- `v_from_total_transport_monthly.jld2` / `v_from_total_transport_yearly.jld2` (if GM data available)
+- `w_from_total_transport_monthly.jld2` / `w_from_total_transport_yearly.jld2` (if GM data available)
 
 NetCDF climatologies from `periodicaverage.py`:
 

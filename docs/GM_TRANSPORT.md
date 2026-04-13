@@ -2,10 +2,44 @@
 
 There are four ways to include GM (Gent-McWilliams) effects in the tracer transport:
 
-1. **No GM** -- resolved transport only.
-2. **GM from parent model** -- GM streamfunction diagnostics (`tx_trans_gm`, `ty_trans_gm`) from MOM5 are converted to per-layer transport and added to the resolved transport during the `vel` preprocessing step.
-3. **Diffusive Redi-GM** -- online Redi-GM parameterization using the diffusive formulation in Oceananigans (`GMREDI=true`).
-4. **Advective Redi-GM** -- online Redi-GM using the advective formulation in Oceananigans.
+| Option | Description | Key env vars |
+|--------|-------------|-------------|
+| 1. No GM | Resolved transport only (default) | `VELOCITY_SOURCE=cgridtransports`, `GM_REDI=no` |
+| 2. GM from parent model | GM streamfunction from MOM5 added to resolved transport during `vel` preprocessing | `VELOCITY_SOURCE=totaltransport` |
+| 3. Diffusive Redi-GM | Online Redi-GM using the diffusive formulation in Oceananigans | `GM_REDI=diff` |
+| 4. Advective Redi-GM | Online Redi-GM using the advective formulation in Oceananigans | `GM_REDI=adv` |
+
+Options 2 and 3/4 are independent and can be combined (e.g., parent-model GM velocities with online Redi-GM closure).
+
+## Driver configuration
+
+Two environment variables control GM behaviour:
+
+| Variable | Valid values | Default | Description |
+|----------|-------------|---------|-------------|
+| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities`, `totaltransport` | `cgridtransports` | Velocity source; `totaltransport` loads resolved + GM combined velocities |
+| `GM_REDI` | `no`, `diff`, `adv` (legacy: `yes` = `diff`) | `no` | Online Redi-GM parameterization |
+
+The `MODEL_CONFIG` directory tag is extended automatically: `_GMREDI` for `diff`, `_GMREDIadv` for `adv`.
+
+### Example submissions
+
+```bash
+# Option 1: No GM (default)
+JOB_CHAIN=full bash scripts/driver.sh
+
+# Option 2: GM from parent model (requires tx_trans_gm/ty_trans_gm in MOM5 output)
+VELOCITY_SOURCE=totaltransport JOB_CHAIN=full bash scripts/driver.sh
+
+# Option 3: Diffusive Redi-GM
+GM_REDI=diff JOB_CHAIN=full bash scripts/driver.sh
+
+# Option 4: Advective Redi-GM
+GM_REDI=adv JOB_CHAIN=full bash scripts/driver.sh
+
+# Combined: parent-model GM velocities + online diffusive Redi-GM
+VELOCITY_SOURCE=totaltransport GM_REDI=diff JOB_CHAIN=full bash scripts/driver.sh
+```
 
 ## Option 2: GM from parent model
 
@@ -90,3 +124,6 @@ Both tests are self-consistency checks (roundtrip identities). The physical sign
 | `src/prep_velocities.jl` (lines ~396-431) | Julia preprocessing: loads GM data, converts to per-layer, combines with resolved |
 | `src/shared_utils/data_loading.jl` | `fill_Cgrid_transport_from_MOM_output!`, `streamfunction_to_perlayer!` |
 | `test/verify_gm_streamfunction.jl` | Verification of streamfunction-to-perlayer conversion |
+| `src/setup_model.jl` | Parses `GM_REDI` env var; creates Redi-GM closure for options 3/4 |
+| `src/shared_utils/config.jl` | `build_model_config()` appends GM suffix to `MODEL_CONFIG` tag |
+| `scripts/env_defaults.sh` | Default env vars for `VELOCITY_SOURCE` and `GM_REDI` |
