@@ -204,7 +204,8 @@ function build_moc_rho_figure(ψ_dict, title_str)
         xtick_vals = collect(-90:30:90)
         xtick_labels = latticklabel.(xtick_vals)
         ax.xticks = (xtick_vals, xtick_labels)
-        ax.yticks = round.(range(ρmin + eps(ρmin), ρmax; length = 6); digits = 1)
+        ρticks = [ρ for ρ in ceil(ρmin):1.0:floor(ρmax) if ρ > ρmin + 0.1]
+        ax.yticks = round.(ρticks; digits = 1)
         xlims!(ax, basin_latlims[basin_key])
         ylims!(ax, (ρmin, ρmax))
 

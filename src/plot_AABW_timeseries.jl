@@ -11,6 +11,7 @@ Pkg.activate(".")
 
 using NCDatasets
 using CairoMakie
+using Dates
 using Statistics
 
 # ── Configuration ──────────────────────────────────────────────────────────
@@ -56,23 +57,58 @@ function compute_aabw_timeseries(filepath)
     # Unit conversion: ty_trans in kg/s → divide by 1e9 for Sv-equivalent
     to_sv = 1.0e-9
 
-    # Metric 1: min(psi) for lat ≤ -60°S, all depths
+    # Metric 1: Upper cell — min(psi) for lat ≤ -60°S, depth < 3000m
     lat_mask_60S = yu .<= -60.0
-    psi_60S = psi[lat_mask_60S, :, :]
-    aabw_60S = [minimum(skipmissing(psi_60S[:, :, i])) for i in axes(psi_60S, 3)] .* to_sv
+    depth_mask_shallow = st .< 3000.0
+    psi_upper = psi[lat_mask_60S, depth_mask_shallow, :]
+    aabw_upper = [minimum(skipmissing(psi_upper[:, :, i])) for i in axes(psi_upper, 3)] .* to_sv
 
-    # Metric 2: min(psi) for lat ≤ 0° (Southern Hemisphere), depth ≥ 3000m
+    # Metric 2: Deep cell — min(psi) for lat ≤ 0°, depth ≥ 3000m
     lat_mask_SH = yu .<= 0.0
     depth_mask_deep = st .>= 3000.0
     psi_deep_SH = psi[lat_mask_SH, depth_mask_deep, :]
     aabw_deep = [minimum(skipmissing(psi_deep_SH[:, :, i])) for i in axes(psi_deep_SH, 3)] .* to_sv
 
-    # Metric 3: min(psi) for lat ≤ -50°S, all depths (original metric)
+    # Metric 3: min(psi) for lat ≤ -50°S, all depths (legacy metric)
     lat_mask_50S = yu .<= -50.0
     psi_50S = psi[lat_mask_50S, :, :]
     aabw_50S = [minimum(skipmissing(psi_50S[:, :, i])) for i in axes(psi_50S, 3)] .* to_sv
 
-    return years, aabw_60S, aabw_deep, aabw_50S
+    return years, aabw_upper, aabw_deep, aabw_50S
+end
+
+function compute_aabw_monthly(filepath)
+    ds = NCDataset(filepath)
+    psi = ds["psi_tot"][:, :, :]  # (yu_ocean, st_ocean, time)
+    yu = ds["yu_ocean"][:]
+    st = ds["st_ocean"][:]
+    time_vals = ds["time"][:]  # DateTime values
+    close(ds)
+
+    to_sv = 1.0e-9
+    nt = size(psi, 3)
+
+    # Convert DateTime to fractional year for plotting
+    time_frac = [Dates.year(t) + (Dates.month(t) - 0.5) / 12 for t in time_vals]
+
+    # Upper cell: lat ≤ -60°S, depth < 3000m
+    lat_mask_60S = yu .<= -60.0
+    depth_mask_shallow = st .< 3000.0
+    psi_upper = psi[lat_mask_60S, depth_mask_shallow, :]
+    aabw_upper = [minimum(skipmissing(psi_upper[:, :, i])) for i in 1:nt] .* to_sv
+
+    # Deep cell: lat ≤ 0°, depth ≥ 3000m
+    lat_mask_SH = yu .<= 0.0
+    depth_mask_deep = st .>= 3000.0
+    psi_deep_SH = psi[lat_mask_SH, depth_mask_deep, :]
+    aabw_deep = [minimum(skipmissing(psi_deep_SH[:, :, i])) for i in 1:nt] .* to_sv
+
+    # Legacy 50S: lat ≤ -50°S, all depths
+    lat_mask_50S = yu .<= -50.0
+    psi_50S = psi[lat_mask_50S, :, :]
+    aabw_50S = [minimum(skipmissing(psi_50S[:, :, i])) for i in 1:nt] .* to_sv
+
+    return time_frac, aabw_upper, aabw_deep, aabw_50S
 end
 
 function find_rolling_extrema(years, vals, window_length)
@@ -104,16 +140,20 @@ for (model, experiment) in models
     end
 
     @info "Processing $model"
-    years, aabw_60S, aabw_deep, aabw_50S = compute_aabw_timeseries(infile)
+    years, aabw_upper, aabw_deep, aabw_50S = compute_aabw_timeseries(infile)
 
-    # Three metrics with their labels and series
+    # Load monthly data
+    monthly_file = joinpath(datadir, model, experiment, "depthspace", "psi_tot.nc")
+    monthly_time, monthly_upper, monthly_deep, monthly_50S = compute_aabw_monthly(monthly_file)
+
+    # Three metrics with their labels, yearly series, and monthly series
     metrics = [
-        (aabw_60S, "min ψ, lat ≤ 60°S", "AABW_60S"),
-        (aabw_deep, "min ψ, lat ≤ 0°, depth ≥ 3000m", "AABW_deep"),
-        (aabw_50S, "min ψ, lat ≤ 50°S", "AABW_50S"),
+        (aabw_upper, monthly_upper, "min ψ, lat ≤ 60°S, depth < 3000m", "AABW_upper"),
+        (aabw_deep, monthly_deep, "min ψ, lat ≤ 0°, depth ≥ 3000m", "AABW_deep"),
+        (aabw_50S, monthly_50S, "min ψ, lat ≤ 50°S", "AABW_50S"),
     ]
 
-    for (aabw, metric_label, metric_tag) in metrics
+    for (aabw, aabw_monthly, metric_label, metric_tag) in metrics
         # Find AABW-dependent windows
         aabw_windows = Tuple{String, String, Symbol}[]
         for (wlen, wlen_label) in [(10, "10yr"), (3, "3yr"), (1, "1yr")]
@@ -146,6 +186,9 @@ for (model, experiment) in models
         )
 
         # Plot timeseries (negate: min(ψ) is negative, show as positive transport)
+        monthly_plot = .-aabw_monthly
+        lines!(ax, monthly_time, monthly_plot; color = (:gray60, 0.5), linewidth = 0.5, label = "Monthly")
+
         aabw_plot = .-aabw
         lines!(ax, years, aabw_plot; color = :black, linewidth = 2, label = "Yearly mean")
 
