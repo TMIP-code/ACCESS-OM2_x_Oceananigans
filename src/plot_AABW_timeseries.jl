@@ -108,7 +108,25 @@ function compute_aabw_monthly(filepath)
     psi_50S = psi[lat_mask_50S, :, :]
     aabw_50S = [minimum(skipmissing(psi_50S[:, :, i])) for i in 1:nt] .* to_sv
 
-    return time_frac, aabw_upper, aabw_deep, aabw_50S
+    return time_frac, time_vals, aabw_upper, aabw_deep, aabw_50S
+end
+
+"""
+    yearly_mean_of_monthly(time_vals, monthly_vals)
+
+Compute mean(metric(month)) per year — i.e., apply the spatial metric to each month
+first, then average over the 12 months. This differs from metric(mean(month)) which
+averages the field first then applies the spatial metric.
+"""
+function yearly_mean_of_monthly(time_vals, monthly_vals)
+    yrs = [Dates.year(t) for t in time_vals]
+    unique_yrs = sort(unique(yrs))
+    yearly_means = Float64[]
+    for y in unique_yrs
+        idx = findall(yrs .== y)
+        push!(yearly_means, mean(monthly_vals[idx]))
+    end
+    return unique_yrs, yearly_means
 end
 
 function find_rolling_extrema(years, vals, window_length)
@@ -144,7 +162,8 @@ for (model, experiment) in models
 
     # Load monthly data
     monthly_file = joinpath(datadir, model, experiment, "depthspace", "psi_tot.nc")
-    monthly_time, monthly_upper, monthly_deep, monthly_50S = compute_aabw_monthly(monthly_file)
+    monthly_time, monthly_dates, monthly_upper, monthly_deep, monthly_50S =
+        compute_aabw_monthly(monthly_file)
 
     # Three metrics with their labels, yearly series, and monthly series
     metrics = [
@@ -186,11 +205,19 @@ for (model, experiment) in models
         )
 
         # Plot timeseries (negate: min(ψ) is negative, show as positive transport)
+        # Monthly values
         monthly_plot = .-aabw_monthly
         lines!(ax, monthly_time, monthly_plot; color = (:gray60, 0.5), linewidth = 0.5, label = "Monthly")
 
+        # metric(mean): spatial min of yearly-averaged field (existing)
         aabw_plot = .-aabw
-        lines!(ax, years, aabw_plot; color = :black, linewidth = 2, label = "Yearly mean")
+        lines!(ax, years, aabw_plot; color = :black, linewidth = 2, label = "metric(mean)")
+
+        # mean(metric): yearly mean of monthly spatial min
+        mean_metric_years, mean_metric_vals = yearly_mean_of_monthly(monthly_dates, aabw_monthly)
+        lines!(ax, mean_metric_years, .-mean_metric_vals; color = :red, linewidth = 2, label = "mean(metric)")
+
+        axislegend(ax; position = :rt, framevisible = true, labelsize = 10)
 
         # Highlight time windows as shaded vertical spans
         all_windows = vcat(fixed_windows, aabw_windows)
