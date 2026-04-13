@@ -25,8 +25,8 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels:
     hydrostatic_free_surface_tracer_tendency, _update_zstar_scaling!, surface_kernel_parameters
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.BoundaryConditions: FieldBoundaryConditions, fill_halo_regions!
-using Oceananigans.Grids: on_architecture, get_active_cells_map, MutableVerticalDiscretization
-using Oceananigans.Utils: KernelParameters, launch!
+using Oceananigans.Grids: on_architecture, MutableVerticalDiscretization
+using Oceananigans.Utils: KernelParameters, launch!, get_active_cells_map
 using Oceananigans.Fields: immersed_boundary_condition
 using Oceananigans.Units: second, seconds, day, days
 

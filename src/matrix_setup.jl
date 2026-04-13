@@ -32,7 +32,8 @@ using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.Architectures: CPU
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, FieldBoundaryConditions,
     fill_halo_regions!
-using Oceananigans.Grids: znode, get_active_cells_map
+using Oceananigans.Grids: znode
+using Oceananigans.Utils: get_active_cells_map
 using Oceananigans.Utils: KernelParameters, launch!
 using Oceananigans.AbstractOperations: volume
 using Oceananigans.Fields: immersed_boundary_condition
