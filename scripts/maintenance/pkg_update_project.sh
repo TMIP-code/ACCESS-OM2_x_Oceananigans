@@ -15,11 +15,25 @@ source scripts/env_defaults.sh
 # 1. Update (and download) packages on the login node but WITHOUT precompilation
 env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.update()'
 
-# 2. Download OceanBasins DataDeps data (requires internet, only on login node)
-env JULIA_PKG_PRECOMPILE_AUTO=0 DATADEPS_ALWAYS_ACCEPT=true julia --project -e 'using OceanBasins; oceanpolygons()'
+# 2. Submit the CPU precompile job
+CPU_JOB_ID=$(qsub scripts/maintenance/pkg_instantiate_project_CPU.sh)
+echo "CPU precompile job: $CPU_JOB_ID"
 
-# 2. Submit the GPU job first (it will wait for CPU job to finish)
-export GPU_JOB_ID=$(qsub -W depend=on:1 scripts/maintenance/pkg_instantiate_project_GPU.sh)
+# 3. Wait for the CPU precompile job to finish before downloading DataDeps data,
+#    so that the login-node Julia run in step 4 hits the precompile cache and
+#    doesn't trigger a fresh (slow, heavy) precompile on the login node.
+echo "Waiting for CPU precompile job ($CPU_JOB_ID) to finish..."
+sleep 30
+while qstat "$CPU_JOB_ID" &>/dev/null; do
+    sleep 30
+done
+echo "CPU precompile job done."
 
-# 3. Submit the CPU job that will precompile on the compute node
-qsub -W depend=beforeok:${GPU_JOB_ID} scripts/maintenance/pkg_instantiate_project_CPU.sh
+# 4. Download OceanBasins DataDeps data (requires internet, only on login node)
+echo "Downloading OceanBasins data..."
+DATADEPS_ALWAYS_ACCEPT=true julia --project -e 'using OceanBasins; oceanpolygons()'
+echo "OceanBasins data downloaded successfully"
+
+# 5. Submit the GPU precompile job
+GPU_JOB_ID=$(qsub scripts/maintenance/pkg_instantiate_project_GPU.sh)
+echo "GPU precompile job: $GPU_JOB_ID"
