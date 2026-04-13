@@ -81,6 +81,8 @@ if PARENT_MODEL == "ACCESS-OM2-1":
     CHUNKS_MLD = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
     CHUNKS_DHT = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
     CHUNKS_ETA = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
+    CHUNKS_TY_RHO = {"time": -1, "potrho": 27, "grid_xt_ocean": 120, "grid_yu_ocean": 100}
+    CHUNKS_TY_RHO_GM = {"time": -1, "potrho": 27, "grid_xt_ocean": 120, "grid_yu_ocean": 100}
 elif PARENT_MODEL == "ACCESS-OM2-025":
     # 0.25° grid: 1440x1080
     CHUNKS_2D = {"xt_ocean": 240, "yt_ocean": 216}
@@ -95,6 +97,8 @@ elif PARENT_MODEL == "ACCESS-OM2-025":
     CHUNKS_MLD = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
     CHUNKS_DHT = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
     CHUNKS_ETA = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
+    CHUNKS_TY_RHO = {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108}
+    CHUNKS_TY_RHO_GM = {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108}
 else:
     print(f"ERROR: Unknown PARENT_MODEL '{PARENT_MODEL}'; cannot determine chunk sizes", file=sys.stderr)
     sys.exit(1)
@@ -211,6 +215,7 @@ if __name__ == "__main__":
     # Search for all required variables
     all_variables = [
         "u", "v", "wt", "tx_trans", "ty_trans", "tx_trans_gm", "ty_trans_gm",
+        "ty_trans_rho", "ty_trans_rho_gm",
         "mld", "area_t", "dht", "eta_t",
         "temp", "salt",
     ]
@@ -243,6 +248,10 @@ if __name__ == "__main__":
     process_variable(searched_cat, "ty_trans", CHUNKS_TY)
     process_variable(searched_cat, "tx_trans_gm", CHUNKS_TX_GM)
     process_variable(searched_cat, "ty_trans_gm", CHUNKS_TY_GM)
+
+    # Density-space mass transports (for density-space MOC)
+    process_variable(searched_cat, "ty_trans_rho", CHUNKS_TY_RHO)
+    process_variable(searched_cat, "ty_trans_rho_gm", CHUNKS_TY_RHO_GM)
 
     # 2D / mixed-layer fields
     process_variable(searched_cat, "mld", CHUNKS_MLD)
