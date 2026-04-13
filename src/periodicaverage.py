@@ -153,6 +153,21 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
     print(f"Processing: {varname}")
     print(f"{'='*60}")
 
+    if is_time_invariant:
+        # Time-invariant field: open directly from catalog path, bypassing
+        # combine_by_coords which fails on static fields without dimension
+        # coordinates (xarray >= 2025.03).
+        selectedcat = searched_cat.search(variable=varname, frequency=frequency)
+        filepath = selectedcat.df.path.iloc[0]
+        print(f"Opening static field directly: {filepath}")
+        ds = xr.open_dataset(filepath, chunks=chunks)
+        da = ds[varname]
+        outfile = base_dir / f"{varname}.nc"
+        print(f"Saving {varname} to: {outfile}")
+        da.to_netcdf(str(outfile), compute=True)
+        print(f"Done: {varname}")
+        return
+
     datadask = select_data(
         searched_cat,
         dict(chunks=chunks),
@@ -160,15 +175,6 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         frequency=frequency,
     )
     print(f"\ndatadask: {datadask}")
-
-    if is_time_invariant:
-        # Time-invariant field: save once to monthly/ (no suffix)
-        da = datadask[varname]
-        outfile = monthly_dir / f"{varname}.nc"
-        print(f"Saving {varname} to: {outfile}")
-        da.to_netcdf(str(outfile), compute=True)
-        print(f"Done: {varname}")
-        return
 
     # Select time window
     print(f"Slicing for time window {year_start_str}:{year_end_str}")
