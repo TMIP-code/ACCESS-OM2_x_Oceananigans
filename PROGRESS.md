@@ -99,6 +99,46 @@ Plots from `outputs/{model}/{experiment}/{TW}/MOC/MOC_resolved_mean.png`.
 
 ---
 
+## GM MOC
+
+Plots from `outputs/{model}/{experiment}/{TW}/MOC/MOC_gm_mean.png`.
+
+### ACCESS-OM2-1 (1deg)
+
+| # | TIME_WINDOW | GM MOC |
+|---|-------------|--------|
+| 1 | `1958-1987` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1958-1987/MOC/MOC_gm_mean.png) |
+| 2 | `1989-2018` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1989-2018/MOC/MOC_gm_mean.png) |
+| 3 | `1958-1977` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1958-1977/MOC/MOC_gm_mean.png) |
+| 4 | `1999-2018` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2018/MOC/MOC_gm_mean.png) |
+| 5 | `1958-1967` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1958-1967/MOC/MOC_gm_mean.png) |
+| 6 | `2009-2018` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/2009-2018/MOC/MOC_gm_mean.png) |
+| 7 | `1963-1972` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1963-1972/MOC/MOC_gm_mean.png) |
+| 8 | `2006-2015` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/2006-2015/MOC/MOC_gm_mean.png) |
+| 9 | `1964-1966` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1964-1966/MOC/MOC_gm_mean.png) |
+| 10 | `1998-2000` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1998-2000/MOC/MOC_gm_mean.png) |
+| 11 | `1964` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1964/MOC/MOC_gm_mean.png) |
+| 12 | `2010` | ![MOC](outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/2010/MOC/MOC_gm_mean.png) |
+
+### ACCESS-OM2-025 (0.25deg)
+
+| # | TIME_WINDOW | GM MOC |
+|---|-------------|--------|
+| 1 | `1958-1987` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1958-1987/MOC/MOC_gm_mean.png) |
+| 2 | `1989-2018` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1989-2018/MOC/MOC_gm_mean.png) |
+| 3 | `1958-1977` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1958-1977/MOC/MOC_gm_mean.png) |
+| 4 | `1999-2018` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2018/MOC/MOC_gm_mean.png) |
+| 5 | `1958-1967` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1958-1967/MOC/MOC_gm_mean.png) |
+| 6 | `2009-2018` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/2009-2018/MOC/MOC_gm_mean.png) |
+| 7 | `1963-1972` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1963-1972/MOC/MOC_gm_mean.png) |
+| 8 | `2006-2015` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/2006-2015/MOC/MOC_gm_mean.png) |
+| 9 | `1980-1982` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1980-1982/MOC/MOC_gm_mean.png) |
+| 10 | `1998-2000` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1998-2000/MOC/MOC_gm_mean.png) |
+| 11 | `1980` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1980/MOC/MOC_gm_mean.png) |
+| 12 | `1998` | ![MOC](outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1998/MOC/MOC_gm_mean.png) |
+
+---
+
 ## Multi-TIME_WINDOW runs (wprediag + κV)
 
 Config: `cgridtransports_wprediag_centered2_AB2_mkappaV`
