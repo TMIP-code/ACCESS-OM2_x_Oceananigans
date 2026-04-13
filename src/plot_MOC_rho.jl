@@ -182,6 +182,7 @@ function build_moc_rho_figure(ψ_dict, title_str)
             ylabel = "Potential density σ₀ (kg/m³)",
             yscale = ρ_scale,
             yreversed = true,
+            limits = (basin_latlims[basin_key]..., ρmin, ρmax),
         )
 
         ψ = ψ_dict[basin_key]
@@ -206,8 +207,6 @@ function build_moc_rho_figure(ψ_dict, title_str)
         ax.xticks = (xtick_vals, xtick_labels)
         ρticks = [ρ for ρ in ceil(ρmin):1.0:floor(ρmax) if ρ > ρmin + 0.1]
         ax.yticks = round.(ρticks; digits = 1)
-        xlims!(ax, basin_latlims[basin_key])
-        ylims!(ax, (ρmin, ρmax))
 
         hidexdecorations!(ax; label = false, ticklabels = false, ticks = false, grid = false)
         hideydecorations!(
