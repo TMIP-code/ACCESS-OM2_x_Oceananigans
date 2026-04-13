@@ -309,6 +309,11 @@ save(outputfile, fig_res; px_per_unit = 3)
 @info "Computing GM MOC"
 ψ_gm = Dict(bk => compute_moc_gm(ty_gm, basins[bk]) for bk in basin_keys)
 
+fig_gm, _, _ = build_moc_figure(ψ_gm, "$PARENT_MODEL $TIME_WINDOW_LABEL GM MOC")
+outputfile = joinpath(outputdir, "MOC_gm_mean.png")
+@info "Saving $outputfile"
+save(outputfile, fig_gm; px_per_unit = 3)
+
 # Total MOC (resolved + GM)
 @info "Computing total MOC (resolved + GM)"
 ψ_total = Dict(bk => ψ_resolved[bk] .+ ψ_gm[bk] for bk in basin_keys)
