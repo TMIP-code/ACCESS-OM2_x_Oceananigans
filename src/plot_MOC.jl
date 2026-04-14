@@ -25,6 +25,7 @@ using Oceananigans.Grids: znodes
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.AbstractOperations: ConditionalOperation
 using Oceananigans.Fields: Field, compute!
+using Oceananigans.BoundaryConditions: FieldBoundaryConditions
 using JLD2
 using YAXArrays
 using DimensionalData
@@ -194,26 +195,26 @@ function compute_moc_oce(ty, basin_mask)
     mask3D = zeros(Bool, Nx, Ny, Nz)
     mask3D .= reshape(basin_mask, Nx, Ny, 1)
 
-    # ConditionalOperation: elements outside the basin → mask (0). Immersed
-    # (land) cells are already 0 via mask_immersed_field!(ty, 0).
+    # Materialize a basin-masked 3D Field at the same location as ty. This
+    # keeps ty's boundary conditions (incl. tripolar zipper) so land is
+    # handled correctly via the immersed grid, and cells outside the basin
+    # are set to 0 by the ConditionalOperation.
     cond_ty = ConditionalOperation(ty; condition = mask3D, mask = 0.0)
+    ty_masked = Field(cond_ty)
+    compute!(ty_masked)
 
-    # Zonal reduction over dim 1 → Field of size (1, Ny, Nz)
-    ty_zonal_field = Field(sum(cond_ty; dims = 1))
-    compute!(ty_zonal_field)
-
-    # Cumulative sum over z (dim 3) on the Field
-    cs_field = similar(ty_zonal_field)
-    cumsum!(cs_field, ty_zonal_field; dims = 3)
+    # Reduce on plain arrays (reducing via Field on a tripolar grid would
+    # produce a (Nothing, Face, Center) location whose north zipper fill is
+    # unsupported).
+    ty_int = Array(interior(ty_masked))                    # (Nx, Ny, Nz)
+    ty_zonal = dropdims(sum(ty_int; dims = 1); dims = 1)   # (Ny, Nz)
 
     # Streamfunction: ψ[k] = ty[k] - cumsum[k], equivalent to
     #   ψ[k] = -sum(ty[1:k-1])  (ψ = 0 at bottom, k = 1)
-    # because cumsum[k] = ty[k] + cumsum[k-1] → ty[k] - cumsum[k] = -cumsum[k-1]
-    ψ_field = Field(ty_zonal_field - cs_field)
-    compute!(ψ_field)
+    cs = cumsum(ty_zonal; dims = 2)
+    ψ = ty_zonal .- cs
 
-    # Extract (Ny_f, Nz') and convert kg/s → Sv
-    ψ = dropdims(Array(interior(ψ_field))[1, 1:Ny_f, :]; dims = ())
+    # Convert kg/s → Sv
     ψ ./= (ρ₀ * 1.0e6)
 
     # NaN out (lat, depth) cells with no wet cell in the basin
