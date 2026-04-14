@@ -23,6 +23,8 @@ using Oceananigans.Architectures: CPU
 using Oceananigans.BoundaryConditions: FPivotZipperBoundaryCondition, FieldBoundaryConditions, fill_halo_regions!
 using Oceananigans.Grids: znodes
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
+using Oceananigans.AbstractOperations: ConditionalOperation
+using Oceananigans.Fields: Field, compute!
 using JLD2
 using YAXArrays
 using DimensionalData
@@ -149,11 +151,11 @@ bottom and matches the COSIMA convention (cumsum surface→bottom − total).
 Returns ψ in Sv as a (Ny_f, Nz') array with NaN for land.
 """
 function compute_moc(ty, basin_mask)
-    ty_int = Array(interior(ty))  # (Nx', Ny_f, Nz') with NaN on land
+    ty_int = Array(interior(ty))  # (Nx', Ny_f, Nz'); land cells already 0
 
-    # Apply basin mask (2D) — set out-of-basin cells to 0 (not NaN, so sum works)
+    # Apply basin mask (2D) — zero out cells outside the basin
     mask3D = reshape(basin_mask, Nx′, Ny_f, 1)
-    ty_masked = @. ifelse(mask3D, ifelse(isnan(ty_int), 0.0, ty_int), 0.0)
+    ty_masked = @. ifelse(mask3D, ty_int, 0.0)
 
     # Sum over longitude
     ty_zonal = dropdims(sum(ty_masked; dims = 1); dims = 1)  # (Ny_f, Nz')
@@ -176,6 +178,53 @@ function compute_moc(ty, basin_mask)
 end
 
 """
+Experimental Oceananigans-native version of `compute_moc`.
+
+Uses `ConditionalOperation` with a 3D Bool array for the basin mask and
+`sum(...; dims = 1)` for the zonal reduction (returns a reduced `Field`).
+`NotImmersed` inside the sum handles land masking automatically, so no manual
+`isnan` check on interior data is needed. The streamfunction convention
+(ψ = 0 at bottom, negate cumsum) is kept in plain Julia at the end since
+it requires a shift by one level.
+
+Returns ψ in Sv as a (Ny_f, Nz') array with NaN for land.
+"""
+function compute_moc_oce(ty, basin_mask)
+    Nx, Ny, Nz = size(ty)
+    mask3D = zeros(Bool, Nx, Ny, Nz)
+    mask3D .= reshape(basin_mask, Nx, Ny, 1)
+
+    # ConditionalOperation: elements outside the basin → mask (0). Immersed
+    # (land) cells are already 0 via mask_immersed_field!(ty, 0).
+    cond_ty = ConditionalOperation(ty; condition = mask3D, mask = 0.0)
+
+    # Zonal reduction over dim 1 → Field of size (1, Ny, Nz)
+    ty_zonal_field = Field(sum(cond_ty; dims = 1))
+    compute!(ty_zonal_field)
+
+    # Cumulative sum over z (dim 3) on the Field
+    cs_field = similar(ty_zonal_field)
+    cumsum!(cs_field, ty_zonal_field; dims = 3)
+
+    # Streamfunction: ψ[k] = ty[k] - cumsum[k], equivalent to
+    #   ψ[k] = -sum(ty[1:k-1])  (ψ = 0 at bottom, k = 1)
+    # because cumsum[k] = ty[k] + cumsum[k-1] → ty[k] - cumsum[k] = -cumsum[k-1]
+    ψ_field = Field(ty_zonal_field - cs_field)
+    compute!(ψ_field)
+
+    # Extract (Ny_f, Nz') and convert kg/s → Sv
+    ψ = dropdims(Array(interior(ψ_field))[1, 1:Ny_f, :]; dims = ())
+    ψ ./= (ρ₀ * 1.0e6)
+
+    # NaN out (lat, depth) cells with no wet cell in the basin
+    wet_in_basin = wet3D_yface .& reshape(basin_mask, Nx′, Ny_f, 1)
+    has_ocean = dropdims(any(wet_in_basin; dims = 1); dims = 1)
+    ψ[.!has_ocean] .= NaN
+
+    return ψ
+end
+
+"""
 Compute the GM (eddy-induced) MOC streamfunction from a ty_trans_gm field.
 
 Unlike ty_trans, ty_trans_gm requires only zonal summation (no vertical cumsum)
@@ -183,10 +232,10 @@ to obtain the GM overturning streamfunction.
 Returns ψ_gm in Sv as a (Ny_f, Nz') array with NaN for land.
 """
 function compute_moc_gm(ty_gm, basin_mask)
-    ty_int = Array(interior(ty_gm))
+    ty_int = Array(interior(ty_gm))  # land cells already 0
 
     mask3D = reshape(basin_mask, Nx′, Ny_f, 1)
-    ty_masked = @. ifelse(mask3D, ifelse(isnan(ty_int), 0.0, ty_int), 0.0)
+    ty_masked = @. ifelse(mask3D, ty_int, 0.0)
 
     # Sum over longitude only — no vertical cumsum
     ty_zonal = dropdims(sum(ty_masked; dims = 1); dims = 1)
@@ -284,13 +333,13 @@ end
 ty_yearly_data = readcubedata(ty_yearly_ds.ty_trans).data
 map!(x -> isnan(x) ? zero(x) : x, ty_yearly_data, ty_yearly_data)
 fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_zeros, ty_yearly_data)
-mask_immersed_field!(ty, NaN)
+mask_immersed_field!(ty, 0)
 
 @info "Placing yearly ty_trans_gm on grid"
 ty_gm_yearly_data = readcubedata(ty_gm_yearly_ds.ty_trans_gm).data
 map!(x -> isnan(x) ? zero(x) : x, ty_gm_yearly_data, ty_gm_yearly_data)
 fill_Cgrid_transport_from_MOM_output!(tx, ty_gm, grid, tx_zeros, ty_gm_yearly_data)
-mask_immersed_field!(ty_gm, NaN)
+mask_immersed_field!(ty_gm, 0)
 
 # ── Static PNGs: resolved and total MOC ──────────────────────────────────
 
@@ -304,6 +353,17 @@ fig_res, _, _ = build_moc_figure(ψ_resolved, "$PARENT_MODEL $TIME_WINDOW_LABEL 
 outputfile = joinpath(outputdir, "MOC_resolved_mean.png")
 @info "Saving $outputfile"
 save(outputfile, fig_res; px_per_unit = 3)
+
+# Experimental: resolved MOC via Oceananigans Field operations
+@info "Computing resolved MOC (Oceananigans-native)"
+ψ_resolved_oce = Dict(bk => compute_moc_oce(ty, basins[bk]) for bk in basin_keys)
+
+fig_res_oce, _, _ = build_moc_figure(
+    ψ_resolved_oce, "$PARENT_MODEL $TIME_WINDOW_LABEL Resolved MOC (oce)",
+)
+outputfile = joinpath(outputdir, "MOC_resolved_mean_oce.png")
+@info "Saving $outputfile"
+save(outputfile, fig_res_oce; px_per_unit = 3)
 
 # GM MOC (ty_trans_gm only)
 @info "Computing GM MOC"
@@ -331,7 +391,7 @@ function load_monthly_ty!(ty, tx, grid, ty_ds, tx_zeros, m, varname)
     ty_data = readcubedata(getproperty(ty_ds, Symbol(varname))[month = At(m)]).data
     map!(x -> isnan(x) ? zero(x) : x, ty_data, ty_data)
     fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_zeros, ty_data)
-    mask_immersed_field!(ty, NaN)
+    mask_immersed_field!(ty, 0)
     return nothing
 end
 
