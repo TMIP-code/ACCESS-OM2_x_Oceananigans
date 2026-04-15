@@ -58,5 +58,3 @@ Each model has two mp4s:
 
 - [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_timeseries.mp4)
 - [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4)
-
-<video width=100% src="/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4"></video>

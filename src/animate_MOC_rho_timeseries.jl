@@ -118,6 +118,32 @@ Colorbar(
     label = "MOC (Sv)",
 ).height = Relative(1)
 
+# ── Static time-mean PNG (day-weighted mean over full timeseries) ────────
+# Only save for MODE=monthly; rollingyear is already smoothed.
+
+if MODE == "monthly"
+    using Dates: daysinmonth
+    n_days = Float64.(daysinmonth.(times))
+    total_days = sum(n_days)
+    # Weighted sum across time, ignoring NaN cells
+    ψ_mean = similar(ψ_all[:, :, 1])
+    ψ_mean .= 0.0
+    for i in 1:Ntime
+        @views ψ_mean .+= (n_days[i] / total_days) .* ψ_all[:, :, i]
+    end
+
+    mean_title = @sprintf(
+        "%s — Global MOC σ₀ (time-mean %04d–%04d)",
+        PARENT_MODEL, year(times[1]), year(times[end]),
+    )
+    title_obs[] = mean_title
+    ψ_obs.val .= ψ_mean
+    notify(ψ_obs)
+    mean_outfile = joinpath(outputdir, "MOC_rho_global_mean.png")
+    @info "Saving time-mean PNG → $mean_outfile"
+    save(mean_outfile, fig; px_per_unit = 3)
+end
+
 # ── Animation ─────────────────────────────────────────────────────────────
 
 framerate = 24
