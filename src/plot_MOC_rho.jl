@@ -161,7 +161,7 @@ colormap_inner = cgrad(colormap[2:(end - 1)]; categorical = true)
 
 ρmin, ρmax = extrema(potrho)
 ρmin -= eps(ρmin)
-ρmax = min(ρmax, 1037.3)   # crop densest bins — no meaningful circulation there
+# ρmax = min(ρmax, 1037.3)   # crop densest bins — no meaningful circulation there
 ρ_scale = Makie.ReversibleScale(
     ρ -> (ρ - ρmin)^4,
     x -> x^(1 / 4) + ρmin;
@@ -183,7 +183,7 @@ function build_moc_rho_figure(ψ_dict, title_str)
             ylabel = "Potential density σ₀ (kg/m³)",
             yscale = ρ_scale,
             yreversed = true,
-            limits = (basin_latlims[basin_key]..., ρmin, ρmax),
+            limits = (basin_latlims[basin_key]..., 1035.0, 1037.3),
         )
 
         ψ = ψ_dict[basin_key]
