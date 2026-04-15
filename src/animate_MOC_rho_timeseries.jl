@@ -126,14 +126,11 @@ Colorbar(
 # frames are NaN where the 12-month window isn't full).
 
 if MODE == "monthly"
-    using Dates: daysinmonth
-    n_days = Float64.(daysinmonth.(times))
-    @info "times eltype=$(eltype(times)) times[1]=$(times[1])"
-    @info "n_days length=$(length(n_days)) first5=$(n_days[1:5]) NaN=$(count(isnan, n_days)) sum=$(sum(n_days))"
-    ψ_mean = dropdims(
-        sum(ψ_all .* reshape(n_days, 1, 1, :); dims = 3) ./ sum(n_days);
-        dims = 3,
-    )
+    # Plain arithmetic mean over time — each month weighted equally.
+    # Close enough to a day-weighted mean for visualization (max error ~5%
+    # between 28 and 31 days), and avoids needing `daysinmonth` which
+    # silently returns 0 for CFTime's `DateTimeStandard` (non-Dates type).
+    ψ_mean = dropdims(sum(ψ_all; dims = 3); dims = 3) ./ Ntime
     mean_title = @sprintf(
         "%s — Global MOC σ₀ (time-mean %04d–%04d)",
         PARENT_MODEL, year(times[1]), year(times[end]),
