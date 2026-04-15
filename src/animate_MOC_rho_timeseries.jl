@@ -118,19 +118,31 @@ Colorbar(
     label = "MOC (Sv)",
 ).height = Relative(1)
 
-# ── Static time-mean PNG (day-weighted mean over full timeseries) ────────
-# Only save for MODE=monthly; rollingyear is already smoothed.
+# ── Static time-mean PNG (day-weighted, NaN-aware) ───────────────────────
+# Only save for MODE=monthly; rollingyear is already smoothed (and has NaN
+# in the first 11 frames where the 12-month window isn't full).
+#
+# NaN-aware: each (lat, σ₀) cell is averaged only over time steps where it
+# has a finite value, so non-NaN cells don't get contaminated by seasonal
+# NaNs (which happen in density space when some σ₀ surfaces don't exist
+# every month).
 
 if MODE == "monthly"
     using Dates: daysinmonth
     n_days = Float64.(daysinmonth.(times))
-    total_days = sum(n_days)
-    # Weighted sum across time, ignoring NaN cells
-    ψ_mean = similar(ψ_all[:, :, 1])
-    ψ_mean .= 0.0
+    ψ_sum = zeros(size(ψ_all, 1), size(ψ_all, 2))
+    w_sum = zeros(size(ψ_all, 1), size(ψ_all, 2))
     for i in 1:Ntime
-        @views ψ_mean .+= (n_days[i] / total_days) .* ψ_all[:, :, i]
+        w = n_days[i]
+        @inbounds for j in eachindex(ψ_sum)
+            v = ψ_all[j + (i - 1) * length(ψ_sum)]
+            if !isnan(v)
+                ψ_sum[j] += w * v
+                w_sum[j] += w
+            end
+        end
     end
+    ψ_mean = ψ_sum ./ w_sum   # NaN where never finite (true land)
 
     mean_title = @sprintf(
         "%s — Global MOC σ₀ (time-mean %04d–%04d)",
