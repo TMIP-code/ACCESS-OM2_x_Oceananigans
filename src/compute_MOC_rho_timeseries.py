@@ -32,12 +32,14 @@ PROJECT = environ["PROJECT"]
 # Reference density for kg/s → Sv conversion
 rho0 = 1035.0
 
-# Chunk sizes from ncdump -hs on raw MOM ocean_month.nc
+# Chunk sizes. For OM2-1/025, match the on-disk _ChunkSizes (see ncdump -hs).
+# For OM2-01, load the full horizontal slab per time step (per the proven
+# approach in notebooks/scripts/MOC_ACCESS-OM2-01.py): on-disk chunks
+# (135×180) lead to too many dask chunks and poor throughput.
 CHUNKS_BY_MODEL = {
-    "ACCESS-OM2-1":   {"time": -1, "potrho": 27, "grid_xt_ocean": 120, "grid_yu_ocean": 100},
-    "ACCESS-OM2-025": {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108},
-    # OM2-01: TODO confirm chunk sizes with ncdump -hs on an OM2-01 file
-    "ACCESS-OM2-01":  {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108},
+    "ACCESS-OM2-1":   {"time": -1, "potrho": 27,  "grid_xt_ocean": 120,  "grid_yu_ocean": 100},
+    "ACCESS-OM2-025": {"time": -1, "potrho": 40,  "grid_xt_ocean": 120,  "grid_yu_ocean": 108},
+    "ACCESS-OM2-01":  {"time": 1,  "potrho": 160, "grid_xt_ocean": 3600, "grid_yu_ocean": 2700},
 }
 
 
