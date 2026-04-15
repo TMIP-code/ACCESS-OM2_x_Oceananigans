@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #PBS -P y99
+#PBS -q express
 #PBS -l ncpus=48
 #PBS -l mem=192GB
 #PBS -l jobfs=4GB
