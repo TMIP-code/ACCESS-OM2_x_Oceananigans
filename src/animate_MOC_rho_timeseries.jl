@@ -52,6 +52,9 @@ close(ds)
 
 Ny, Nrho, Ntime = size(ψ_all)
 @info "Loaded ψ cube: Ny=$Ny, Nrho=$Nrho, Ntime=$Ntime"
+@info "ψ_all eltype=$(eltype(ψ_all)) total-NaN=$(count(isnan, ψ_all)) / $(length(ψ_all))"
+@info "ψ_all finite range: min=$(minimum(filter(!isnan, ψ_all))) max=$(maximum(filter(!isnan, ψ_all)))"
+@info "NaN per time-step (first 3): $(count.(isnan, (ψ_all[:, :, 1], ψ_all[:, :, 2], ψ_all[:, :, 3])))"
 
 # ── Plotting setup ────────────────────────────────────────────────────────
 
