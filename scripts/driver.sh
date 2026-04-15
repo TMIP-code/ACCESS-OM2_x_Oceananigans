@@ -99,7 +99,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
-    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC MOCrhoTS"
+    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -119,7 +119,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC MOCrhoTS)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -500,12 +500,6 @@ if has_step plotMOC; then
         scripts/plotting/plot_MOC.sh \
         --deps "$plotMOC_dep_str" > /dev/null
 fi
-
-# MOCrhoTS (no deps — reads raw ty_trans_rho timeseries from intake catalog)
-has_step MOCrhoTS && \
-    submit_job MOCrhoTS "$WALLTIME_PREP" \
-        scripts/prepreprocessing/compute_MOC_rho_timeseries.sh \
-        --ncpus 48 --mem 192GB > /dev/null
 
 # ============================================================
 # Summary
