@@ -39,7 +39,7 @@ rho0 = 1035.0
 CHUNKS_BY_MODEL = {
     "ACCESS-OM2-1":   {"time": -1, "potrho": 27,  "grid_xt_ocean": 120,  "grid_yu_ocean": 100},
     "ACCESS-OM2-025": {"time": -1, "potrho": 40,  "grid_xt_ocean": 120,  "grid_yu_ocean": 108},
-    "ACCESS-OM2-01":  {"time": 1,  "potrho": 160, "grid_xt_ocean": 3600, "grid_yu_ocean": 2700},
+    "ACCESS-OM2-01":  {"time": 1,  "potrho": 80,  "grid_xt_ocean": 3600, "grid_yu_ocean": 2700},
 }
 
 

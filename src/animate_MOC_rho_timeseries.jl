@@ -23,7 +23,7 @@ EXPERIMENT = get(
     ENV, "EXPERIMENT",
     PARENT_MODEL == "ACCESS-OM2-1" ? "1deg_jra55_iaf_omip2_cycle6" :
         PARENT_MODEL == "ACCESS-OM2-025" ? "025deg_jra55_iaf_omip2_cycle6" :
-        PARENT_MODEL == "ACCESS-OM2-01" ? "01deg_jra55v140_iaf_cycle4" : "",
+        PARENT_MODEL == "ACCESS-OM2-01" ? "01deg_jra55v140_iaf_cycle3" : "",
 )
 isempty(EXPERIMENT) && error("Unknown PARENT_MODEL=$PARENT_MODEL; set EXPERIMENT env var")
 
