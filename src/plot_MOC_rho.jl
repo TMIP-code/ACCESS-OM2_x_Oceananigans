@@ -188,13 +188,13 @@ function build_moc_rho_figure(ψ_dict, title_str)
 
         ψ = ψ_dict[basin_key]
 
-        co = contourf!(
+        co = heatmap!(
             ax, lat, potrho, ψ;
-            levels,
+            colorrange = (first(levels), last(levels)),
             colormap = colormap_inner,
             nan_color = :lightgray,
-            extendlow,
-            extendhigh,
+            lowclip = extendlow,
+            highclip = extendhigh,
         )
         translate!(co, 0, 0, -100)
         contour!(ax, lat, potrho, ψ; levels = [10, 20], color = :black, linewidth = 0.5)

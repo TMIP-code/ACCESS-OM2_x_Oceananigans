@@ -96,13 +96,13 @@ ax = Axis(
     limits = (extrema(lat)..., 1035.0, 1037.3),
 )
 
-co = contourf!(
+co = heatmap!(
     ax, lat, potrho, ψ_obs;
-    levels,
+    colorrange = (first(levels), last(levels)),
     colormap = colormap_inner,
     nan_color = :lightgray,
-    extendlow,
-    extendhigh,
+    lowclip = extendlow,
+    highclip = extendhigh,
 )
 translate!(co, 0, 0, -100)
 contour!(ax, lat, potrho, ψ_obs; levels = [10, 20], color = :black, linewidth = 0.5)
