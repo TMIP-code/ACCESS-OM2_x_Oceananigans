@@ -46,15 +46,21 @@ Each model has two mp4s:
 
 ### ACCESS-OM2-1 (1°)
 
+![OM2-1 time-mean MOC rho](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_mean.png)
+
 - [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
 - [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
 
 ### ACCESS-OM2-025 (0.25°)
 
+![OM2-025 time-mean MOC rho](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_mean.png)
+
 - [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
 - [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
 
 ### ACCESS-OM2-01 (0.1°)
+
+![OM2-01 time-mean MOC rho](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_mean.png)
 
 - [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_timeseries.mp4)
 - [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4)

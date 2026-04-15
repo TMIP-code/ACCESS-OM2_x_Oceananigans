@@ -82,6 +82,9 @@ if __name__ == "__main__":
 
     # Resolved: ty_trans_rho → zonal sum, then cumsum over potrho, minus total
     # (same convention as compute_AABW_depthspace.py: ψ = 0 at densest)
+    # MOM writes _FillValue for density classes that don't intersect the
+    # water column; fillna(0) treats them as zero transport (physically
+    # correct) so NaNs don't leak through the zonal sum + cumsum.
     try:
         print("Loading ty_trans_rho")
         ty = select_data(
@@ -90,6 +93,7 @@ if __name__ == "__main__":
             variable="ty_trans_rho",
             frequency="1mon",
         )
+        ty = ty.fillna(0.0)
         print("Zonal sum + cumsum over potrho")
         psi_res = ty.sum("grid_xt_ocean")
         psi_res = psi_res.cumulative("potrho").sum() - psi_res.sum("potrho")
@@ -110,6 +114,7 @@ if __name__ == "__main__":
                 variable="ty_trans_rho_gm",
                 frequency="1mon",
             )
+            ty_gm = ty_gm.fillna(0.0)
             print("Zonal sum (no cumsum — already a transport)")
             psi_gm = ty_gm.sum("grid_xt_ocean")
         except Exception:
