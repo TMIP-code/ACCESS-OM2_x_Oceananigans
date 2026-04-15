@@ -161,6 +161,7 @@ colormap_inner = cgrad(colormap[2:(end - 1)]; categorical = true)
 
 ρmin, ρmax = extrema(potrho)
 ρmin -= eps(ρmin)
+ρmax = min(ρmax, 1037.3)   # crop densest bins — no meaningful circulation there
 ρ_scale = Makie.ReversibleScale(
     ρ -> (ρ - ρmin)^4,
     x -> x^(1 / 4) + ρmin;
