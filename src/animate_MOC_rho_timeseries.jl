@@ -35,9 +35,12 @@ outfile = joinpath(outputdir, "MOC_rho_global_timeseries.mp4")
 
 @info "Reading $infile"
 ds = NCDataset(infile)
-ψ_all = ds["psi_tot"][:, :, :]    # (grid_yu_ocean, potrho, time)
-lat = ds["grid_yu_ocean"][:]
-potrho = ds["potrho"][:]
+# NCDatasets returns Union{Missing, T}; coerce to plain Float64 with NaN for missings
+ψ_raw = ds["psi_tot"][:, :, :]    # (grid_yu_ocean, potrho, time)
+ψ_all = Array{Float64}(undef, size(ψ_raw))
+@. ψ_all = ifelse(ismissing(ψ_raw), NaN, ψ_raw)
+lat = Float64.(ds["grid_yu_ocean"][:])
+potrho = Float64.(ds["potrho"][:])
 times = ds["time"][:]             # Vector of DateTime
 close(ds)
 
