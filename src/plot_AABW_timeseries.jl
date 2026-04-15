@@ -1,10 +1,16 @@
-# Plot depth-space AABW transport timeseries with selected TIME_WINDOWs highlighted
+# Plot AABW transport timeseries with selected TIME_WINDOWs highlighted.
+#
+# Controlled by SPACE env var:
+#   SPACE=depth (default) — read depth-space psi_tot_year.nc + psi_tot.nc
+#                           from {datadir}/{model}/{experiment}/depthspace/
+#                           and apply depth-based metrics (depth cutoffs).
+#   SPACE=rho             — read density-space psi_tot_global.nc + psi_tot_rollingyear_global.nc
+#                           from {datadir}/{model}/{experiment}/rhospace/
+#                           and apply density-based metrics (σ₀ threshold).
 #
 # Usage:
 #   julia --project=. src/plot_AABW_timeseries.jl
-#
-# Reads psi_tot_year.nc from /scratch/y99/TMIP/data/{model}/{experiment}/depthspace/
-# Outputs plots to outputs/{model}/{experiment}/AABW/
+#   SPACE=rho julia --project=. src/plot_AABW_timeseries.jl
 
 using Pkg
 Pkg.activate(".")
@@ -19,10 +25,21 @@ using Statistics
 PROJECT = get(ENV, "PROJECT", "y99")
 datadir = "/scratch/$PROJECT/TMIP/data"
 
-models = [
-    ("ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6"),
-    ("ACCESS-OM2-025", "025deg_jra55_iaf_omip2_cycle6"),
-]
+SPACE = get(ENV, "SPACE", "depth")
+SPACE in ("depth", "rho") || error("SPACE must be 'depth' or 'rho', got '$SPACE'")
+
+models = if SPACE == "rho"
+    [
+        ("ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6"),
+        ("ACCESS-OM2-025", "025deg_jra55_iaf_omip2_cycle6"),
+        ("ACCESS-OM2-01", "01deg_jra55v140_iaf_cycle3"),
+    ]
+else
+    [
+        ("ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6"),
+        ("ACCESS-OM2-025", "025deg_jra55_iaf_omip2_cycle6"),
+    ]
+end
 
 # Fixed time windows (same for both models)
 fixed_windows = [
@@ -129,6 +146,31 @@ function yearly_mean_of_monthly(time_vals, monthly_vals)
     return unique_yrs, yearly_means
 end
 
+"""
+Load density-space ψ from a NetCDF written by `compute_MOC_rho_timeseries.py`.
+Returns (psi, lat, potrho, time_vals) with ψ already in Sv.
+"""
+function load_rho_psi(filepath)
+    ds = NCDataset(filepath, "r"; maskingvalue = NaN)
+    psi = ds["psi_tot"][:, :, :]    # (grid_yu_ocean, potrho, time)
+    lat = ds["grid_yu_ocean"][:]
+    potrho = ds["potrho"][:]
+    time_vals = ds["time"][:]
+    close(ds)
+    return psi, lat, potrho, time_vals
+end
+
+"""
+Apply the density-space AABW metric to each time step of `psi`:
+min ψ over (lat < LAT_MAX, σ₀ ≥ RHO_THRESHOLD). ψ is already in Sv.
+"""
+function rho_aabw_metric(psi, lat, potrho; lat_max, rho_threshold)
+    lat_mask = lat .< lat_max
+    rho_mask = potrho .>= rho_threshold
+    sub = psi[lat_mask, rho_mask, :]
+    return [minimum(skipmissing(sub[:, :, i])) for i in axes(sub, 3)]
+end
+
 function find_rolling_extrema(years, vals, window_length)
     n = length(vals)
     if window_length == 1
@@ -151,28 +193,56 @@ end
 # ── Main ───────────────────────────────────────────────────────────────────
 
 for (model, experiment) in models
-    infile = joinpath(datadir, model, experiment, "depthspace", "psi_tot_year.nc")
-    if !isfile(infile)
-        @warn "Skipping $model: $infile not found"
-        continue
+    # Load data + build per-metric yearly/monthly series.
+    metrics = if SPACE == "depth"
+        infile = joinpath(datadir, model, experiment, "depthspace", "psi_tot_year.nc")
+        isfile(infile) || (@warn "Skipping $model: $infile not found"; continue)
+
+        @info "Processing $model (depth-space)"
+        years, aabw_upper, aabw_deep, aabw_50S = compute_aabw_timeseries(infile)
+
+        monthly_file = joinpath(datadir, model, experiment, "depthspace", "psi_tot.nc")
+        monthly_time, monthly_dates, monthly_upper, monthly_deep, monthly_50S =
+            compute_aabw_monthly(monthly_file)
+
+        [
+            (
+                years, monthly_time, monthly_dates, aabw_upper, monthly_upper,
+                "min ψ, lat ≤ 60°S, depth < 3000m", "AABW_upper", "Depth-space",
+            ),
+            (
+                years, monthly_time, monthly_dates, aabw_deep, monthly_deep,
+                "min ψ, lat ≤ 0°, depth ≥ 3000m", "AABW_deep", "Depth-space",
+            ),
+            (
+                years, monthly_time, monthly_dates, aabw_50S, monthly_50S,
+                "min ψ, lat ≤ 50°S", "AABW_50S", "Depth-space",
+            ),
+        ]
+    else  # rho
+        monthly_file = joinpath(datadir, model, experiment, "rhospace", "psi_tot_global.nc")
+        isfile(monthly_file) || (@warn "Skipping $model: $monthly_file not found"; continue)
+
+        @info "Processing $model (density-space)"
+        psi_m, lat, potrho, dates_m = load_rho_psi(monthly_file)
+        monthly_time = [Dates.year(t) + (Dates.month(t) - 0.5) / 12 for t in dates_m]
+
+        # Candidate metric: min ψ for lat < 0, σ₀ ≥ 1036
+        aabw_m = rho_aabw_metric(psi_m, lat, potrho; lat_max = 0.0, rho_threshold = 1036.0)
+        years, aabw_y = yearly_mean_of_monthly(dates_m, aabw_m)
+
+        [
+            (
+                years, monthly_time, dates_m, aabw_y, aabw_m,
+                "min ψ, lat < 0°, σ₀ ≥ 1036 kg/m³", "AABW_rho_lt0_1036", "Density-space",
+            ),
+        ]
     end
 
-    @info "Processing $model"
-    years, aabw_upper, aabw_deep, aabw_50S = compute_aabw_timeseries(infile)
+    for metric in metrics
+        years, monthly_time, monthly_dates, aabw, aabw_monthly,
+            metric_label, metric_tag, space_label = metric
 
-    # Load monthly data
-    monthly_file = joinpath(datadir, model, experiment, "depthspace", "psi_tot.nc")
-    monthly_time, monthly_dates, monthly_upper, monthly_deep, monthly_50S =
-        compute_aabw_monthly(monthly_file)
-
-    # Three metrics with their labels, yearly series, and monthly series
-    metrics = [
-        (aabw_upper, monthly_upper, "min ψ, lat ≤ 60°S, depth < 3000m", "AABW_upper"),
-        (aabw_deep, monthly_deep, "min ψ, lat ≤ 0°, depth ≥ 3000m", "AABW_deep"),
-        (aabw_50S, monthly_50S, "min ψ, lat ≤ 50°S", "AABW_50S"),
-    ]
-
-    for (aabw, aabw_monthly, metric_label, metric_tag) in metrics
         # Find AABW-dependent windows
         aabw_windows = Tuple{String, String, Symbol}[]
         for (wlen, wlen_label) in [(10, "10yr"), (3, "3yr"), (1, "1yr")]
@@ -199,23 +269,25 @@ for (model, experiment) in models
             fig[1, 1];
             xlabel = "Year",
             ylabel = "AABW transport (Sv)",
-            title = "$model — Depth-space AABW transport ($metric_label)",
+            title = "$model — $space_label AABW transport ($metric_label)",
             xticks = 1960:10:2020,
             limits = (nothing, nothing, 0, nothing),
         )
 
         # Plot timeseries (negate: min(ψ) is negative, show as positive transport)
-        # Monthly values
         monthly_plot = .-aabw_monthly
         lines!(ax, monthly_time, monthly_plot; color = (:gray60, 0.5), linewidth = 0.5, label = "Monthly")
 
-        # metric(mean): spatial min of yearly-averaged field (existing)
-        aabw_plot = .-aabw
-        lines!(ax, years, aabw_plot; color = :black, linewidth = 2, label = "metric(mean)")
+        # Yearly series (for depth-space this is metric(mean) from the yearly file;
+        # for rho-space we derive it as mean(metric) — see dispatch above)
+        yearly_label = SPACE == "depth" ? "metric(mean)" : "mean(metric)"
+        lines!(ax, years, .-aabw; color = :black, linewidth = 2, label = yearly_label)
 
-        # mean(metric): yearly mean of monthly spatial min
-        mean_metric_years, mean_metric_vals = yearly_mean_of_monthly(monthly_dates, aabw_monthly)
-        lines!(ax, mean_metric_years, .-mean_metric_vals; color = :red, linewidth = 2, label = "mean(metric)")
+        # Additional mean(metric) trace for depth-space (differs from the yearly file)
+        if SPACE == "depth"
+            mean_metric_years, mean_metric_vals = yearly_mean_of_monthly(monthly_dates, aabw_monthly)
+            lines!(ax, mean_metric_years, .-mean_metric_vals; color = :red, linewidth = 2, label = "mean(metric)")
+        end
 
         axislegend(ax; position = :rt, framevisible = true, labelsize = 10)
 
@@ -257,7 +329,8 @@ for (model, experiment) in models
         outdir = joinpath(@__DIR__, "..", "outputs", model, experiment, "AABW")
         mkpath(outdir)
 
-        outfile = joinpath(outdir, "$(metric_tag)_depthspace_timeseries.png")
+        space_suffix = SPACE == "depth" ? "depthspace" : "rhospace"
+        outfile = joinpath(outdir, "$(metric_tag)_$(space_suffix)_timeseries.png")
         save(outfile, fig; px_per_unit = 3)
         @info "  Saved: $outfile"
 
