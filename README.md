@@ -135,6 +135,14 @@ Model-specific settings (walltimes, PBS name prefix) live in `model_configs/`:
 - `model_configs/ACCESS-OM2-1.sh`
 - `model_configs/ACCESS-OM2-025.sh`
 
+### Model notes
+
+- **OM2-01 (0.1°) has no GM transport.** The model is eddy-resolving, so the
+  Gent–McWilliams parameterization is disabled. There is no `ty_trans_rho_gm`
+  (or `tx_trans_rho_gm`, `ty_trans_gm`, etc.) in the intake catalog for any
+  OM2-01 experiment. Scripts that read GM variables must treat them as
+  optional (zero them out when missing) for OM2-01.
+
 ### Script organisation
 
 ```

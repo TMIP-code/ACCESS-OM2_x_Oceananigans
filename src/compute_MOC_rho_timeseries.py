@@ -98,26 +98,39 @@ if __name__ == "__main__":
         print(traceback.format_exc())
         sys.exit(1)
 
-    # GM: ty_trans_rho_gm → zonal sum only
-    try:
-        print("Loading ty_trans_rho_gm")
-        ty_gm = select_data(
-            searched_cat,
-            dict(chunks=chunks),
-            variable="ty_trans_rho_gm",
-            frequency="1mon",
+    # GM: ty_trans_rho_gm → zonal sum only. OM2-01 is eddy-resolving and
+    # doesn't output GM, so treat as zero when the variable is absent.
+    has_gm = len(searched_cat.search(variable="ty_trans_rho_gm").df) > 0
+    if has_gm:
+        try:
+            print("Loading ty_trans_rho_gm")
+            ty_gm = select_data(
+                searched_cat,
+                dict(chunks=chunks),
+                variable="ty_trans_rho_gm",
+                frequency="1mon",
+            )
+            print("Zonal sum (no cumsum — already a transport)")
+            psi_gm = ty_gm.sum("grid_xt_ocean")
+        except Exception:
+            print(f"Error processing {model} ty_trans_rho_gm")
+            print(traceback.format_exc())
+            sys.exit(1)
+    else:
+        print(
+            f"{model} has no ty_trans_rho_gm (eddy-resolving, no GM param) — "
+            "setting ψ_gm = 0"
         )
-        print("Zonal sum (no cumsum — already a transport)")
-        psi_gm = ty_gm.sum("grid_xt_ocean")
-    except Exception:
-        print(f"Error processing {model} ty_trans_rho_gm")
-        print(traceback.format_exc())
-        sys.exit(1)
+        psi_gm = None
 
     # Total = resolved + GM, converted to Sv
     try:
         print("Computing total ψ = resolved + GM, converting to Sv")
-        psi_tot = (psi_res.ty_trans_rho + psi_gm.ty_trans_rho_gm) / (rho0 * 1e6)
+        if psi_gm is not None:
+            psi_tot_raw = psi_res.ty_trans_rho + psi_gm.ty_trans_rho_gm
+        else:
+            psi_tot_raw = psi_res.ty_trans_rho
+        psi_tot = psi_tot_raw / (rho0 * 1e6)
         psi_tot = psi_tot.to_dataset(name="psi_tot")
         psi_tot["psi_tot"].attrs["units"] = "Sv"
         psi_tot["psi_tot"].attrs["long_name"] = (
