@@ -128,6 +128,8 @@ Colorbar(
 if MODE == "monthly"
     using Dates: daysinmonth
     n_days = Float64.(daysinmonth.(times))
+    @info "times eltype=$(eltype(times)) times[1]=$(times[1])"
+    @info "n_days length=$(length(n_days)) first5=$(n_days[1:5]) NaN=$(count(isnan, n_days)) sum=$(sum(n_days))"
     ψ_mean = dropdims(
         sum(ψ_all .* reshape(n_days, 1, 1, :); dims = 3) ./ sum(n_days);
         dims = 3,
