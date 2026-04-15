@@ -75,7 +75,7 @@ colormap_inner = cgrad(colormap[2:(end - 1)]; categorical = true)
 ψ_buf .= ψ_all[:, :, 1]
 ψ_obs = Observable(copy(ψ_buf))
 
-title_str_0 = @sprintf("%s — Global MOC σ₀ [$MODE] (%04d-%02d)", PARENT_MODEL, year(times[1]), month(times[1]))
+title_str_0 = @sprintf("%s — Global MOC σ₀ [%s] (%04d-%02d)", PARENT_MODEL, MODE, year(times[1]), month(times[1]))
 title_obs = Observable(title_str_0)
 
 fig = Figure(; size = (900, 500), fontsize = 18)
@@ -128,7 +128,8 @@ record(fig, outfile, 1:Ntime; framerate) do i
     ψ_obs.val .= ψ_buf
     notify(ψ_obs)
     title_obs[] = @sprintf(
-        "%s — Global MOC σ₀ [$MODE] (%04d-%02d)", PARENT_MODEL, year(times[i]), month(times[i]),
+        "%s — Global MOC σ₀ [%s] (%04d-%02d)",
+        PARENT_MODEL, MODE, year(times[i]), month(times[i]),
     )
 end
 
