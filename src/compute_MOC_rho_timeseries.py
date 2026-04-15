@@ -64,7 +64,11 @@ if __name__ == "__main__":
         print(f"ERROR: no chunk sizes for model '{model}'")
         sys.exit(1)
 
-    client = Client(n_workers=48, threads_per_worker=1)
+    # Match worker count to PBS_NCPUS so each gets a reasonable memory slice.
+    # Hardcoding 48 workers on a 24-cpu/735GB hugemem job gave ~15GB/worker,
+    # which wasn't enough when chunks grew (e.g. OM2-01 cycle4 potrho=160).
+    n_workers = int(environ.get("PBS_NCPUS", 48))
+    client = Client(n_workers=n_workers, threads_per_worker=1)
     print(f"Dask client: {client}")
 
     # Load catalog
