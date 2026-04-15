@@ -46,17 +46,17 @@ Each model has two mp4s:
 
 ### ACCESS-OM2-1 (1°)
 
-- [MOC_rho_global_timeseries.mp4](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
-- [MOC_rho_global_rollingyear.mp4](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
+- [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
+- [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
 
 ### ACCESS-OM2-025 (0.25°)
 
-- [MOC_rho_global_timeseries.mp4](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
-- [MOC_rho_global_rollingyear.mp4](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
+- [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_timeseries.mp4)
+- [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/MOC_rho_global_rollingyear.mp4)
 
 ### ACCESS-OM2-01 (0.1°)
 
-- [MOC_rho_global_timeseries.mp4](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_timeseries.mp4)
-- [MOC_rho_global_rollingyear.mp4](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4)
+- [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_timeseries.mp4)
+- [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4)
 
-<video src="../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4"></video>
+<video width=100% src="/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4"></video>
