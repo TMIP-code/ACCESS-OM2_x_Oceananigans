@@ -69,13 +69,13 @@ window is `1962–1971` — common overlap is `1967–1971`.
 
 ### Time-mean MOC
 
-![OM2-01 time-mean MOC rho](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_mean.png)
+![OM2-01 time-mean MOC rho](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/MOC_rho_global_mean.png)
 
 ### AABW transport timeseries
 
-![OM2-01 AABW rho](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/AABW/AABW_rho_lt0_1036_rhospace_timeseries.png)
+![OM2-01 AABW rho](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/AABW/AABW_rho_lt0_1036_rhospace_timeseries.png)
 
 ### Animations
 
-- [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_timeseries.mp4)
-- [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle3/MOC_rho_global_rollingyear.mp4)
+- [MOC_rho_global_timeseries.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/MOC_rho_global_timeseries.mp4)
+- [MOC_rho_global_rollingyear.mp4](/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/MOC_rho_global_rollingyear.mp4)

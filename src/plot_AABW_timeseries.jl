@@ -32,7 +32,7 @@ models = if SPACE == "rho"
     [
         ("ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6"),
         ("ACCESS-OM2-025", "025deg_jra55_iaf_omip2_cycle6"),
-        ("ACCESS-OM2-01", "01deg_jra55v140_iaf_cycle3"),
+        ("ACCESS-OM2-01", "01deg_jra55v140_iaf_cycle4"),
     ]
 else
     [
