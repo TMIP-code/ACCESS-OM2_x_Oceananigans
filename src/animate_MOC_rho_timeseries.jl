@@ -134,10 +134,10 @@ if MODE == "monthly"
         PARENT_MODEL, year(times[1]), year(times[end]),
     )
     title_obs[] = mean_title
-    ψ_obs.val .= ψ_mean
-    notify(ψ_obs)
+    ψ_obs[] = ψ_mean       # replace-and-notify; simpler than .val .= ; notify()
     mean_outfile = joinpath(outputdir, "MOC_rho_global_mean.png")
     @info "Saving time-mean PNG → $mean_outfile"
+    @info "ψ_mean stats: min=$(minimum(ψ_mean)) max=$(maximum(ψ_mean)) NaN=$(count(isnan, ψ_mean))"
     save(mean_outfile, fig; px_per_unit = 3)
 end
 
