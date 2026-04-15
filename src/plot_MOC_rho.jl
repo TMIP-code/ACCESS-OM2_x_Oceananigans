@@ -4,6 +4,7 @@
 #   1. Static PNG of the time-mean resolved MOC in density space
 #   2. Static PNG of the time-mean GM MOC in density space
 #   3. Static PNG of the time-mean total MOC (resolved + GM) in density space
+#   4. MP4 animation of the monthly total MOC cycle
 #
 # Works directly from preprocessed NetCDF climatologies (ty_trans_rho, ty_trans_rho_gm)
 # without requiring the Oceananigans grid. Basin masks use OceanBasins.jl with
@@ -21,6 +22,7 @@ using NetCDF
 using CairoMakie
 using OceanBasins
 using Format
+using Printf: @sprintf
 using Statistics: mean
 
 include("shared_functions.jl")
@@ -171,7 +173,10 @@ colormap_inner = cgrad(colormap[2:(end - 1)]; categorical = true)
 
 function build_moc_rho_figure(ψ_dict, title_str)
     fig = Figure(; size = (1200, 400), fontsize = 18)
-    Label(fig[-1, 1:length(basin_keys)]; text = title_str, fontsize = 20, tellwidth = false)
+    title_obs = Observable(title_str)
+    Label(fig[-1, 1:length(basin_keys)]; text = title_obs, fontsize = 20, tellwidth = false)
+
+    ψ_obs = Dict(bk => Observable(copy(ψ_dict[bk])) for bk in basin_keys)
 
     for (icol, (basin_key, basin_mask)) in enumerate(pairs(basins))
         ax = Axis(
@@ -185,10 +190,8 @@ function build_moc_rho_figure(ψ_dict, title_str)
             limits = (basin_latlims[basin_key]..., ρmin, ρmax),
         )
 
-        ψ = ψ_dict[basin_key]
-
         co = contourf!(
-            ax, lat, potrho, ψ;
+            ax, lat, potrho, ψ_obs[basin_key];
             levels,
             colormap = colormap_inner,
             nan_color = :lightgray,
@@ -196,9 +199,9 @@ function build_moc_rho_figure(ψ_dict, title_str)
             extendhigh,
         )
         translate!(co, 0, 0, -100)
-        contour!(ax, lat, potrho, ψ; levels = [10, 20], color = :black, linewidth = 0.5)
+        contour!(ax, lat, potrho, ψ_obs[basin_key]; levels = [10, 20], color = :black, linewidth = 0.5)
         contour!(
-            ax, lat, potrho, ψ;
+            ax, lat, potrho, ψ_obs[basin_key];
             levels = [-20, -10], color = :black, linewidth = 0.5, linestyle = :dash,
         )
 
@@ -233,7 +236,7 @@ function build_moc_rho_figure(ψ_dict, title_str)
     rowgap!(fig.layout, 20)
     colgap!(fig.layout, 30)
 
-    return fig
+    return fig, title_obs, ψ_obs
 end
 
 # ── Compute and plot ──────────────────────────────────────────────────────
@@ -244,7 +247,7 @@ TIME_WINDOW_LABEL = replace(TIME_WINDOW, "-" => "–")
 @info "Computing resolved MOC (density space)"
 ψ_resolved = Dict(bk => compute_moc_rho(ty_data, basins[bk]) for bk in basin_keys)
 
-fig_res = build_moc_rho_figure(ψ_resolved, "$PARENT_MODEL $TIME_WINDOW_LABEL Resolved MOC (σ₀)")
+fig_res, _, _ = build_moc_rho_figure(ψ_resolved, "$PARENT_MODEL $TIME_WINDOW_LABEL Resolved MOC (σ₀)")
 outputfile = joinpath(outputdir, "MOC_rho_resolved_mean.png")
 @info "Saving $outputfile"
 save(outputfile, fig_res; px_per_unit = 3)
@@ -253,7 +256,7 @@ save(outputfile, fig_res; px_per_unit = 3)
 @info "Computing GM MOC (density space)"
 ψ_gm = Dict(bk => compute_moc_rho_gm(ty_gm_data, basins[bk]) for bk in basin_keys)
 
-fig_gm = build_moc_rho_figure(ψ_gm, "$PARENT_MODEL $TIME_WINDOW_LABEL GM MOC (σ₀)")
+fig_gm, _, _ = build_moc_rho_figure(ψ_gm, "$PARENT_MODEL $TIME_WINDOW_LABEL GM MOC (σ₀)")
 outputfile = joinpath(outputdir, "MOC_rho_gm_mean.png")
 @info "Saving $outputfile"
 save(outputfile, fig_gm; px_per_unit = 3)
@@ -262,9 +265,57 @@ save(outputfile, fig_gm; px_per_unit = 3)
 @info "Computing total MOC (density space)"
 ψ_total = Dict(bk => ψ_resolved[bk] .+ ψ_gm[bk] for bk in basin_keys)
 
-fig_tot = build_moc_rho_figure(ψ_total, "$PARENT_MODEL $TIME_WINDOW_LABEL Total MOC (σ₀)")
+fig_tot, title_obs, ψ_obs = build_moc_rho_figure(
+    ψ_total, "$PARENT_MODEL $TIME_WINDOW_LABEL Total MOC (σ₀)",
+)
 outputfile = joinpath(outputdir, "MOC_rho_total_mean.png")
 @info "Saving $outputfile"
 save(outputfile, fig_tot; px_per_unit = 3)
+
+# ── Animation: monthly total MOC cycle ───────────────────────────────────
+
+@info "Loading monthly ty_trans_rho / ty_trans_rho_gm"
+ty_monthly_ds = open_dataset(joinpath(monthly_dir, "ty_trans_rho_monthly.nc"); driver = :netcdf)
+ty_gm_monthly_ds = open_dataset(joinpath(monthly_dir, "ty_trans_rho_gm_monthly.nc"); driver = :netcdf)
+
+@info "Pre-computing 12 monthly streamfunctions per basin"
+ψ_all = Dict{Symbol, Vector{Matrix{Float64}}}(bk => Matrix{Float64}[] for bk in basin_keys)
+
+for m in 1:12
+    ty_m = readcubedata(ty_monthly_ds.ty_trans_rho[month = At(m)]).data
+    ty_gm_m = readcubedata(ty_gm_monthly_ds.ty_trans_rho_gm[month = At(m)]).data
+    map!(x -> isnan(x) ? zero(x) : x, ty_m, ty_m)
+    map!(x -> isnan(x) ? zero(x) : x, ty_gm_m, ty_gm_m)
+    for bk in basin_keys
+        ψ_res_m = compute_moc_rho(ty_m, basins[bk])
+        ψ_gm_m = compute_moc_rho_gm(ty_gm_m, basins[bk])
+        push!(ψ_all[bk], ψ_res_m .+ ψ_gm_m)
+    end
+end
+
+# Pre-allocate interpolation buffer (one per basin, reused every frame)
+ψ_buf = Dict(bk => similar(ψ_all[bk][1]) for bk in basin_keys)
+
+n_frames = 144
+framerate = 24
+frame_times = range(0, 12; length = n_frames + 1)[1:n_frames]
+
+outputfile_anim = joinpath(outputdir, "MOC_rho_total_monthly.mp4")
+@info "Recording animation to $outputfile_anim"
+
+record(fig_tot, outputfile_anim, 1:n_frames; framerate) do i
+    t = frame_times[i]
+    m0 = floor(Int, t) + 1
+    m1 = mod1(m0 + 1, 12)
+    α = t - floor(t)
+    for bk in basin_keys
+        @. ψ_buf[bk] = (1 - α) * ψ_all[bk][m0] + α * ψ_all[bk][m1]
+        ψ_obs[bk].val .= ψ_buf[bk]
+        notify(ψ_obs[bk])
+    end
+    title_obs[] = @sprintf(
+        "%s %s Total MOC σ₀ (%.1f months)", PARENT_MODEL, TIME_WINDOW_LABEL, t + 0.5,
+    )
+end
 
 @info "Done! Outputs in $outputdir"
