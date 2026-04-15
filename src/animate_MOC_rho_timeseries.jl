@@ -28,10 +28,19 @@ EXPERIMENT = get(
 isempty(EXPERIMENT) && error("Unknown PARENT_MODEL=$PARENT_MODEL; set EXPERIMENT env var")
 
 PROJECT = get(ENV, "PROJECT", "y99")
-infile = "/scratch/$PROJECT/TMIP/data/$PARENT_MODEL/$EXPERIMENT/rhospace/psi_tot_global.nc"
+
+# MODE = "monthly" (default) reads psi_tot_global.nc — raw monthly timeseries.
+# MODE = "rollingyear" reads psi_tot_rollingyear_global.nc — 12-month rolling mean.
+MODE = get(ENV, "MODE", "monthly")
+MODE in ("monthly", "rollingyear") || error("MODE must be 'monthly' or 'rollingyear', got '$MODE'")
+
+infile_basename = MODE == "monthly" ? "psi_tot_global.nc" : "psi_tot_rollingyear_global.nc"
+outfile_suffix = MODE == "monthly" ? "timeseries" : "rollingyear"
+
+infile = "/scratch/$PROJECT/TMIP/data/$PARENT_MODEL/$EXPERIMENT/rhospace/$infile_basename"
 outputdir = joinpath(@__DIR__, "..", "outputs", PARENT_MODEL, EXPERIMENT)
 mkpath(outputdir)
-outfile = joinpath(outputdir, "MOC_rho_global_timeseries.mp4")
+outfile = joinpath(outputdir, "MOC_rho_global_$outfile_suffix.mp4")
 
 @info "Reading $infile"
 ds = NCDataset(infile, "r"; maskingvalue = NaN)  # fill values → NaN (plain Float, no Missing)
@@ -66,7 +75,7 @@ colormap_inner = cgrad(colormap[2:(end - 1)]; categorical = true)
 ψ_buf .= ψ_all[:, :, 1]
 ψ_obs = Observable(copy(ψ_buf))
 
-title_str_0 = @sprintf("%s — Global MOC σ₀ (%04d-%02d)", PARENT_MODEL, year(times[1]), month(times[1]))
+title_str_0 = @sprintf("%s — Global MOC σ₀ [$MODE] (%04d-%02d)", PARENT_MODEL, year(times[1]), month(times[1]))
 title_obs = Observable(title_str_0)
 
 fig = Figure(; size = (900, 500), fontsize = 18)
@@ -119,7 +128,7 @@ record(fig, outfile, 1:Ntime; framerate) do i
     ψ_obs.val .= ψ_buf
     notify(ψ_obs)
     title_obs[] = @sprintf(
-        "%s — Global MOC σ₀ (%04d-%02d)", PARENT_MODEL, year(times[i]), month(times[i]),
+        "%s — Global MOC σ₀ [$MODE] (%04d-%02d)", PARENT_MODEL, year(times[i]), month(times[i]),
     )
 end
 

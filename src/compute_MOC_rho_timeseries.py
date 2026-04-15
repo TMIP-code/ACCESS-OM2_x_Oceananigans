@@ -129,5 +129,32 @@ if __name__ == "__main__":
         print(traceback.format_exc())
         sys.exit(1)
 
+    # 12-month rolling mean (day-of-month weighted), same pattern as
+    # compute_AABW_depthspace.py
+    try:
+        print("Loading psi_tot into memory for rolling mean")
+        psi_tot = psi_tot.load()
+
+        print("Computing 12-month day-weighted rolling mean")
+        window_size = 12
+        psi_rolling = psi_tot.rolling(time=window_size).construct("window")
+        month_weights = psi_tot.time.dt.days_in_month
+        month_weights_rolling = (
+            month_weights.rolling(time=window_size).construct("window")
+        )
+        psi_rolling_weighted = psi_rolling.weighted(month_weights_rolling.fillna(0))
+        psi_rollingyear = psi_rolling_weighted.mean("window", skipna=False)
+        psi_rollingyear["psi_tot"].attrs["units"] = "Sv"
+        psi_rollingyear["psi_tot"].attrs["long_name"] = (
+            "Global density-space MOC, 12-month day-weighted rolling mean"
+        )
+        outfile = f"{outputdir}/psi_tot_rollingyear_global.nc"
+        print(f"Saving to {outfile}")
+        psi_rollingyear.to_netcdf(outfile, compute=True)
+    except Exception:
+        print(f"Error writing {model} psi_tot_rollingyear")
+        print(traceback.format_exc())
+        sys.exit(1)
+
     client.close()
     print("Done!")

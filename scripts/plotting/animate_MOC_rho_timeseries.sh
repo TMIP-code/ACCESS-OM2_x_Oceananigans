@@ -1,4 +1,20 @@
 #!/bin/bash
+#
+# PBS wrapper for src/animate_MOC_rho_timeseries.jl — records an mp4 of the
+# full global density-space MOC timeseries (lat × σ₀, ~720 frames) from the
+# NetCDF produced by src/compute_MOC_rho_timeseries.py.
+#
+# MODE controls which input/output file is used:
+#   MODE=monthly     (default) — raw monthly ψ → MOC_rho_global_timeseries.mp4
+#   MODE=rollingyear            — 12-month rolling mean → MOC_rho_global_rollingyear.mp4
+#
+# Usage:
+#   qsub -v "PARENT_MODEL=ACCESS-OM2-1,MODE=monthly"     scripts/plotting/animate_MOC_rho_timeseries.sh
+#   qsub -v "PARENT_MODEL=ACCESS-OM2-1,MODE=rollingyear" scripts/plotting/animate_MOC_rho_timeseries.sh
+#
+# Expects: /scratch/y99/TMIP/data/{PARENT_MODEL}/{EXPERIMENT}/rhospace/psi_tot{_rollingyear}_global.nc
+# Writes:  outputs/{PARENT_MODEL}/{EXPERIMENT}/MOC_rho_global_{timeseries,rollingyear}.mp4
+# Logs to: logs/julia/{PARENT_MODEL}/{EXPERIMENT}/plot/animate_MOC_rho_timeseries_<jobid>.log
 
 #PBS -P y99
 #PBS -q express

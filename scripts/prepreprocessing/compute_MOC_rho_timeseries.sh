@@ -1,4 +1,16 @@
 #!/bin/bash
+#
+# PBS wrapper for src/compute_MOC_rho_timeseries.py — computes the full
+# monthly timeseries of the global density-space MOC (ty_trans_rho +
+# ty_trans_rho_gm, zonal sum + cumsum over potrho → Sv) and writes a single
+# NetCDF per model. Reads raw MOM output via the intake catalog, so runs
+# independently of TIME_WINDOW — hence not wired into driver.sh.
+#
+# Usage:
+#   qsub -v "PARENT_MODEL=ACCESS-OM2-1" scripts/prepreprocessing/compute_MOC_rho_timeseries.sh
+#
+# Writes:  /scratch/y99/TMIP/data/{PARENT_MODEL}/{EXPERIMENT}/rhospace/psi_tot_global.nc
+# Logs to: logs/python/{PARENT_MODEL}/{EXPERIMENT}/compute_MOC_rho_timeseries_<jobid>.log
 
 #PBS -P y99
 #PBS -q express
