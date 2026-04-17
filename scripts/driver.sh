@@ -59,6 +59,7 @@ if [ -z "${EXPERIMENT:-}" ]; then
     case "$PARENT_MODEL" in
         ACCESS-OM2-1)   EXPERIMENT="1deg_jra55_iaf_omip2_cycle6" ;;
         ACCESS-OM2-025) EXPERIMENT="025deg_jra55_iaf_omip2_cycle6" ;;
+        ACCESS-OM2-01)  EXPERIMENT="01deg_jra55v140_iaf_cycle4" ;;
         *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
     esac
 fi
@@ -249,10 +250,13 @@ NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
 # 1. Preprocessing
 # ============================================================
 
-has_step prep && \
+if has_step prep; then
+    prep_flags=(--ncpus "${PREP_NCPUS:-48}" --mem "${PREP_MEM:-192GB}")
+    [ -n "${PREP_QUEUE:-}" ] && prep_flags+=(--queue "${PREP_QUEUE}")
     PREP_JOB=$(submit_job prep "$WALLTIME_PREP" \
         scripts/prepreprocessing/periodicaverage.sh \
-        --ncpus "${PREP_NCPUS:-48}" --mem "${PREP_MEM:-192GB}")
+        "${prep_flags[@]}")
+fi
 
 has_step grid && \
     GRID_JOB=$(submit_job grid "$WALLTIME_GRID" \
@@ -266,6 +270,9 @@ if has_step vel; then
     vel_flags=(--deps "$deps")
     PREPROCESS_ARCH=${PREPROCESS_ARCH:-CPU}
     [ "$PREPROCESS_ARCH" = "GPU" ] && vel_flags+=(--gpu)
+    [ -n "${VEL_NCPUS:-}" ] && vel_flags+=(--ncpus "${VEL_NCPUS}")
+    [ -n "${VEL_QUEUE:-}" ] && vel_flags+=(--queue "${VEL_QUEUE}")
+    [ -n "${VEL_MEM:-}" ]   && vel_flags+=(--mem "${VEL_MEM}")
     VEL_JOB=$(submit_job vel "$WALLTIME_VEL" \
         scripts/preprocessing/build_velocities.sh "${vel_flags[@]}")
 fi
@@ -304,9 +311,11 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     [ -n "$DIAGW_JOB" ] && deps="${deps:+$deps:}$DIAGW_JOB"
     [ -n "$CLO_JOB" ] && deps="${deps:+$deps:}$CLO_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
-    PARTITION_JOB=$(submit_job partition 00:30:00 \
+    partition_flags=(--cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
+    [ -n "${PARTITION_MEM:-}" ] && partition_flags+=(--mem "${PARTITION_MEM}")
+    PARTITION_JOB=$(submit_job partition "${PARTITION_WALLTIME:-00:30:00}" \
         scripts/preprocessing/partition_data.sh \
-        --cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
+        "${partition_flags[@]}")
 fi
 
 # Update dependency: standard runs depend on partition (if it exists) or vel
