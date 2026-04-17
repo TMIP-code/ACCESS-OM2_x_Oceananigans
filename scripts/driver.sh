@@ -333,7 +333,7 @@ has_step run1yr && \
 has_step run1yrfast && \
     RUN1YRFAST_JOB=$(submit_job run1yrfast "$WALLTIME_RUN_1YEAR" \
         scripts/standard_runs/run_1year_benchmark.sh \
-        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION},PROFILE=${PROFILE:-no}")
+        --gpu --deps "$VEL_DEP" --vars "PARTITION=${PARTITION},PROFILE=${PROFILE:-no},SYNC_GC_NSTEPS=${SYNC_GC_NSTEPS:-}")
 
 has_step allocbench && \
     submit_job allocbench "$WALLTIME_RUN_1YEAR" \

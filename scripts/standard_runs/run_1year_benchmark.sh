@@ -37,7 +37,17 @@ if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
     export BENCHMARK_STEPS="${BENCHMARK_STEPS:-20}"
     echo "PROFILE=yes: limiting simulation to BENCHMARK_STEPS=$BENCHMARK_STEPS"
-    profile_base="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile"
+    # Synchronized GC for distributed profiling (see docs/DISTRIBUTED_GC.md).
+    # Default N=5 → ~4 fires across the 20-step benchmark; SYNC_GC_NSTEPS=0 disables.
+    export SYNC_GC_NSTEPS="${SYNC_GC_NSTEPS:-5}"
+    if [ "$SYNC_GC_NSTEPS" -gt 0 ]; then
+        sync_gc_tag="syncGCyes_N${SYNC_GC_NSTEPS}"
+        echo "PROFILE=yes: synchronized GC every $SYNC_GC_NSTEPS iterations"
+    else
+        sync_gc_tag="syncGCno"
+        echo "PROFILE=yes: synchronized GC disabled (baseline)"
+    fi
+    profile_base="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}_profile_${sync_gc_tag}"
     if [ "$NGPUS" -gt 1 ]; then
         echo "PROFILE=yes: profiling all $NGPUS ranks with MPI tracing"
     else

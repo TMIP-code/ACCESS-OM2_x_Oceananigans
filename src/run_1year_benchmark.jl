@@ -9,6 +9,8 @@ Environment variables (same as run_1year.jl):
   PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER
   NWARMUP_STEPS – number of timesteps for JIT warmup (default: 3)
   BENCHMARK_STEPS – if set, override stop_time to BENCHMARK_STEPS × Δt (e.g., 20 for profiling)
+  SYNC_GC_NSTEPS – if > 0 and arch isa Distributed, install a synchronized
+                   GC.gc(false) callback every N iterations (see docs/DISTRIBUTED_GC.md)
 """
 
 include("setup_model.jl")
@@ -54,6 +56,15 @@ flush(stdout); flush(stderr)
 reset!(simulation)
 set!(model, age = Returns(0.0))
 simulation.stop_time = stop_time
+
+# Synchronized GC for distributed runs (see docs/DISTRIBUTED_GC.md). Implicit barrier
+# via the surrounding collectives; off by default.
+SYNC_GC_NSTEPS = parse(Int, get(ENV, "SYNC_GC_NSTEPS", "0"))
+if arch isa Distributed && SYNC_GC_NSTEPS > 0
+    sync_gc!(sim) = (GC.gc(false); nothing)
+    add_callback!(simulation, sync_gc!, IterationInterval(SYNC_GC_NSTEPS))
+    @info "Synchronized GC enabled: GC.gc(false) every $SYNC_GC_NSTEPS iterations"
+end
 
 @info "Benchmark: 1-year simulation, no output writers (stop_time=$(stop_time / year) yr)"
 flush(stdout); flush(stderr)
