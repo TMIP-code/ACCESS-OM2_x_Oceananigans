@@ -99,6 +99,18 @@ elif PARENT_MODEL == "ACCESS-OM2-025":
     CHUNKS_MLD = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
     CHUNKS_DHT = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
     CHUNKS_ETA = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
+elif PARENT_MODEL == "ACCESS-OM2-01":
+    # 0.1° grid: 3600x2700, st_ocean=75 — match native on-disk chunks:
+    # 2D: 720x540 ; 3D: 180x135x19 (as inspected via `ncdump -hs` on cycle4)
+    CHUNKS_2D = {"xt_ocean": 720, "yt_ocean": 540}
+    CHUNKS_3D_T = {"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
+    CHUNKS_TX = {"time": -1, "xu_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
+    CHUNKS_TY = {"time": -1, "xt_ocean": 180, "yu_ocean": 135, "st_ocean": 19}
+    CHUNKS_TX_GM = CHUNKS_TX
+    CHUNKS_TY_GM = CHUNKS_TY
+    CHUNKS_MLD = {"time": -1, "xt_ocean": 720, "yt_ocean": 540}
+    CHUNKS_DHT = {"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
+    CHUNKS_ETA = {"time": -1, "xt_ocean": 720, "yt_ocean": 540}
 else:
     print(f"ERROR: Unknown PARENT_MODEL '{PARENT_MODEL}'; cannot determine chunk sizes", file=sys.stderr)
     sys.exit(1)
@@ -142,13 +154,18 @@ def weighted_yearly_mean(ds):
 
 
 def process_variable(searched_cat, varname, chunks, frequency="1mon",
-                     is_time_invariant=False):
+                     is_time_invariant=False, save_as=None):
     """
     Load a variable, compute monthly climatology and yearly average, and save.
 
     For time-invariant variables (frequency='fx'), just save the raw field.
     Always overwrites existing files to avoid stale/corrupt data from failed runs.
+
+    `save_as` overrides the on-disk name (filename prefix and the variable name
+    inside the NetCDF). Used to alias e.g. `sea_level` → `eta_t` when the
+    source experiment does not save `eta_t` directly.
     """
+    save_name = save_as or varname
     print(f"\n{'='*60}")
     print(f"Processing: {varname}")
     print(f"{'='*60}")
@@ -198,20 +215,20 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
     print(f"\n{varname} (sliced): {da}")
 
     # Monthly climatology → monthly/
-    monthly_file = monthly_dir / f"{varname}_monthly.nc"
+    monthly_file = monthly_dir / f"{save_name}_monthly.nc"
     print(f"Computing monthly climatology for {varname}")
     monthly = month_climatology(da)
     print(f"Saving monthly climatology to: {monthly_file}")
-    monthly.to_dataset(name=varname).to_netcdf(str(monthly_file), compute=True)
+    monthly.to_dataset(name=save_name).to_netcdf(str(monthly_file), compute=True)
 
     # Yearly (time-window) average → yearly/
-    yearly_file = yearly_dir / f"{varname}_yearly.nc"
+    yearly_file = yearly_dir / f"{save_name}_yearly.nc"
     print(f"Computing yearly average for {varname}")
     yearly = weighted_yearly_mean(da)
     print(f"Saving yearly average to: {yearly_file}")
-    yearly.to_dataset(name=varname).to_netcdf(str(yearly_file), compute=True)
+    yearly.to_dataset(name=save_name).to_netcdf(str(yearly_file), compute=True)
 
-    print(f"Done: {varname}")
+    print(f"Done: {varname}" + (f" (saved as {save_name})" if save_as else ""))
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -233,8 +250,29 @@ if __name__ == "__main__":
     cat = catalogs[EXPERIMENT]
     print(cat)
 
+    # Detect the eta source: some experiments (e.g. 01deg_jra55v140_iaf cycles)
+    # save `sea_level` = eta_t + patm/(rho0*g) instead of `eta_t`. We fall back
+    # to sea_level and save it *as* eta_t — naive substitution; the error is the
+    # inverse-barometer (IB) correction, whose spatial anomaly after monthly
+    # averaging is ~±5 cm and seasonal cycle ~±2 cm, well below the ~70 cm std
+    # of SSH. Small enough for age-tracer / transport / w-diagnostic work.
+    # TODO: for an exact conversion, subtract the monthly climatology of JRA55
+    # `psl` (at /g/data/qv56/replicas/input4MIPs/CMIP6/OMIP/MRI/MRI-JRA55-do-1-4-0/
+    # atmos/3hr/psl/) regridded onto the ocean T grid and divided by rho0*g.
+    cat_vars = {v for arr in cat.df["variable"] for v in arr}
+    if "eta_t" in cat_vars:
+        eta_source = "eta_t"
+    elif "sea_level" in cat_vars:
+        eta_source = "sea_level"
+        print(f"WARNING: eta_t not in catalog for {EXPERIMENT}; "
+              f"substituting sea_level (no IB correction).")
+    else:
+        print(f"ERROR: neither eta_t nor sea_level in catalog for {EXPERIMENT}",
+              file=sys.stderr)
+        sys.exit(1)
+
     # Search for all required variables
-    all_variables = ["tx_trans", "ty_trans", "mld", "area_t", "eta_t", "temp", "salt"]
+    all_variables = ["tx_trans", "ty_trans", "mld", "area_t", eta_source, "temp", "salt"]
     if BUILD_TOTAL_TRANSPORT:
         all_variables += ["tx_trans_gm", "ty_trans_gm"]
     if DHT_CHECK:
@@ -269,7 +307,7 @@ if __name__ == "__main__":
 
     # 2D / mixed-layer fields
     process_variable(searched_cat, "mld", CHUNKS_MLD)
-    process_variable(searched_cat, "eta_t", CHUNKS_ETA)
+    process_variable(searched_cat, eta_source, CHUNKS_ETA, save_as="eta_t")
 
     # dht — only when DHT_CHECK is enabled (sanity check in prep_velocities.jl)
     if DHT_CHECK:
