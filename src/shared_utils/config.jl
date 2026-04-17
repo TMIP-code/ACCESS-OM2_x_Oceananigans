@@ -91,7 +91,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     )
     experiment = get(ENV, "EXPERIMENT", get(default_experiments, parentmodel, ""))
     isempty(experiment) && error("No default EXPERIMENT for $parentmodel; set EXPERIMENT env var")
-    time_window = get(ENV, "TIME_WINDOW", "1960-1979")
+    time_window = get(ENV, "TIME_WINDOW", "1968-1977")
 
     # Centralized path construction
     experiment_dir = normpath(joinpath(@__DIR__, "..", "..", "preprocessed_inputs", parentmodel, experiment))

@@ -23,7 +23,7 @@ if [ -z "${EXPERIMENT:-}" ]; then
         *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
     esac
 fi
-TIME_WINDOW=${TIME_WINDOW:-1960-1979}
+TIME_WINDOW=${TIME_WINDOW:-1968-1977}
 export PARENT_MODEL EXPERIMENT TIME_WINDOW
 
 echo "PARENT_MODEL=$PARENT_MODEL"

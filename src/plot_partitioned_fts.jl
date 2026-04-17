@@ -14,7 +14,7 @@ against the corresponding slice of the serial parent.
 Environment variables:
   PARENT_MODEL     – default: ACCESS-OM2-1
   EXPERIMENT       – default: from env_defaults
-  TIME_WINDOW      – default: 1960-1979
+  TIME_WINDOW      – default: 1968-1977
   PARTITION        – e.g. "1x2", "2x2" (REQUIRED)
   VELOCITY_SOURCE  – cgridtransports | totaltransport | bgridvelocities (default cgridtransports)
 

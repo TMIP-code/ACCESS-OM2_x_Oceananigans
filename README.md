@@ -197,7 +197,7 @@ Simulations are configured via environment variables.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EXPERIMENT` | `1deg_jra55_iaf_omip2_cycle6` (OM2-1) or `025deg_jra55_iaf_omip2_cycle6` (OM2-025) | Intake catalog key for ACCESS-OM2 experiment |
-| `TIME_WINDOW` | `1960-1979` | Year range `YYYY-YYYY` or single year `YYYY` |
+| `TIME_WINDOW` | `1968-1977` | Year range `YYYY-YYYY` or single year `YYYY` |
 
 These determine the input data source and the directory structure for preprocessed inputs, outputs, and logs.
 

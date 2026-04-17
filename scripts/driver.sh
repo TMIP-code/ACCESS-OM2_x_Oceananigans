@@ -62,7 +62,7 @@ if [ -z "${EXPERIMENT:-}" ]; then
         *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
     esac
 fi
-TIME_WINDOW=${TIME_WINDOW:-1960-1979}
+TIME_WINDOW=${TIME_WINDOW:-1968-1977}
 export EXPERIMENT TIME_WINDOW
 
 # Source model config for MODEL_SHORT and walltimes
@@ -93,7 +93,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  PARENT_MODEL  Model to run (default: ACCESS-OM2-1)"
     echo "  EXPERIMENT    Intake catalog key (default: based on PARENT_MODEL)"
-    echo "  TIME_WINDOW   Year range YYYY-YYYY or single year (default: 1960-1979)"
+    echo "  TIME_WINDOW   Year range YYYY-YYYY or single year (default: 1968-1977)"
     echo "  TM_SOURCE     const (default), avg, or both"
     echo ""
     echo "  Steps:"

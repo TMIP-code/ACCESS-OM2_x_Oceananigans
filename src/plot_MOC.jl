@@ -47,7 +47,7 @@ EXPERIMENT = get(
     ENV, "EXPERIMENT",
     PARENT_MODEL == "ACCESS-OM2-1" ? "1deg_jra55_iaf_omip2_cycle6" : "025deg_jra55_iaf_omip2_cycle6"
 )
-TIME_WINDOW = get(ENV, "TIME_WINDOW", "1960-1979")
+TIME_WINDOW = get(ENV, "TIME_WINDOW", "1968-1977")
 
 const ρ₀ = 1035.0  # reference density (kg/m³)
 

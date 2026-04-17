@@ -12,7 +12,7 @@ if [ -z "${EXPERIMENT:-}" ]; then
         *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
     esac
 fi
-TIME_WINDOW=${TIME_WINDOW:-1960-1979}
+TIME_WINDOW=${TIME_WINDOW:-1968-1977}
 export EXPERIMENT TIME_WINDOW
 
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}    # bgridvelocities | cgridtransports | totaltransport

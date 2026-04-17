@@ -241,7 +241,7 @@ The unified `scripts/driver.sh` is the single interface for submitting jobs.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `EXPERIMENT` | Intake catalog key for ACCESS-OM2 experiment | `1deg_jra55_iaf_omip2_cycle6` (OM2-1) or `025deg_jra55_iaf_omip2_cycle6` (OM2-025) |
-| `TIME_WINDOW` | Year range `YYYY-YYYY` or single year `YYYY` | `1960-1979` |
+| `TIME_WINDOW` | Year range `YYYY-YYYY` or single year `YYYY` | `1968-1977` |
 
 ### Model config variables
 

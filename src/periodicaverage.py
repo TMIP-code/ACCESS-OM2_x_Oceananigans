@@ -5,7 +5,7 @@ from ACCESS-OM2 output for a given experiment and time window.
 Environment variables:
     PARENT_MODEL   — ACCESS-OM2-1 or ACCESS-OM2-025 (default: ACCESS-OM2-1)
     EXPERIMENT     — intake catalog key (e.g. 1deg_jra55_iaf_omip2_cycle6)
-    TIME_WINDOW    — year range "YYYY-YYYY" or single year "YYYY" (default: 1960-1979)
+    TIME_WINDOW    — year range "YYYY-YYYY" or single year "YYYY" (default: 1968-1977)
 
 Output:
     preprocessed_inputs/{PARENT_MODEL}/{EXPERIMENT}/{TIME_WINDOW}/monthly/*_monthly.nc
@@ -38,7 +38,7 @@ if not EXPERIMENT:
     print(f"ERROR: No default EXPERIMENT for {PARENT_MODEL}; set EXPERIMENT env var", file=sys.stderr)
     sys.exit(1)
 
-TIME_WINDOW = os.environ.get("TIME_WINDOW", "1960-1979")
+TIME_WINDOW = os.environ.get("TIME_WINDOW", "1968-1977")
 
 # Parse TIME_WINDOW into start/end year strings for xarray slicing
 if "-" in TIME_WINDOW:
