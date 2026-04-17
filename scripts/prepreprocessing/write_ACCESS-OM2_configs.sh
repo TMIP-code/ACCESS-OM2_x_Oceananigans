@@ -10,4 +10,7 @@ cd $repo_root
 module purge
 module use /g/data/xp65/public/modules
 module load conda/analysis3
+# Script is serial; cap polars/rayon thread pools so it runs under login-node limits
+export POLARS_MAX_THREADS=1
+export RAYON_NUM_THREADS=1
 python3 src/write_ACCESS-OM2_configs.py
