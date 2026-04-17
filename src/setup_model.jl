@@ -99,13 +99,6 @@ Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
 flush(stdout); flush(stderr)
 
-# Build a non-distributed CPU grid for loading global data from JLD2 files
-if arch isa Distributed
-    @info "Building CPU grid for distributed FTS loading"
-    flush(stdout); flush(stderr)
-    cpu_grid = load_tripolar_grid(grid_file, CPU())
-end
-
 ################################################################################
 # Load velocities from disk
 ################################################################################
@@ -127,20 +120,19 @@ w_file = joinpath(monthly_dir, "w_from_$(vs_prefix)_monthly.jld2")
 backend = InMemory()
 time_indexing = Cyclical(1year)
 
-# Check for pre-partitioned FTS files (written by partition_data.jl)
-partition_dir = nothing
+# Distributed runs require pre-partitioned FTS files (written by partition_data.jl)
+fts_kw = (;)
 if arch isa Distributed
     px = parse(Int, get(ENV, "PARTITION_X", "1"))
     py = parse(Int, get(ENV, "PARTITION_Y", "1"))
-    pd = joinpath(experiment_dir, time_window, "partitions", "$(px)x$(py)")
-    if isdir(pd) && !isempty(readdir(pd))
-        partition_dir = pd
-        @info "Using pre-partitioned FTS data from $partition_dir"
-    else
-        @info "No pre-partitioned data at $pd — using runtime set! partitioning"
-    end
+    partition_dir = joinpath(experiment_dir, time_window, "partitions", "$(px)x$(py)")
+    (isdir(partition_dir) && !isempty(readdir(partition_dir))) || error(
+        "Pre-partitioned FTS directory missing or empty: $partition_dir. " *
+            "Run the `partition` step (e.g., JOB_CHAIN=partition-run1yrfast) first."
+    )
+    @info "Using pre-partitioned FTS data from $partition_dir"
+    fts_kw = (; partition_dir)
 end
-fts_kw = arch isa Distributed ? (; cpu_grid, partition_dir) : (;)
 
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 u_ts = load_fts(arch, u_file, "u", grid; backend, time_indexing, fts_kw...)

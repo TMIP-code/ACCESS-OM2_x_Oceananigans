@@ -6,7 +6,7 @@
 ################################################################################
 
 using Oceananigans.DistributedComputations: Distributed
-using Oceananigans.Fields: location, instantiated_location
+using Oceananigans.Fields: location
 using Oceananigans.Grids: on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
 using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
@@ -19,49 +19,25 @@ using Oceananigans.Utils: worksize
 ################################################################################
 
 """
-    load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid=nothing)
+    load_fts(arch, file, name, grid; backend, time_indexing)
 
-Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, loading
-directly fails because the `FieldTimeSeries` constructor passes global-sized file data to
-`offset_data`, which expects local-sized data. Workaround: load on a serial CPU grid first,
-then partition to distributed ranks via `set!`.
+Load a `FieldTimeSeries` from a JLD2 file. For `Distributed` architectures, a
+`partition_dir` containing pre-partitioned per-rank files is required — run the
+`partition` step first if it is missing.
 """
-function load_fts(arch, file, name, grid; backend, time_indexing, cpu_grid = nothing, partition_dir = nothing)
+function load_fts(arch, file, name, grid; backend, time_indexing)
     return FieldTimeSeries(file, name; architecture = arch, grid, backend, time_indexing)
 end
 
-function load_fts(arch::Distributed, file, name, grid; cpu_grid, backend, time_indexing, partition_dir = nothing)
-    # Try loading from pre-partitioned per-rank file first
-    if partition_dir !== nothing
-        # Derive rank file name from the global file name
-        # e.g., "u_from_mass_transport_monthly.jld2" → "u_from_mass_transport_monthly_rank0.jld2"
-        basename_global = basename(file)
-        basename_rank = replace(basename_global, ".jld2" => "_rank$(arch.local_rank).jld2")
-        rank_file = joinpath(partition_dir, basename_rank)
-        if isfile(rank_file)
-            @info "Loading pre-partitioned FTS '$name' from $rank_file"
-            return load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
-        else
-            @warn "Rank file not found: $rank_file — falling back to global loading"
-        end
-    end
-
-    # Fallback: load global FTS on CPU, partition via set!, fill halos
-    @info "Loading FTS '$name' via CPU grid for distributed partitioning"
-    cpu_fts = FieldTimeSeries(
-        file, name; architecture = CPU(), grid = cpu_grid,
-        backend = InMemory(), time_indexing,
+function load_fts(arch::Distributed, file, name, grid; partition_dir, backend, time_indexing)
+    basename_rank = replace(basename(file), ".jld2" => "_rank$(arch.local_rank).jld2")
+    rank_file = joinpath(partition_dir, basename_rank)
+    isfile(rank_file) || error(
+        "Pre-partitioned rank file not found: $rank_file. " *
+            "Run the `partition` step (JOB_CHAIN=partition-...) to build per-rank FTS files."
     )
-    dist_fts = FieldTimeSeries(
-        instantiated_location(cpu_fts), grid, cpu_fts.times;
-        backend = InMemory(), time_indexing,
-        boundary_conditions = cpu_fts.boundary_conditions,
-    )
-    for n in eachindex(cpu_fts.times)
-        set!(dist_fts[n], Array(interior(cpu_fts[n])))
-    end
-    fill_halo_regions!(dist_fts)
-    return dist_fts
+    @info "Loading pre-partitioned FTS '$name' from $rank_file"
+    return load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
 end
 
 """
