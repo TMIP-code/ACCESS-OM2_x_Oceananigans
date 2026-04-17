@@ -200,28 +200,13 @@ MPI.Barrier(MPI.COMM_WORLD)
 ################################################################################
 
 # Determine which FTS files to partition based on VELOCITY_SOURCE
-if VELOCITY_SOURCE == "totaltransport"
-    fts_fields = [
-        ("u_from_total_transport", "u"),
-        ("v_from_total_transport", "v"),
-        ("w_from_total_transport", "w"),
-        ("eta", "η"),
-    ]
-elseif VELOCITY_SOURCE == "cgridtransports"
-    fts_fields = [
-        ("u_from_mass_transport", "u"),
-        ("v_from_mass_transport", "v"),
-        ("w_from_mass_transport", "w"),
-        ("eta", "η"),
-    ]
-else
-    fts_fields = [
-        ("u_interpolated", "u"),
-        ("v_interpolated", "v"),
-        ("w", "w"),
-        ("eta", "η"),
-    ]
-end
+vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+fts_fields = [
+    ("u_from_$(vs_prefix)", "u"),
+    ("v_from_$(vs_prefix)", "v"),
+    ("w_from_$(vs_prefix)", "w"),
+    ("eta", "η"),
+]
 
 stop_time = 1year  # for Cyclical time indexing
 

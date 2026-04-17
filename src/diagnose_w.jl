@@ -71,14 +71,9 @@ grid = load_tripolar_grid(grid_file, arch)
 backend = InMemory()
 time_indexing = Cyclical(stop_time)
 
-if VELOCITY_SOURCE ∈ ("cgridtransports", "totaltransport")
-    vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
-    u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
-elseif VELOCITY_SOURCE == "bgridvelocities"
-    u_file = joinpath(monthly_dir, "u_interpolated_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_interpolated_monthly.jld2")
-end
+vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
+v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
 η_file = joinpath(monthly_dir, "eta_monthly.jld2")
 
 @info "Loading u FTS from $u_file"

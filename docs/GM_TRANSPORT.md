@@ -17,7 +17,7 @@ Two environment variables control GM behaviour:
 
 | Variable | Valid values | Default | Description |
 |----------|-------------|---------|-------------|
-| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities`, `totaltransport` | `cgridtransports` | Velocity source; `totaltransport` loads resolved + GM combined velocities |
+| `VELOCITY_SOURCE` | `cgridtransports`, `totaltransport` | `cgridtransports` | Velocity source. `totaltransport` also gates preprocessing of `tx/ty_trans_gm` in `periodicaverage.py` and of `u/v/w_from_total_transport_*.jld2` in `prep_velocities.jl`. |
 | `GM_REDI` | `no`, `diff`, `adv` (legacy: `yes` = `diff`) | `no` | Online Redi-GM parameterization |
 
 The `MODEL_CONFIG` directory tag is extended automatically: `_GMREDI` for `diff`, `_GMREDIadv` for `adv`.

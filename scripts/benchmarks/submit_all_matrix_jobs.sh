@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# velocity_sources=(bgridvelocities cgridtransports)
+# velocity_sources=(cgridtransports totaltransports)
 velocity_sources=(cgridtransports)
 # w_formulations=(wdiagnosed wprescribed)
 w_formulations=(wdiagnosed)

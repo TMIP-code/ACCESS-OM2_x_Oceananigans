@@ -15,7 +15,7 @@ fi
 TIME_WINDOW=${TIME_WINDOW:-1968-1977}
 export EXPERIMENT TIME_WINDOW
 
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}    # bgridvelocities | cgridtransports | totaltransport
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}     # cgridtransports | totaltransport
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}              # wdiagnosed | wprescribed
 PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (only when W_FORMULATION=wprescribed)
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5

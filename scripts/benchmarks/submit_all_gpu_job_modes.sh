@@ -30,7 +30,7 @@ NGPUS=1; GPU_NCPUS=12; GPU_MEM="${MEM_PER_GPU}GB"
 echo "PARENT_MODEL=$PARENT_MODEL (MODEL_SHORT=$MODEL_SHORT)"
 echo "GPU_QUEUE=$GPU_QUEUE (ngpus=$NGPUS, ncpus=$GPU_NCPUS, mem=$GPU_MEM)"
 
-# velocity_sources=(bgridvelocities cgridtransports)
+# velocity_sources=(cgridtransports totaltransports)
 velocity_sources=(cgridtransports)
 # w_formulations=(wdiagnosed wprescribed)
 w_formulations=(wdiagnosed)

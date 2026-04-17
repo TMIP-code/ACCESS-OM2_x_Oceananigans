@@ -12,7 +12,7 @@ script does that according to its own needs.
 
 Environment variables:
   PARENT_MODEL     – model resolution tag  (default: ACCESS-OM2-1)
-  VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
+  VELOCITY_SOURCE  – cgridtransports | totaltransport (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
@@ -113,28 +113,16 @@ end
 @info "Loading velocities from disk"
 flush(stdout); flush(stderr)
 
-if VELOCITY_SOURCE ∈ ("cgridtransports", "totaltransport")
-    flush(stdout); flush(stderr)
-    vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
-    u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
-    w_file = joinpath(monthly_dir, "w_from_$(vs_prefix)_monthly.jld2")
-    @info """Loading velocities from MOM $(vs_prefix) outputs files:
-    - $(u_file)
-    - $(v_file)
-    - $(w_file)
-    """
-elseif VELOCITY_SOURCE == "bgridvelocities"
-    flush(stdout); flush(stderr)
-    u_file = joinpath(monthly_dir, "u_interpolated_monthly.jld2")
-    v_file = joinpath(monthly_dir, "v_interpolated_monthly.jld2")
-    w_file = joinpath(monthly_dir, "w_monthly.jld2")
-    @info """Loading velocities from MOM velocity outputs files:
-    - $(u_file)
-    - $(v_file)
-    - $(w_file)
-    """
-end
+flush(stdout); flush(stderr)
+vs_prefix = VELOCITY_SOURCE == "totaltransport" ? "total_transport" : "mass_transport"
+u_file = joinpath(monthly_dir, "u_from_$(vs_prefix)_monthly.jld2")
+v_file = joinpath(monthly_dir, "v_from_$(vs_prefix)_monthly.jld2")
+w_file = joinpath(monthly_dir, "w_from_$(vs_prefix)_monthly.jld2")
+@info """Loading velocities from MOM $(vs_prefix) outputs files:
+- $(u_file)
+- $(v_file)
+- $(w_file)
+"""
 
 backend = InMemory()
 time_indexing = Cyclical(1year)

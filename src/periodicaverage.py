@@ -40,15 +40,25 @@ if not EXPERIMENT:
 
 TIME_WINDOW = os.environ.get("TIME_WINDOW", "1968-1977")
 
+VELOCITY_SOURCE = os.environ.get("VELOCITY_SOURCE", "cgridtransports")
+if VELOCITY_SOURCE not in ("cgridtransports", "totaltransport"):
+    print(f"ERROR: VELOCITY_SOURCE must be cgridtransports or totaltransport (got: {VELOCITY_SOURCE})", file=sys.stderr)
+    sys.exit(1)
+BUILD_TOTAL_TRANSPORT = VELOCITY_SOURCE == "totaltransport"
+
+DHT_CHECK = os.environ.get("DHT_CHECK", "no").lower() in ("yes", "true", "1")
+
 # Parse TIME_WINDOW into start/end year strings for xarray slicing
 if "-" in TIME_WINDOW:
     year_start_str, year_end_str = TIME_WINDOW.split("-", 1)
 else:
     year_start_str = year_end_str = TIME_WINDOW
 
-print(f"PARENT_MODEL = {PARENT_MODEL}")
-print(f"EXPERIMENT   = {EXPERIMENT}")
-print(f"TIME_WINDOW  = {TIME_WINDOW} (slice {year_start_str}:{year_end_str})")
+print(f"PARENT_MODEL        = {PARENT_MODEL}")
+print(f"EXPERIMENT          = {EXPERIMENT}")
+print(f"TIME_WINDOW         = {TIME_WINDOW} (slice {year_start_str}:{year_end_str})")
+print(f"VELOCITY_SOURCE     = {VELOCITY_SOURCE} (BUILD_TOTAL_TRANSPORT={BUILD_TOTAL_TRANSPORT})")
+print(f"DHT_CHECK           = {DHT_CHECK}")
 
 # ── Output directories ─────────────────────────────────────────────────────
 
@@ -71,34 +81,24 @@ if PARENT_MODEL == "ACCESS-OM2-1":
     # 1° grid: 360x300
     CHUNKS_2D = {"xt_ocean": 360, "yt_ocean": 300}
     CHUNKS_3D_T = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_3D_U = {"time": -1, "xu_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_3D_V = {"time": -1, "xt_ocean": 180, "yu_ocean": 150, "st_ocean": 25}
-    CHUNKS_3D_W = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
     CHUNKS_TX = {"time": -1, "xu_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
     CHUNKS_TY = {"time": -1, "xt_ocean": 180, "yu_ocean": 150, "st_ocean": 25}
-    CHUNKS_TX_GM = {"time": -1, "xu_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_TY_GM = {"time": -1, "xt_ocean": 180, "yu_ocean": 150, "st_ocean": 25}
+    CHUNKS_TX_GM = CHUNKS_TX
+    CHUNKS_TY_GM = CHUNKS_TY
     CHUNKS_MLD = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
     CHUNKS_DHT = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
     CHUNKS_ETA = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
-    CHUNKS_TY_RHO = {"time": -1, "potrho": 27, "grid_xt_ocean": 120, "grid_yu_ocean": 100}
-    CHUNKS_TY_RHO_GM = {"time": -1, "potrho": 27, "grid_xt_ocean": 120, "grid_yu_ocean": 100}
 elif PARENT_MODEL == "ACCESS-OM2-025":
     # 0.25° grid: 1440x1080
     CHUNKS_2D = {"xt_ocean": 240, "yt_ocean": 216}
     CHUNKS_3D_T = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_3D_U = {"time": -1, "xu_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_3D_V = {"time": -1, "xt_ocean": 120, "yu_ocean": 108, "st_ocean": 25}
-    CHUNKS_3D_W = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
     CHUNKS_TX = {"time": -1, "xu_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
     CHUNKS_TY = {"time": -1, "xt_ocean": 120, "yu_ocean": 108, "st_ocean": 25}
-    CHUNKS_TX_GM = {"time": -1, "xu_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_TY_GM = {"time": -1, "xt_ocean": 120, "yu_ocean": 108, "st_ocean": 25}
+    CHUNKS_TX_GM = CHUNKS_TX
+    CHUNKS_TY_GM = CHUNKS_TY
     CHUNKS_MLD = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
     CHUNKS_DHT = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
     CHUNKS_ETA = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
-    CHUNKS_TY_RHO = {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108}
-    CHUNKS_TY_RHO_GM = {"time": -1, "potrho": 40, "grid_xt_ocean": 120, "grid_yu_ocean": 108}
 else:
     print(f"ERROR: Unknown PARENT_MODEL '{PARENT_MODEL}'; cannot determine chunk sizes", file=sys.stderr)
     sys.exit(1)
@@ -234,12 +234,11 @@ if __name__ == "__main__":
     print(cat)
 
     # Search for all required variables
-    all_variables = [
-        "u", "v", "wt", "tx_trans", "ty_trans", "tx_trans_gm", "ty_trans_gm",
-        "ty_trans_rho", "ty_trans_rho_gm",
-        "mld", "area_t", "dht", "eta_t",
-        "temp", "salt",
-    ]
+    all_variables = ["tx_trans", "ty_trans", "mld", "area_t", "eta_t", "temp", "salt"]
+    if BUILD_TOTAL_TRANSPORT:
+        all_variables += ["tx_trans_gm", "ty_trans_gm"]
+    if DHT_CHECK:
+        all_variables += ["dht"]
     searched_cat = cat.search(variable=all_variables)
     print(searched_cat)
 
@@ -259,25 +258,22 @@ if __name__ == "__main__":
     # Time-invariant field
     process_variable(searched_cat, "area_t", CHUNKS_2D, frequency="fx", is_time_invariant=True)
 
-    # 3D velocity fields
-    process_variable(searched_cat, "u", CHUNKS_3D_U)
-    process_variable(searched_cat, "v", CHUNKS_3D_V)
-    process_variable(searched_cat, "wt", CHUNKS_3D_W)
-
-    # Mass transports
+    # Mass transports (resolved)
     process_variable(searched_cat, "tx_trans", CHUNKS_TX)
     process_variable(searched_cat, "ty_trans", CHUNKS_TY)
-    process_variable(searched_cat, "tx_trans_gm", CHUNKS_TX_GM)
-    process_variable(searched_cat, "ty_trans_gm", CHUNKS_TY_GM)
 
-    # Density-space mass transports (for density-space MOC)
-    process_variable(searched_cat, "ty_trans_rho", CHUNKS_TY_RHO)
-    process_variable(searched_cat, "ty_trans_rho_gm", CHUNKS_TY_RHO_GM)
+    # GM mass transports — only when total transport is requested
+    if BUILD_TOTAL_TRANSPORT:
+        process_variable(searched_cat, "tx_trans_gm", CHUNKS_TX_GM)
+        process_variable(searched_cat, "ty_trans_gm", CHUNKS_TY_GM)
 
     # 2D / mixed-layer fields
     process_variable(searched_cat, "mld", CHUNKS_MLD)
-    process_variable(searched_cat, "dht", CHUNKS_DHT)
     process_variable(searched_cat, "eta_t", CHUNKS_ETA)
+
+    # dht — only when DHT_CHECK is enabled (sanity check in prep_velocities.jl)
+    if DHT_CHECK:
+        process_variable(searched_cat, "dht", CHUNKS_DHT)
 
     # Temperature and salinity (T-grid, 3D) for GM-Redi
     process_variable(searched_cat, "temp", CHUNKS_3D_T)

@@ -249,7 +249,7 @@ The 4 core config env vars are parsed by `parse_config_env()` in `shared_functio
 
 | Variable | Valid values | Default |
 |----------|-------------|---------|
-| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities` | `cgridtransports` |
+| `VELOCITY_SOURCE` | `cgridtransports`, `totaltransport` | `cgridtransports` |
 | `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` |
 | `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` |
 | `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` |

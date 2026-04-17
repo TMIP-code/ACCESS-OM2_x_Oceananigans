@@ -16,7 +16,7 @@ Environment variables:
   GPU_TAG          – partition tag to compare against serial (e.g., "2x2")
   DURATION_TAG     – output tag (default: "1year", can be "diag" for 10-step diagnostic)
   PARENT_MODEL     – model resolution tag  (default: ACCESS-OM2-1)
-  VELOCITY_SOURCE  – cgridtransports | bgridvelocities  (default: cgridtransports)
+  VELOCITY_SOURCE  – cgridtransports | totaltransport (default: cgridtransports)
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)

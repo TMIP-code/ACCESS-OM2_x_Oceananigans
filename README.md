@@ -207,7 +207,7 @@ The 4 core config variables determine the model setup and output directory paths
 
 | Variable | Valid values | Default | Description |
 |----------|-------------|---------|-------------|
-| `VELOCITY_SOURCE` | `cgridtransports`, `bgridvelocities`, `totaltransport` | `cgridtransports` | Source of prescribed velocities (`totaltransport` = resolved + GM from parent) |
+| `VELOCITY_SOURCE` | `cgridtransports`, `totaltransport` | `cgridtransports` | Source of prescribed velocities (`totaltransport` = resolved + GM from parent) |
 | `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` | Vertical velocity treatment |
 | `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` | Tracer advection scheme |
 | `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` | Time-stepping scheme |

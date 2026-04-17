@@ -174,31 +174,6 @@ function fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_data, ty_data)
     return fill_halo_regions!(ty)
 end
 
-"""
-    fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
-
-Place MOM B-grid velocities onto Oceananigans (Face,Face) fields.
-Shifts +1 in both i (wrapping) and j; flips vertical.
-Fills halo regions afterwards.
-"""
-function fill_Bgrid_velocity_from_MOM_output!(u, v, grid, u_data, v_data)
-    set_from_MOM!(u, grid, u_data; di = 1, dj = 1)
-    set_from_MOM!(v, grid, v_data; di = 1, dj = 1)
-    fill_halo_regions!(u)
-    return fill_halo_regions!(v)
-end
-
-"""
-    fill_w_from_MOM_output!(w, grid, w_data)
-
-Place MOM w output onto an Oceananigans (Center,Center,Face) field.
-Flips vertical only. Fills halo regions afterwards.
-"""
-function fill_w_from_MOM_output!(w, grid, w_data)
-    set_from_MOM!(w, grid, w_data)
-    return fill_halo_regions!(w)
-end
-
 @kernel function _compute_tz_from_continuity!(tz, grid, tx, ty, Nz)
     i, j = @index(Global, NTuple)
     @inbounds begin

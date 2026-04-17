@@ -117,15 +117,25 @@ end
 
 # ── Load transport data ───────────────────────────────────────────────────
 
-@info "Loading ty_trans and ty_trans_gm data"
+@info "Loading ty_trans data"
 
-# Resolved transport: ty_trans
+# Resolved transport: ty_trans (required)
 ty_ds = open_dataset(joinpath(monthly_dir, "ty_trans_monthly.nc"))
 ty_yearly_ds = open_dataset(joinpath(yearly_dir, "ty_trans_yearly.nc"))
 
-# GM bolus transport: ty_trans_gm
-ty_gm_ds = open_dataset(joinpath(monthly_dir, "ty_trans_gm_monthly.nc"))
-ty_gm_yearly_ds = open_dataset(joinpath(yearly_dir, "ty_trans_gm_yearly.nc"))
+# GM bolus transport: ty_trans_gm (optional)
+ty_gm_monthly_path = joinpath(monthly_dir, "ty_trans_gm_monthly.nc")
+ty_gm_yearly_path = joinpath(yearly_dir, "ty_trans_gm_yearly.nc")
+has_gm = isfile(ty_gm_monthly_path) && isfile(ty_gm_yearly_path)
+if has_gm
+    @info "Loading ty_trans_gm data"
+    ty_gm_ds = open_dataset(ty_gm_monthly_path)
+    ty_gm_yearly_ds = open_dataset(ty_gm_yearly_path)
+else
+    @warn "ty_trans_gm NetCDFs not found — skipping GM and total MOC plots.
+    Missing: $ty_gm_monthly_path and/or $ty_gm_yearly_path.
+    Rerun preprocessing with VELOCITY_SOURCE=totaltransport to produce them."
+end
 
 # Pre-allocate fields for placing MOM transports on the grid
 north_t = FPivotZipperBoundaryCondition(-1)
@@ -133,7 +143,7 @@ tx_bcs = FieldBoundaryConditions(grid, (Face(), Center(), Center()); north = nor
 ty_bcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = north_t)
 tx = XFaceField(grid; boundary_conditions = tx_bcs)
 ty = YFaceField(grid; boundary_conditions = ty_bcs)
-ty_gm = YFaceField(grid; boundary_conditions = ty_bcs)
+has_gm && (ty_gm = YFaceField(grid; boundary_conditions = ty_bcs))
 
 # Dummy tx_data (zeros) — we only need ty but the kernel handles both
 tx_zeros = zeros(Nx, Ny, Nz)
@@ -336,11 +346,13 @@ map!(x -> isnan(x) ? zero(x) : x, ty_yearly_data, ty_yearly_data)
 fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_zeros, ty_yearly_data)
 mask_immersed_field!(ty, 0)
 
-@info "Placing yearly ty_trans_gm on grid"
-ty_gm_yearly_data = readcubedata(ty_gm_yearly_ds.ty_trans_gm).data
-map!(x -> isnan(x) ? zero(x) : x, ty_gm_yearly_data, ty_gm_yearly_data)
-fill_Cgrid_transport_from_MOM_output!(tx, ty_gm, grid, tx_zeros, ty_gm_yearly_data)
-mask_immersed_field!(ty_gm, 0)
+if has_gm
+    @info "Placing yearly ty_trans_gm on grid"
+    ty_gm_yearly_data = readcubedata(ty_gm_yearly_ds.ty_trans_gm).data
+    map!(x -> isnan(x) ? zero(x) : x, ty_gm_yearly_data, ty_gm_yearly_data)
+    fill_Cgrid_transport_from_MOM_output!(tx, ty_gm, grid, tx_zeros, ty_gm_yearly_data)
+    mask_immersed_field!(ty_gm, 0)
+end
 
 # ── Static PNGs: resolved and total MOC ──────────────────────────────────
 
@@ -366,73 +378,77 @@ outputfile = joinpath(outputdir, "MOC_resolved_mean_oce.png")
 @info "Saving $outputfile"
 save(outputfile, fig_res_oce; px_per_unit = 3)
 
-# GM MOC (ty_trans_gm only)
-@info "Computing GM MOC"
-ψ_gm = Dict(bk => compute_moc_gm(ty_gm, basins[bk]) for bk in basin_keys)
+if has_gm
+    # GM MOC (ty_trans_gm only)
+    @info "Computing GM MOC"
+    global ψ_gm = Dict(bk => compute_moc_gm(ty_gm, basins[bk]) for bk in basin_keys)
 
-fig_gm, _, _ = build_moc_figure(ψ_gm, "$PARENT_MODEL $TIME_WINDOW_LABEL GM MOC")
-outputfile = joinpath(outputdir, "MOC_gm_mean.png")
-@info "Saving $outputfile"
-save(outputfile, fig_gm; px_per_unit = 3)
+    fig_gm, _, _ = build_moc_figure(ψ_gm, "$PARENT_MODEL $TIME_WINDOW_LABEL GM MOC")
+    outputfile = joinpath(outputdir, "MOC_gm_mean.png")
+    @info "Saving $outputfile"
+    save(outputfile, fig_gm; px_per_unit = 3)
 
-# Total MOC (resolved + GM)
-@info "Computing total MOC (resolved + GM)"
-ψ_total = Dict(bk => ψ_resolved[bk] .+ ψ_gm[bk] for bk in basin_keys)
+    # Total MOC (resolved + GM)
+    @info "Computing total MOC (resolved + GM)"
+    global ψ_total = Dict(bk => ψ_resolved[bk] .+ ψ_gm[bk] for bk in basin_keys)
 
-fig_tot, title_obs, ψ_obs = build_moc_figure(ψ_total, "$PARENT_MODEL $TIME_WINDOW_LABEL Total MOC (resolved + GM)")
-outputfile = joinpath(outputdir, "MOC_total_mean.png")
-@info "Saving $outputfile"
-save(outputfile, fig_tot; px_per_unit = 3)
-
-# ── Animation: monthly total MOC cycle ───────────────────────────────────
-
-@info "Creating monthly total MOC animation"
-
-function load_monthly_ty!(ty, tx, grid, ty_ds, tx_zeros, m, varname)
-    ty_data = readcubedata(getproperty(ty_ds, Symbol(varname))[month = At(m)]).data
-    map!(x -> isnan(x) ? zero(x) : x, ty_data, ty_data)
-    fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_zeros, ty_data)
-    mask_immersed_field!(ty, 0)
-    return nothing
+    global fig_tot, title_obs, ψ_obs = build_moc_figure(ψ_total, "$PARENT_MODEL $TIME_WINDOW_LABEL Total MOC (resolved + GM)")
+    outputfile = joinpath(outputdir, "MOC_total_mean.png")
+    @info "Saving $outputfile"
+    save(outputfile, fig_tot; px_per_unit = 3)
 end
 
-# Pre-compute all 12 monthly total MOC streamfunctions per basin
-ψ_all = Dict{Symbol, Vector{Matrix{Float64}}}()
-for bk in basin_keys
-    ψ_all[bk] = Matrix{Float64}[]
-end
-for m in 1:12
-    load_monthly_ty!(ty, tx, grid, ty_ds, tx_zeros, m, "ty_trans")
-    load_monthly_ty!(ty_gm, tx, grid, ty_gm_ds, tx_zeros, m, "ty_trans_gm")
-    for bk in basin_keys
-        ψ_res_m = compute_moc(ty, basins[bk])
-        ψ_gm_m = compute_moc_gm(ty_gm, basins[bk])
-        push!(ψ_all[bk], ψ_res_m .+ ψ_gm_m)
+# ── Animation: monthly total MOC cycle (only if GM available) ────────────
+
+if has_gm
+    @info "Creating monthly total MOC animation"
+
+    function load_monthly_ty!(ty, tx, grid, ty_ds, tx_zeros, m, varname)
+        ty_data = readcubedata(getproperty(ty_ds, Symbol(varname))[month = At(m)]).data
+        map!(x -> isnan(x) ? zero(x) : x, ty_data, ty_data)
+        fill_Cgrid_transport_from_MOM_output!(tx, ty, grid, tx_zeros, ty_data)
+        mask_immersed_field!(ty, 0)
+        return nothing
     end
-end
 
-function interpolate_ψ(ψ_vec, t)
-    # t in [0, 12), cyclical. Linearly interpolate between monthly snapshots.
-    m0 = floor(Int, t) + 1
-    m1 = mod1(m0 + 1, 12)
-    α = t - floor(t)
-    return @. (1 - α) * ψ_vec[m0] + α * ψ_vec[m1]
-end
-
-n_frames = 144
-framerate = 24
-frame_times = range(0, 12; length = n_frames + 1)[1:n_frames]
-
-outputfile_anim = joinpath(outputdir, "MOC_total_monthly.mp4")
-@info "Recording animation to $outputfile_anim"
-
-record(fig_tot, outputfile_anim, 1:n_frames; framerate) do i
-    t = frame_times[i]
+    # Pre-compute all 12 monthly total MOC streamfunctions per basin
+    ψ_all = Dict{Symbol, Vector{Matrix{Float64}}}()
     for bk in basin_keys
-        ψ_obs[bk][] = interpolate_ψ(ψ_all[bk], t)
+        ψ_all[bk] = Matrix{Float64}[]
     end
-    month_frac = t + 0.5
-    title_obs[] = @sprintf("%s %s Total MOC (%.1f months)", PARENT_MODEL, TIME_WINDOW_LABEL, month_frac)
+    for m in 1:12
+        load_monthly_ty!(ty, tx, grid, ty_ds, tx_zeros, m, "ty_trans")
+        load_monthly_ty!(ty_gm, tx, grid, ty_gm_ds, tx_zeros, m, "ty_trans_gm")
+        for bk in basin_keys
+            ψ_res_m = compute_moc(ty, basins[bk])
+            ψ_gm_m = compute_moc_gm(ty_gm, basins[bk])
+            push!(ψ_all[bk], ψ_res_m .+ ψ_gm_m)
+        end
+    end
+
+    function interpolate_ψ(ψ_vec, t)
+        # t in [0, 12), cyclical. Linearly interpolate between monthly snapshots.
+        m0 = floor(Int, t) + 1
+        m1 = mod1(m0 + 1, 12)
+        α = t - floor(t)
+        return @. (1 - α) * ψ_vec[m0] + α * ψ_vec[m1]
+    end
+
+    n_frames = 144
+    framerate = 24
+    frame_times = range(0, 12; length = n_frames + 1)[1:n_frames]
+
+    outputfile_anim = joinpath(outputdir, "MOC_total_monthly.mp4")
+    @info "Recording animation to $outputfile_anim"
+
+    record(fig_tot, outputfile_anim, 1:n_frames; framerate) do i
+        t = frame_times[i]
+        for bk in basin_keys
+            ψ_obs[bk][] = interpolate_ψ(ψ_all[bk], t)
+        end
+        month_frac = t + 0.5
+        title_obs[] = @sprintf("%s %s Total MOC (%.1f months)", PARENT_MODEL, TIME_WINDOW_LABEL, month_frac)
+    end
 end
 
 @info "Done! Outputs in $outputdir"
