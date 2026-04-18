@@ -212,10 +212,10 @@ stop_time = 1year  # for Cyclical time indexing
 
 for (file_prefix, field_name) in fts_fields
     monthly_file = joinpath(monthly_dir, "$(file_prefix)_monthly.jld2")
-    if !isfile(monthly_file)
-        @warn "Rank $rank: FTS file not found, skipping: $monthly_file"
-        continue
-    end
+    isfile(monthly_file) || error(
+        "Rank $rank: required FTS file missing: $monthly_file. " *
+            "Run the `vel` step (JOB_CHAIN=vel-...) to build monthly JLD2 files before partitioning."
+    )
 
     @info "Rank $rank: Loading global FTS '$field_name' from $monthly_file"
     flush(stdout); flush(stderr)
