@@ -107,7 +107,8 @@ set!(model, age = Returns(0.0))
 # Synchronized GC for distributed runs (see docs/DISTRIBUTED_GC.md). Implicit barrier
 # via the surrounding collectives; off by default. (Callback path only — TBLOCKING
 # bypasses Simulation callbacks.)
-SYNC_GC_NSTEPS = parse(Int, get(ENV, "SYNC_GC_NSTEPS", "0"))
+SYNC_GC_NSTEPS_STR = get(ENV, "SYNC_GC_NSTEPS", "0")
+SYNC_GC_NSTEPS = isempty(SYNC_GC_NSTEPS_STR) ? 0 : parse(Int, SYNC_GC_NSTEPS_STR)
 if TBLOCKING == 0 && arch isa Distributed && SYNC_GC_NSTEPS > 0
     sync_gc!(sim) = (GC.gc(false); nothing)
     add_callback!(simulation, sync_gc!, IterationInterval(SYNC_GC_NSTEPS))
