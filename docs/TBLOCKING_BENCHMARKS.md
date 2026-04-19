@@ -46,7 +46,7 @@ Undefined for 1×1 (NGPUs=1).
 | 1x4 | V100 | K=12 | 98.6 | 1.23× | 0.08 | 166460612 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166460612.gadi-pbs.log) | [link](../logs/PBS/166460612.gadi-pbs.OU) |
 | 2x2 | V100 | plain | 107.5 | 1.13× | 0.04 | 166460693 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166460693.gadi-pbs.log) | [link](../logs/PBS/166460693.gadi-pbs.OU) |
 | 2x2 | V100 | K=12 | 97.6 | 1.24× | 0.08 | 166458644 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166458644.gadi-pbs.log) | [link](../logs/PBS/166458644.gadi-pbs.OU) |
-| 1x8 | V100 | plain | — | — | — | 166463591 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166463591.gadi-pbs.log) | [link](../logs/PBS/166463591.gadi-pbs.OU) |
+| 1x8 | V100 | plain | 114.0 | 1.06× | 0.01 | 166463591 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166463591.gadi-pbs.log) | [link](../logs/PBS/166463591.gadi-pbs.OU) |
 | 1x8 | V100 | K=12 | 104.5 | 1.16× | 0.02 | 166462624 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462624.gadi-pbs.log) | [link](../logs/PBS/166462624.gadi-pbs.OU) |
 
 > **Why 1x8 and not 1x6.** gpuvolta's per-queue rule requires `ncpus` to
@@ -77,7 +77,7 @@ SU-neutral.
 | 1x4 | H200 | K=12 | 185.5 | 2.69× | 0.56 | 166461748 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461748.gadi-pbs.log) | [link](../logs/PBS/166461748.gadi-pbs.OU) |
 | 1x4 | V100 | plain | 541.3 | 0.92× | N/A | 166462783 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462783.gadi-pbs.log) | [link](../logs/PBS/166462783.gadi-pbs.OU) |
 | 1x4 | V100 | K=12 | 481.1 | 1.04× | N/A | 166462782 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462782.gadi-pbs.log) | [link](../logs/PBS/166462782.gadi-pbs.OU) |
-| 2x2 | H200 | plain | queued | — | — | 166462105 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462105.gadi-pbs.log) | [link](../logs/PBS/166462105.gadi-pbs.OU) |
+| 2x2 | H200 | plain | 239.2 | 2.08× | 0.36 | 166462105 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462105.gadi-pbs.log) | [link](../logs/PBS/166462105.gadi-pbs.OU) |
 | 2x2 | H200 | K=12 | 191.6 | 2.60× | 0.53 | 166461350 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461350.gadi-pbs.log) | [link](../logs/PBS/166461350.gadi-pbs.OU) |
 
 Updated as jobs complete.
@@ -258,3 +258,69 @@ plus `fill_halo_regions!(target; only_local_halos=true)`:
 - Malas, T., Hager, G., Ltaief, H., Stengel, H., Wellein, G., & Keyes, D. (2015). *Multicore-Optimized Wavefront Diamond Blocking for Optimizing Stencil Updates*. SIAM Journal on Scientific Computing, 37(4), C439–C464. DOI: [10.1137/140991133](https://doi.org/10.1137/140991133) — canonical journal reference for the combined diamond-tiling + wavefront temporal-blocking family that Oceananigans' `iterate_split_explicit_in_halo!` (and our `multi_time_step!`) descends from.
 - Wellein, G., Hager, G., Zeiser, T., Wittmann, M., & Fehske, H. (2009). *Efficient Temporal Blocking for Stencil Computations by Multicore-Aware Wavefront Parallelization*. COMPSAC 2009. DOI: [10.1109/COMPSAC.2009.82](https://doi.org/10.1109/COMPSAC.2009.82) — multi-core wavefront paper that Malas et al. (2015) builds on.
 - Wonnacott, D. (2000). *Using time skewing to eliminate idle time due to memory bandwidth and network limitations*. IPDPS 2000. DOI: [10.1109/IPDPS.2000.846009](https://doi.org/10.1109/IPDPS.2000.846009) — foundational "time skewing" idea that became temporal blocking.
+
+## Profiling runs
+
+Record of Nsight Systems (nsys) profile jobs on the TBLOCKING path.
+See [docs/PROFILING.md](PROFILING.md) for how to submit a profile run
+and how to view the output. Profiles are saved under the same
+`standardrun/` log directory as the plain-text Julia logs, with
+`_profile_rank{0..N}.nsys-rep` suffixes. The `_TB<K>` tag in
+`MODEL_CONFIG` distinguishes tblock profiles from plain ones.
+
+| Model | Partition | GPU | Mode | Steps | Job ID | Profile path |
+|-------|-----------|-----|------|-------|--------|--------------|
+| OM2-025 | 1x4 | H200 | K=12 | 200 | 166465594 | [logs/julia/ACCESS-OM2-025/.../standardrun/](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/) (`totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166465594_profile_rank{0..3}.nsys-rep`) |
+
+### What to look for: GC-induced MPI stalls
+
+Key question: does TBLOCKING make GC pauses **more** or **less**
+costly in terms of MPI stall time?
+
+Background (see [docs/PROFILING.md](PROFILING.md) "GC and MPI
+interaction"): on each rank, Julia GC is triggered independently
+based on that rank's allocation pressure. When GC fires on rank A,
+its CPU thread blocks. At the next MPI sync (`MPI_Waitall`), all
+other ranks have to wait for A — a single rank's GC cascades into
+correlated stalls across the whole job. With a per-step halo
+exchange this happens frequently; in the GUI timeline it shows up as
+GC NVTX ranges on one rank aligned with long `MPI_Waitall` bars on
+the others.
+
+Hypothesis to check with the tblock profile (166465594):
+
+1. **Fewer MPI syncs → fewer GC-stall opportunities.** TBLOCKING=12
+   reduces MPI halo exchanges from per-step to per-12-steps. If GC
+   triggers are roughly allocation-rate-driven (fixed time between
+   GCs), then fewer sync points means each GC has a higher chance of
+   overlapping with local (non-MPI) work on other ranks. Expected:
+   lower total `MPI_Waitall` wait time as a fraction of runtime
+   compared to plain mode.
+2. **GC events still desynchronised across ranks.** Even with fewer
+   syncs, a GC on one rank at the *end* of a batch still stalls
+   everyone else at `update_state!`. The stall amplitude per event
+   should be the same as in plain mode, but events should be rarer.
+3. **Combined with `SYNC_GC_NSTEPS`** (synchronised GC callback,
+   [docs/DISTRIBUTED_GC.md](DISTRIBUTED_GC.md)): placing a forced
+   `GC.gc(false)` at a batch boundary (where all ranks are already
+   synchronised via `update_state!`) would turn sporadic desync'd
+   GCs into a collective pause that costs `max(GC_i)` instead of
+   `sum(GC_i)`. Need to re-check: `SYNC_GC_NSTEPS` is currently
+   wired into the Simulation callback path, which TBLOCKING bypasses
+   — the sync-GC logic would need to be called from inside
+   `multi_time_step!` (probably right before or after the batch-end
+   `update_state!`) to combine with TBLOCKING.
+
+Metrics to extract from the profile:
+
+- `MPI_Waitall` median + max (per rank).
+- Total GC NVTX time per rank.
+- Correlation: does a GC NVTX on rank N precede a long `MPI_Waitall`
+  on the other ranks at the next batch boundary?
+- Fraction of wall time spent inside `update_state!` (the MPI-sync
+  point) vs. inside the K=12 sub-step loop (local-only compute).
+
+If the profile shows TBLOCKING already eliminates most GC-driven
+stalls, a follow-up `SYNC_GC_NSTEPS` integration is unnecessary; if
+there's still meaningful `MPI_Waitall` cost correlated with GC
+events, wire sync-GC into `multi_time_step!` and re-profile.
