@@ -110,22 +110,38 @@ bottom_ds = open_dataset(MOM_input_topo_file)
 bottom = -readcubedata(bottom_ds["depth"]).data
 bottom = replace(bottom, 9999.0 => 0.0)
 
-# Check topography
-@show MOM_output_grid_file = joinpath(dirname(config_path), "ocean", "ocean_grid.nc")
-flush(stdout); flush(stderr)
-MOM_output_grid_ds = open_dataset(MOM_output_grid_file)
-ht = readcubedata(MOM_output_grid_ds.ht).data
-ht = replace(ht, missing => 0.0)
-kmt = readcubedata(MOM_output_grid_ds.kmt).data
-kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
+# Cross-check our topography against the ocean_grid.nc that MOM writes at
+# runtime. This is *only* a sanity check — `ht`/`kmt` aren't used to build
+# the Oceananigans grid, only to assert consistency with what the parent
+# simulation actually saw. Some experiments (e.g. 01deg_jra55v140_iaf) don't
+# save ocean_grid.nc, so the check is opt-in via CHECK_AGAINST_PARENT_GRID_OUTPUT.
+check_parent_grid = lowercase(get(ENV, "CHECK_AGAINST_PARENT_GRID_OUTPUT", "no")) ∈ ("yes", "true", "1")
+if check_parent_grid
+    @show MOM_output_grid_file = joinpath(dirname(config_path), "ocean", "ocean_grid.nc")
+    flush(stdout); flush(stderr)
+    isfile(MOM_output_grid_file) || error(
+        "CHECK_AGAINST_PARENT_GRID_OUTPUT=yes, but cannot find the parent grid " *
+            "output at $MOM_output_grid_file. Either the parent simulation did not " *
+            "save it (e.g. 01deg_jra55v140_iaf cycles), or the path is wrong. " *
+            "Unset CHECK_AGAINST_PARENT_GRID_OUTPUT (default `no`) to skip this check.",
+    )
+    MOM_output_grid_ds = open_dataset(MOM_output_grid_file)
+    ht = readcubedata(MOM_output_grid_ds.ht).data
+    ht = replace(ht, missing => 0.0)
+    kmt = readcubedata(MOM_output_grid_ds.kmt).data
+    kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
 
-@assert ht == -bottom
-for idx in eachindex(kbottom)
-    local k = kbottom[idx]
-    ismissing(kmt[idx]) && continue
-    @assert zeta[k] ≤ bottom[idx] < zeta[k + 1]
+    @assert ht == -bottom
+    for idx in eachindex(kbottom)
+        local k = kbottom[idx]
+        ismissing(kmt[idx]) && continue
+        @assert zeta[k] ≤ bottom[idx] < zeta[k + 1]
+    end
+    @info "z coordinate/grid checks against parent grid output passed."
+else
+    @info "Skipping z coordinate/grid checks against parent grid output " *
+        "(set CHECK_AGAINST_PARENT_GRID_OUTPUT=yes to enable)."
 end
-@info "z coordinate/grid checks passed."
 flush(stdout); flush(stderr)
 
 # Then immerge the grid cells with partial cells at the bottom
