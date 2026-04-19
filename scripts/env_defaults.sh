@@ -28,6 +28,10 @@ INITIAL_AGE=${INITIAL_AGE:-TMage}                       # TMage | 0 | <path to .
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no
+TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
+GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
+GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
+GRID_HZ=${GRID_HZ:-7}                                   # grid halo in z (2 sufficient; larger is harmless)
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 if [ "$W_FORMULATION" = "wprescribed" ]; then
     if [ "$PRESCRIBED_W_SOURCE" = "diagnosed" ]; then
@@ -43,10 +47,13 @@ esac
 if [ "$MONTHLY_KAPPAV" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_mkappaV"
 fi
+if [ "$TBLOCKING" != "no" ]; then
+    MODEL_CONFIG="${MODEL_CONFIG}_TB${TBLOCKING}"
+fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
-export GM_REDI MONTHLY_KAPPAV
+export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -70,6 +77,8 @@ echo "INITIAL_AGE=$INITIAL_AGE"
 echo "TM_SOURCE=$TM_SOURCE"
 echo "GM_REDI=$GM_REDI"
 echo "MONTHLY_KAPPAV=$MONTHLY_KAPPAV"
+echo "TBLOCKING=$TBLOCKING"
+echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"
 echo "MODEL_CONFIG=$MODEL_CONFIG"
 
 # Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes

@@ -88,10 +88,14 @@ Nz = length(zeta) - 1
 
 println("Building Horizontal grid...")
 flush(stdout); flush(stderr)
+Hx = parse(Int, get(ENV, "GRID_HX", "7"))
+Hy = parse(Int, get(ENV, "GRID_HY", "7"))
+Hz = parse(Int, get(ENV, "GRID_HZ", "7"))
+@info "Grid halo size: ($Hx, $Hy, $Hz)"
 underlying_grid = tripolargrid_from_supergrid(
     arch;
     MOMsupergrid...,
-    halosize = (7, 7, 7),
+    halosize = (Hx, Hy, Hz),
     radius = Oceananigans.defaults.planet_radius,
     z,
     Nz,
