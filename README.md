@@ -28,6 +28,9 @@ EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scr
 config:
   flowchart:
     curve: basis
+    padding: 3
+    nodeSpacing: 10
+    rankSpacing: 30
 ---
 graph TD
     classDef gpu stroke:#f00;
