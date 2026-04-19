@@ -5,7 +5,8 @@
 #PBS -q express
 #PBS -l ngpus=0
 #PBS -l ncpus=2
-#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
+#PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99
+
 #PBS -l jobfs=4GB
 #PBS -o logs/PBS/
 #PBS -e logs/PBS/

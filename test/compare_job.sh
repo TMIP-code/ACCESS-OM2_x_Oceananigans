@@ -6,7 +6,8 @@
 #PBS -q normal
 #PBS -l walltime=00:05:00
 #PBS -l ncpus=1
-#PBS -l storage=gdata/xp65+gdata/ik11+scratch/y99+gdata/y99
+#PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99
+
 #PBS -o logs/PBS/
 #PBS -e logs/PBS/
 #PBS -l wd

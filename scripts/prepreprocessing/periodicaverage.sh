@@ -40,6 +40,11 @@ module purge
 module use /g/data/xp65/public/modules
 module load conda/analysis3
 
+# Disable HDF5 file locking — /home (NFS) breaks dask+netCDF4 writes with
+# "Unable to lock file" at any nontrivial output size. Safe for single-writer
+# workloads (we have exactly one process per output file).
+export HDF5_USE_FILE_LOCKING=FALSE
+
 echo "Running periodicaverage.py"
 python3 src/periodicaverage.py &> "$log_dir/periodicaverage_${job_id}.log"
 echo "Done preprocessing for $PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW"
