@@ -46,8 +46,8 @@ Undefined for 1×1 (NGPUs=1).
 | 1x4 | V100 | K=12 | 98.6 | 1.23× | 0.08 | 166460612 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166460612.gadi-pbs.log) | [link](../logs/PBS/166460612.gadi-pbs.OU) |
 | 2x2 | V100 | plain | 107.5 | 1.13× | 0.04 | 166460693 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166460693.gadi-pbs.log) | [link](../logs/PBS/166460693.gadi-pbs.OU) |
 | 2x2 | V100 | K=12 | 97.6 | 1.24× | 0.08 | 166458644 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166458644.gadi-pbs.log) | [link](../logs/PBS/166458644.gadi-pbs.OU) |
-| 1x8 | V100 | plain | — | — | — | pending | — | — |
-| 1x8 | V100 | K=12 | — | — | — | 166462624 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462624.gadi-pbs.log) | [link](../logs/PBS/166462624.gadi-pbs.OU) |
+| 1x8 | V100 | plain | — | — | — | 166463591 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166463591.gadi-pbs.log) | [link](../logs/PBS/166463591.gadi-pbs.OU) |
+| 1x8 | V100 | K=12 | 104.5 | 1.16× | 0.02 | 166462624 | [link](../logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462624.gadi-pbs.log) | [link](../logs/PBS/166462624.gadi-pbs.OU) |
 
 > **Why 1x8 and not 1x6.** gpuvolta's per-queue rule requires `ncpus` to
 > be a multiple of 48 (one full node = 4 V100 + 48 CPUs) whenever a job
@@ -58,20 +58,25 @@ Undefined for 1×1 (NGPUs=1).
 ### OM2-025 (Δt = 1800 s; 1461 batches × K=12 sub-steps = 17532 steps)
 
 `TIME_WINDOW=1968-1977`. Speedup is relative to the 1×1 (serial)
-plain baseline (498.5 s). "Scaling eff." = `(speedup − 1) / (NGPUs − 1)`:
-1.00 = perfect strong scaling, 0.00 = no speedup, negative = slowdown.
-Undefined for 1×1 (NGPUs=1).
+plain H200 baseline (498.5 s). "Scaling eff." =
+`(speedup − 1) / (NGPUs − 1)`: 1.00 = perfect strong scaling,
+0.00 = no speedup, negative = slowdown. Undefined for 1×1 (NGPUs=1).
+**N/A for V100 rows** because OM2-025 doesn't fit on a single V100
+(32 GB), so there's no V100 serial baseline; cross-GPU-type scaling
+efficiency is not meaningful. Also note the Service Units cost: H200
+is ~7.5 SU/hr vs V100's ~3 SU/hr, so H200's ~2× speed is roughly
+SU-neutral.
 
 | Partition | GPU | Mode | Time (s) | Speedup | Scaling eff. | Job ID | Julia log | PBS log |
 |-----------|-----|------|----------|---------|--------------|--------|-----------|---------|
 | 1x1 (serial) | H200 | plain | 498.5 | 1.00× | — | 166461744 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166461744.gadi-pbs.log) | [link](../logs/PBS/166461744.gadi-pbs.OU) |
 | 1x1 (serial) | H200 | K=12 | 500.0 | 1.00× | — | 166461743 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461743.gadi-pbs.log) | [link](../logs/PBS/166461743.gadi-pbs.OU) |
-| 1x2 | H200 | plain | running | — | — | 166462103 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462103.gadi-pbs.log) | [link](../logs/PBS/166462103.gadi-pbs.OU) |
+| 1x2 | H200 | plain | 337.4 | 1.48× | 0.48 | 166462103 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462103.gadi-pbs.log) | [link](../logs/PBS/166462103.gadi-pbs.OU) |
 | 1x2 | H200 | K=12 | 297.3 | 1.68× | 0.68 | 166461746 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461746.gadi-pbs.log) | [link](../logs/PBS/166461746.gadi-pbs.OU) |
-| 1x4 | H200 | plain | running | — | — | 166462104 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462104.gadi-pbs.log) | [link](../logs/PBS/166462104.gadi-pbs.OU) |
+| 1x4 | H200 | plain | 227.9 | 2.19× | 0.40 | 166462104 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462104.gadi-pbs.log) | [link](../logs/PBS/166462104.gadi-pbs.OU) |
 | 1x4 | H200 | K=12 | 185.5 | 2.69× | 0.56 | 166461748 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461748.gadi-pbs.log) | [link](../logs/PBS/166461748.gadi-pbs.OU) |
-| 1x4 | V100 | plain | — | — | — | 166462783 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462783.gadi-pbs.log) | [link](../logs/PBS/166462783.gadi-pbs.OU) |
-| 1x4 | V100 | K=12 | — | — | — | 166462782 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462782.gadi-pbs.log) | [link](../logs/PBS/166462782.gadi-pbs.OU) |
+| 1x4 | V100 | plain | 541.3 | 0.92× | N/A | 166462783 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462783.gadi-pbs.log) | [link](../logs/PBS/166462783.gadi-pbs.OU) |
+| 1x4 | V100 | K=12 | 481.1 | 1.04× | N/A | 166462782 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166462782.gadi-pbs.log) | [link](../logs/PBS/166462782.gadi-pbs.OU) |
 | 2x2 | H200 | plain | queued | — | — | 166462105 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462105.gadi-pbs.log) | [link](../logs/PBS/166462105.gadi-pbs.OU) |
 | 2x2 | H200 | K=12 | 191.6 | 2.60× | 0.53 | 166461350 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461350.gadi-pbs.log) | [link](../logs/PBS/166461350.gadi-pbs.OU) |
 
