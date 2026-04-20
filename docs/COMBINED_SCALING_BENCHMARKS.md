@@ -114,13 +114,13 @@ Reusing existing baselines from
 Speedup baseline: 498.5 s (1×1 plain H200). Scaling eff. =
 `(speedup − 1) / (NGPUs − 1)`.
 
-| Partition | GPU | Mode | Time (s) | Speedup | Scaling eff. | Job ID | Julia log | PBS log |
-|-----------|-----|------|----------|---------|--------------|--------|-----------|---------|
-| 1x1 (serial) | H200 | plain | 498.5 | 1.00× | — | 166461744 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x2 | H200 | plain | 337.4 | 1.48× | 0.48 | 166462103 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x2 | H200 | K=12 | 297.3 | 1.68× | 0.68 | 166461746 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x2 | H200 | K=12 + syncGC=4 | 300.7 | 1.66× | 0.66 | 166492255 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166492255.gadi-pbs.log) | [link](../logs/PBS/166492255.gadi-pbs.OU) |
-| 1x2 | H200 | K=12 + syncGC=4 + LBS | 323.7 | 1.54× | 0.54 | 166492746 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_LB_1yearfast_166492746.gadi-pbs.log) | [link](../logs/PBS/166492746.gadi-pbs.OU) |
+| Partition | GPU | Temporal Block | GC sync | Load Balance | Time (s) | Speedup | Scaling eff. | Job ID | Julia log | PBS log |
+|-----------|-----|----|---------|----|----------|---------|--------------|--------|-----------|---------|
+| 1x1 | H200 | no | no | no | 498.5 | 1.00× | — | 166461744 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166461744.gadi-pbs.log) | [link](../logs/PBS/166461744.gadi-pbs.OU) |
+| 1x2 | H200 | no | no | no | 337.4 | 1.48× | 0.48 | 166462103 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462103.gadi-pbs.log) | [link](../logs/PBS/166462103.gadi-pbs.OU) |
+| 1x2 | H200 | ✅ K=12 | no | no | 297.3 | 1.68× | 0.68 | 166461746 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461746.gadi-pbs.log) | [link](../logs/PBS/166461746.gadi-pbs.OU) |
+| 1x2 | H200 | ✅ K=12 | ✅ N=4 | no | 300.7 | 1.66× | 0.66 | 166492255 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166492255.gadi-pbs.log) | [link](../logs/PBS/166492255.gadi-pbs.OU) |
+| 1x2 | H200 | ✅ K=12 | ✅ N=4 | ✅ LBS | 323.7 | 1.54× | 0.54 | 166492746 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_LB_1yearfast_166492746.gadi-pbs.log) | [link](../logs/PBS/166492746.gadi-pbs.OU) |
 
 > **Labelling note.** The submitted job carries the `_TB12_LB` filename
 > tag because it ran before the `LBS`/`LB` distinction existed — the
@@ -166,13 +166,30 @@ rank). Reuses the existing `1x4` equal-split partition for the baseline
 (297.3/plain from TBLOCKING_BENCHMARKS.md not applicable — that's 1×2;
 the 1×4 plain baseline is 227.9 s, K=12 is 185.5 s).
 
-| Partition | GPU | Mode | Time (s) | Speedup | Scaling eff. | Job ID | Julia log | PBS log |
-|-----------|-----|------|----------|---------|--------------|--------|-----------|---------|
-| 1x4 | H200 | plain | 227.9 | 2.19× | 0.40 | 166462104 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x4 | H200 | K=12 | 185.5 | 2.69× | 0.56 | 166461748 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x4 | H200 | K=12 + syncGC=4 | TBD | TBD | TBD | TBD | TBD | TBD |
-| 1x4 | H200 | K=12 + syncGC=4 + LBS | TBD | TBD | TBD | TBD | TBD | TBD |
-| 1x4 | H200 | K=12 + syncGC=4 + LB | TBD | TBD | TBD | TBD | TBD | TBD |
+| Partition | GPU | Temporal Block | GC sync | Load Balance | Time (s) | Speedup | Scaling eff. | Job ID | Julia log | PBS log |
+|-----------|-----|----|---------|----|----------|---------|--------------|--------|-----------|---------|
+| 1x4 | H200 | no | no | no | 227.9 | 2.19× | 0.40 | 166462104 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_1yearfast_166462104.gadi-pbs.log) | [link](../logs/PBS/166462104.gadi-pbs.OU) |
+| 1x4 | H200 | ✅ K=12 | no | no | 185.5 | 2.69× | 0.56 | 166461748 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166461748.gadi-pbs.log) | [link](../logs/PBS/166461748.gadi-pbs.OU) |
+| 1x4 | H200 | ✅ K=12 | ✅ N=4 | no | 188.1 | 2.65× | 0.55 | 166497909 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166497909.gadi-pbs.log) | [link](../logs/PBS/166497909.gadi-pbs.OU) |
+| 1x4 | H200 | ✅ K=12 | ✅ N=4 | ✅ LBS | 223.4 | 2.23× | 0.41 | 166497923 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_LBS_1yearfast_166497923.gadi-pbs.log) | [link](../logs/PBS/166497923.gadi-pbs.OU) |
+| 1x4 | H200 | ✅ K=12 | ✅ N=4 | ✅ LB | 258.0 | 1.93× | 0.31 | 166497927 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_LB_1yearfast_166497927.gadi-pbs.log) | [link](../logs/PBS/166497927.gadi-pbs.OU) |
+
+### Findings — 1×4
+
+- **Sync-GC at 1x4 is also a wash.** K=12+syncGC=4 lands at 188.1 s vs.
+  the K=12 baseline of 185.5 s (+1.4%, noise).
+- **Both LB modes regress, and LB (cell) is worse than LBS (surface).**
+  LBS: `local_Ny=(260, 193, 251, 376)` → 223.4 s (+20% vs K=12).
+  LB:  `local_Ny=(247, 167, 207, 459)` → 258.0 s (+39% vs K=12).
+  The cell-based split concentrates more rows on the northern rank
+  (459/1080 = 42.5% of y, vs. 34.8% under LBS, vs. 25.0% equal) because
+  the high-latitude columns are shallower (less wet-depth ⇒ fewer
+  wet cells ⇒ rank needs more rows to match a deep-ocean rank's load).
+  The skewer the split, the worse the runtime: a strong signal that
+  kernel runtime on GPU tracks **total cells**, not wet cells.
+- **Net for both partitions: LB/LBS hurt, sync-GC is neutral.** Best
+  time on 1×2 = 297.3 s (K=12 alone); best on 1×4 = 185.5 s (K=12
+  alone). The y-imbalance is not the bottleneck at either partition.
 
 ### Submission commands
 
