@@ -78,7 +78,8 @@ function fill_z_halos_over_extended_xy!(tracers, grid, Nx, Ny, margin)
 end
 
 """
-    multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates=())
+    multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates=(),
+                     sync_gc_nbatches=0, batch_index=Ref(0))
 
 Run `K` tracer sub-steps behind a single MPI halo exchange.
 
@@ -86,8 +87,17 @@ Run `K` tracer sub-steps behind a single MPI halo exchange.
 `set!` at each sub-step (after `tick!`) and halo-filled with
 `only_local_halos=true`. Use this to replace any `IterationInterval(1)`
 Simulation callback that prescribes a field from an FTS.
+
+`sync_gc_nbatches` (default 0 = disabled) fires `GC.gc(false)` once every
+`sync_gc_nbatches` calls, immediately after the batch-end `update_state!`
+collective. The shared `batch_index::Ref{Int}` lets the caller carry the
+counter across calls and reset it between warmup and timed regions.
+Note: the unit is **batches**, not raw steps — N batches = N·K raw steps.
 """
-function multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates = ())
+function multi_time_step!(
+        model, Δt, Nx, Ny, Nz; K, fts_updates = (),
+        sync_gc_nbatches::Int = 0, batch_index::Ref{Int} = Ref(0)
+    )
     FT = eltype(model.grid)
     Δt_FT = convert(FT, Δt)
 
@@ -135,6 +145,14 @@ function multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates = ())
     update_state!(model)
     for name in propertynames(model.tracers)
         fill_halo_regions!(model.timestepper.G⁻[name])
+    end
+
+    # Synchronized GC at a known collective-sync point. Every rank reaches
+    # this line at the same wall-clock instant (update_state! just synced),
+    # so GC.gc(false) on all ranks costs max(GC_i) instead of sum(GC_i).
+    batch_index[] += 1
+    if sync_gc_nbatches > 0 && batch_index[] % sync_gc_nbatches == 0
+        GC.gc(false)
     end
 
     return nothing

@@ -19,7 +19,7 @@ flush(stdout); flush(stderr)
 using Oceananigans
 using Oceananigans.Architectures: CPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
-using Oceananigans.DistributedComputations: Distributed, local_size, concatenate_local_sizes
+using Oceananigans.DistributedComputations: Distributed, Sizes, local_size, concatenate_local_sizes
 using Oceananigans.Fields: instantiated_location
 using Oceananigans.Grids: on_architecture, total_size
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
@@ -39,10 +39,25 @@ include("shared_functions.jl")
 MPI.Init()
 px = parse(Int, ENV["PARTITION_X"])
 py = parse(Int, ENV["PARTITION_Y"])
-arch = Distributed(CPU(), partition = Partition(px, py))
+LOAD_BALANCE = lowercase(get(ENV, "LOAD_BALANCE", "no")) == "yes"
 rank = MPI.Comm_rank(MPI.COMM_WORLD)
 nranks = MPI.Comm_size(MPI.COMM_WORLD)
-@info "MPI rank $rank/$nranks, partition=$(px)x$(py) (CPU)"
+
+# When LOAD_BALANCE=yes, build a wet-cell-balanced y-partition. Only valid
+# for x-rank=1 (the LB algorithm splits along y only). The grid file is
+# read on every rank, but `compute_lb_y_sizes` is deterministic so all
+# ranks agree on `local_Ny` without any MPI communication.
+if LOAD_BALANCE
+    px == 1 || error("LOAD_BALANCE=yes only supports PARTITION_X=1 (got px=$px). The greedy y-slab algorithm partitions along y only.")
+    grid_file_for_lb = joinpath(load_project_config(; parentmodel_arg_index = 2).experiment_dir, "grid.jld2")
+    Hy_for_lb = load(grid_file_for_lb, "Hy")
+    local_Ny_lb = compute_lb_y_sizes(grid_file_for_lb, py; min_size = Hy_for_lb + 2)
+    arch = Distributed(CPU(), partition = Partition(y = Sizes(local_Ny_lb...)))
+    @info "MPI rank $rank/$nranks, partition=$(px)x$(py)_LB, local_Ny=$local_Ny_lb (CPU)"
+else
+    arch = Distributed(CPU(), partition = Partition(px, py))
+    @info "MPI rank $rank/$nranks, partition=$(px)x$(py) (CPU)"
+end
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -58,9 +73,11 @@ time_window = get(ENV, "TIME_WINDOW", "1968-1977")
 grid_file = joinpath(experiment_dir, "grid.jld2")
 monthly_dir = joinpath(experiment_dir, time_window, "monthly")
 
-# Output directories
-grid_partition_dir = joinpath(experiment_dir, "partitions", "$(px)x$(py)")
-fts_partition_dir = joinpath(experiment_dir, time_window, "partitions", "$(px)x$(py)")
+# Output directories — `_LB` suffix keeps load-balanced partition data
+# disjoint from the equal-split version under the same PARTITION.
+ptag = LOAD_BALANCE ? "$(px)x$(py)_LB" : "$(px)x$(py)"
+grid_partition_dir = joinpath(experiment_dir, "partitions", ptag)
+fts_partition_dir = joinpath(experiment_dir, time_window, "partitions", ptag)
 mkpath(grid_partition_dir)
 mkpath(fts_partition_dir)
 
@@ -163,7 +180,7 @@ jldopen(grid_rank_file, "w") do f
 
     # Partition metadata
     f["rank"] = rank
-    f["partition"] = "$(px)x$(py)"
+    f["partition"] = ptag
 end
 
 @info "Rank $rank: Grid saved to $grid_rank_file"
@@ -262,7 +279,7 @@ for (file_prefix, field_name) in fts_fields
         f["local_Ny"] = local_Ny
         f["Nz"] = Nz
         f["rank"] = rank
-        f["partition"] = "$(px)x$(py)"
+        f["partition"] = ptag
 
         for n in 1:Nt
             serial_parent = Array(parent(cpu_fts[n].data))

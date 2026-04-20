@@ -125,7 +125,8 @@ fts_kw = (;)
 if arch isa Distributed
     px = parse(Int, get(ENV, "PARTITION_X", "1"))
     py = parse(Int, get(ENV, "PARTITION_Y", "1"))
-    partition_dir = joinpath(experiment_dir, time_window, "partitions", "$(px)x$(py)")
+    ptag = LOAD_BALANCE ? "$(px)x$(py)_LB" : "$(px)x$(py)"
+    partition_dir = joinpath(experiment_dir, time_window, "partitions", ptag)
     (isdir(partition_dir) && !isempty(readdir(partition_dir))) || error(
         "Pre-partitioned FTS directory missing or empty: $partition_dir. " *
             "Run the `partition` step (e.g., JOB_CHAIN=partition-run1yrfast) first."

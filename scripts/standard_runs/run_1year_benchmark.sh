@@ -18,6 +18,12 @@ repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
 source scripts/env_defaults.sh
 
+# Make benchmark-only env vars visible to the Julia process for both
+# profile and non-profile runs. Empty SYNC_GC_NSTEPS = "disabled" on the
+# Julia side (parse to 0); the PROFILE block below overrides empty → 5.
+export SYNC_GC_NSTEPS="${SYNC_GC_NSTEPS:-}"
+export LOAD_BALANCE="${LOAD_BALANCE:-no}"
+
 job_id="${PBS_JOBID:-interactive}"
 run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/standardrun
 mkdir -p "$run_log_dir"

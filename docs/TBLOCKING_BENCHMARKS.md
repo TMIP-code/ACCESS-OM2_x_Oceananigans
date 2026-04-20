@@ -1,5 +1,9 @@
 # Temporal blocking (K-sub-step batching) for tracer advance
 
+> Combining temporal blocking with sync-GC and load balancing on a
+> single 1×2 OM2-025 H200 run: see
+> [COMBINED_SCALING_BENCHMARKS.md](COMBINED_SCALING_BENCHMARKS.md).
+
 ## Intent
 
 On distributed tripolar runs with prescribed velocities, the only MPI

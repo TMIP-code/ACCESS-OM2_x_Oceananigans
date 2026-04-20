@@ -69,6 +69,10 @@ if TBLOCKING > 0
     GM_REDI && append!(fts_update_list, [(model.tracers.T, T_ts), (model.tracers.S, S_ts)])
     FTS_UPDATES = Tuple(fts_update_list)
 
+    # Shared batch counter for the in-`multi_time_step!` sync-GC hook. Reset
+    # to 0 between warmup and timed regions below.
+    BATCH_COUNTER = Ref(0)
+
     @info "Temporal blocking ENABLED: K=$TBLOCKING sub-steps per batch; halos=($Hx, $Hy); fts_updates=$(length(FTS_UPDATES))"
 end
 
@@ -91,7 +95,14 @@ if TBLOCKING == 0
     simulation.stop_time = warmup_time
     run!(simulation)
 else
-    multi_time_step!(model, Δt, Nx_local, Ny_local, Nz_local; K = TBLOCKING, fts_updates = FTS_UPDATES)
+    # Warmup: pass the BATCH_COUNTER through but with sync_gc_nbatches=0 so
+    # the warmup batch never triggers GC; the real value is wired in for the
+    # timed region below after reset!(simulation).
+    multi_time_step!(
+        model, Δt, Nx_local, Ny_local, Nz_local;
+        K = TBLOCKING, fts_updates = FTS_UPDATES,
+        sync_gc_nbatches = 0, batch_index = BATCH_COUNTER,
+    )
 end
 
 @info "Warmup complete — resetting for benchmark"
@@ -103,16 +114,23 @@ flush(stdout); flush(stderr)
 
 reset!(simulation)
 set!(model, age = Returns(0.0))
+TBLOCKING > 0 && (BATCH_COUNTER[] = 0)
 
-# Synchronized GC for distributed runs (see docs/DISTRIBUTED_GC.md). Implicit barrier
-# via the surrounding collectives; off by default. (Callback path only — TBLOCKING
-# bypasses Simulation callbacks.)
+# Synchronized GC for distributed runs (see docs/DISTRIBUTED_GC.md). Implicit
+# barrier via the surrounding collectives; off by default. Two paths:
+#   - TBLOCKING == 0: Simulation callback every SYNC_GC_NSTEPS iterations.
+#   - TBLOCKING  > 0: hook is wired inside multi_time_step!; SYNC_GC_NSTEPS
+#     here means "every N **batches**" (= N·K raw steps).
 SYNC_GC_NSTEPS_STR = get(ENV, "SYNC_GC_NSTEPS", "0")
 SYNC_GC_NSTEPS = isempty(SYNC_GC_NSTEPS_STR) ? 0 : parse(Int, SYNC_GC_NSTEPS_STR)
-if TBLOCKING == 0 && arch isa Distributed && SYNC_GC_NSTEPS > 0
-    sync_gc!(sim) = (GC.gc(false); nothing)
-    add_callback!(simulation, sync_gc!, IterationInterval(SYNC_GC_NSTEPS))
-    @info "Synchronized GC enabled: GC.gc(false) every $SYNC_GC_NSTEPS iterations"
+if arch isa Distributed && SYNC_GC_NSTEPS > 0
+    if TBLOCKING == 0
+        sync_gc!(sim) = (GC.gc(false); nothing)
+        add_callback!(simulation, sync_gc!, IterationInterval(SYNC_GC_NSTEPS))
+        @info "Synchronized GC enabled (callback): GC.gc(false) every $SYNC_GC_NSTEPS iterations"
+    else
+        @info "Synchronized GC enabled (inside multi_time_step!): GC.gc(false) every $SYNC_GC_NSTEPS batches (= $(SYNC_GC_NSTEPS * TBLOCKING) raw steps)"
+    end
 end
 
 @info "Benchmark: 1-year simulation, no output writers (stop_time=$(stop_time / year) yr)"
@@ -128,7 +146,11 @@ CUDA.@profile external = true begin
         @info "Temporal-blocked loop: $n_batches batches × K=$TBLOCKING sub-steps = $total_steps total steps"
         flush(stdout); flush(stderr)
         for batch in 1:n_batches
-            multi_time_step!(model, Δt, Nx_local, Ny_local, Nz_local; K = TBLOCKING, fts_updates = FTS_UPDATES)
+            multi_time_step!(
+                model, Δt, Nx_local, Ny_local, Nz_local;
+                K = TBLOCKING, fts_updates = FTS_UPDATES,
+                sync_gc_nbatches = SYNC_GC_NSTEPS, batch_index = BATCH_COUNTER,
+            )
             if batch % max(1, n_batches ÷ 12) == 0
                 @info @sprintf(
                     "  batch: %d/%d, time: %.3f yr, wall: %.1f seconds",

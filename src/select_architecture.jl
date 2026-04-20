@@ -27,13 +27,37 @@ px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 nranks = px * py
 
+LOAD_BALANCE = lowercase(get(ENV, "LOAD_BALANCE", "no")) == "yes"
+
 if nranks > 1
     using MPI
+    using Oceananigans.DistributedComputations: Sizes
     MPI.Init()
-    arch = Distributed(device, partition = Partition(px, py))
+
+    if LOAD_BALANCE
+        # Wet-cell-balanced y-partition. Reads `bottom` from the shared grid
+        # file on every rank — deterministic, so all ranks agree on the
+        # per-rank Ny without any MPI communication.
+        px == 1 || error("LOAD_BALANCE=yes only supports PARTITION_X=1 (got px=$px). The greedy y-slab algorithm partitions along y only.")
+        # Pull in just what we need to find the grid file. shared_functions.jl
+        # is normally included AFTER this file (in setup_model.jl), so we
+        # eagerly include the two small helpers here. Re-includes downstream
+        # are no-ops.
+        include("shared_utils/config.jl")
+        include("shared_utils/load_balance.jl")
+        _cfg_for_lb = load_project_config()
+        _grid_file_for_lb = joinpath(_cfg_for_lb.experiment_dir, "grid.jld2")
+        _Hy_for_lb = load(_grid_file_for_lb, "Hy")
+        local_Ny_lb = compute_lb_y_sizes(_grid_file_for_lb, py; min_size = _Hy_for_lb + 2)
+        arch = Distributed(device, partition = Partition(y = Sizes(local_Ny_lb...)))
+        arch_str = "Distributed$(device_str)($(px)x$(py)_LB, local_Ny=$local_Ny_lb)"
+    else
+        arch = Distributed(device, partition = Partition(px, py))
+        arch_str = "Distributed$(device_str)($(px)x$(py))"
+    end
+
     rank = MPI.Comm_rank(MPI.COMM_WORLD)
-    arch_str = "Distributed$(device_str)($(px)x$(py))"
-    @info "MPI rank $rank/$nranks, partition=$(px)x$(py) ($device_str)"
+    @info "MPI rank $rank/$nranks, $arch_str"
     if device isa GPU
         @info "CUDA device: $(CUDA.device())"
     end
