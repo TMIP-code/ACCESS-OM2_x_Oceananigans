@@ -115,8 +115,38 @@ Speedup baseline: 498.5 s (1×1 plain H200). Scaling eff. =
 | 1x1 (serial) | H200 | plain | 498.5 | 1.00× | — | 166461744 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
 | 1x2 | H200 | plain | 337.4 | 1.48× | 0.48 | 166462103 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
 | 1x2 | H200 | K=12 | 297.3 | 1.68× | 0.68 | 166461746 | (see TBLOCKING_BENCHMARKS.md) | (see TBLOCKING_BENCHMARKS.md) |
-| 1x2 | H200 | K=12 + syncGC=4 | TBD | TBD | TBD | A.1 | TBD | TBD |
-| 1x2 | H200 | K=12 + syncGC=4 + LB | TBD | TBD | TBD | A.2 | TBD | TBD |
+| 1x2 | H200 | K=12 + syncGC=4 | 300.7 | 1.66× | 0.66 | 166492255 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_166492255.gadi-pbs.log) | [link](../logs/PBS/166492255.gadi-pbs.OU) |
+| 1x2 | H200 | K=12 + syncGC=4 + LB | 323.7 | 1.54× | 0.54 | 166492746 | [link](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_LB_1yearfast_166492746.gadi-pbs.log) | [link](../logs/PBS/166492746.gadi-pbs.OU) |
+
+### Findings
+
+- **Sync-GC alone is a wash on 1x2 OM2-025 H200.** K=12+syncGC=4 lands
+  at 300.7 s vs. the K=12 baseline of 297.3 s — well within run-to-run
+  noise, neither gain nor regression. Interpretation: at 1x2 on H200 the
+  per-step GC pressure is already low enough that forcing a collective
+  pause at every 4th batch neither hides nor creates new stalls. Sync-GC
+  may still matter at higher rank counts (1x4, 2x2) where stragglers
+  have more ranks to block — but on this partition it's neutral.
+- **LB partition is `local_Ny=(453, 627)`** (from
+  [logs/julia/.../preprocess/partition_data_1x2_166492745.gadi-pbs.log](../logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/preprocess/partition_data_1x2_166492745.gadi-pbs.log)).
+  Rank 0 (southern, dense ocean) gets 453 rows; rank 1 (northern,
+  Arctic + land) gets 627. Both ≥ `Hy + 2 = 15`, so the fold-halo
+  warning stays silent. `sum == 1080` checks out.
+- **LB regresses by ~9% on 1x2 OM2-025 H200** (323.7 s vs. 297.3 s
+  K=12 baseline; +26 s ≈ +8.9%). The wet-cell imbalance was not the
+  bottleneck on this partition — forcing an uneven split skews kernel
+  runtimes on the larger slab (rank 1 has 627/1080 ≈ 58% of y) without
+  a compensating gain. Candidate causes to check before retrying:
+  - Per-rank kernel runtime scales with *total* cells (wet + dry) on a
+    GPU (no masking in the horizontal), so wet-cell balance ≠ runtime
+    balance when masking is cheap.
+  - The zipper-fold rank (north, rank 1 here) already has extra halo
+    work; giving it the larger slab compounds that.
+  - Non-round slab sizes (453, 627 vs. 540, 540) may harm occupancy.
+- **Net for Phase A: neither sync-GC nor LB helps on 1x2 OM2-025
+  H200.** The best combination is still plain K=12 at 297.3 s. Before
+  burying LB, worth a look at 1x4 / 2x2 where the y-partition is
+  narrower and the Arctic imbalance is larger relative to each rank.
 
 ### Submission commands
 
