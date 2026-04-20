@@ -32,7 +32,14 @@ TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
 GRID_HZ=${GRID_HZ:-7}                                   # grid halo in z (2 sufficient; larger is harmless)
-LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | yes (wet-cell-balanced y-partition; only valid when PARTITION_X=1)
+LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | yes(=surface; back-compat) — only valid when PARTITION_X=1
+# Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
+case "$LOAD_BALANCE" in
+    no)             LB_TAG="" ;;
+    surface|yes)    LB_TAG="_LBS" ; LOAD_BALANCE="surface" ;;
+    cell)           LB_TAG="_LB" ;;
+    *) echo "ERROR: LOAD_BALANCE must be no | surface | cell (got: $LOAD_BALANCE)" >&2; exit 1 ;;
+esac
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 if [ "$W_FORMULATION" = "wprescribed" ]; then
     if [ "$PRESCRIBED_W_SOURCE" = "diagnosed" ]; then
@@ -51,9 +58,7 @@ fi
 if [ "$TBLOCKING" != "no" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_TB${TBLOCKING}"
 fi
-if [ "$LOAD_BALANCE" = "yes" ]; then
-    MODEL_CONFIG="${MODEL_CONFIG}_LB"
-fi
+MODEL_CONFIG="${MODEL_CONFIG}${LB_TAG}"
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
