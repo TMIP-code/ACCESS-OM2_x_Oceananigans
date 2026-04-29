@@ -250,8 +250,11 @@ echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP
 echo "TBLOCKING=$TBLOCKING, GRID halos=(${GRID_HX},${GRID_HY},${GRID_HZ})"
 echo ""
 
-# Job ID variables (empty = not submitted)
-PREP_JOB="" GRID_JOB="" VEL_JOB="" CLO_JOB="" DIAGW_JOB="" PARTITION_JOB=""
+# Job ID variables (empty = not submitted; can be pre-set via env vars to chain
+# downstream steps onto jobs submitted by an earlier driver invocation, e.g.
+# `GRID_JOB=12345.gadi-pbs VEL_JOB=12346.gadi-pbs CLO_JOB=12347.gadi-pbs \
+#  PARTITION=1x4 JOB_CHAIN=partition-run1yr bash scripts/driver.sh`)
+PREP_JOB="${PREP_JOB:-}" GRID_JOB="${GRID_JOB:-}" VEL_JOB="${VEL_JOB:-}" CLO_JOB="${CLO_JOB:-}" DIAGW_JOB="${DIAGW_JOB:-}" PARTITION_JOB="${PARTITION_JOB:-}"
 RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
