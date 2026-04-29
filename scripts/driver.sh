@@ -296,8 +296,12 @@ if has_step clo; then
     deps=""
     [ -n "$PREP_JOB" ] && deps="${deps:+$deps:}$PREP_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
-    CLO_JOB=$(submit_job clo "$WALLTIME_VEL" \
-        scripts/preprocessing/build_closures.sh --deps "$deps")
+    clo_flags=(--deps "$deps")
+    [ -n "${CLO_NCPUS:-}" ] && clo_flags+=(--ncpus "${CLO_NCPUS}")
+    [ -n "${CLO_QUEUE:-}" ] && clo_flags+=(--queue "${CLO_QUEUE}")
+    [ -n "${CLO_MEM:-}" ]   && clo_flags+=(--mem "${CLO_MEM}")
+    CLO_JOB=$(submit_job clo "${WALLTIME_CLO:-$WALLTIME_VEL}" \
+        scripts/preprocessing/build_closures.sh "${clo_flags[@]}")
 fi
 
 VEL_DEP="${VEL_JOB:-${GRID_JOB:-}}"

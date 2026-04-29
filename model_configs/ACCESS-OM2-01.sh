@@ -24,6 +24,11 @@ WALLTIME_VEL=06:00:00
 VEL_NCPUS=16
 VEL_MEM=512GB
 VEL_QUEUE=hugemem
+# clo: same envelope as vel for now (OM2-01 default 47GB express OOMed)
+WALLTIME_CLO=06:00:00
+CLO_NCPUS=16
+CLO_MEM=512GB
+CLO_QUEUE=hugemem
 PARTITION_WALLTIME=02:00:00
 
 # --- Standard runs ---
