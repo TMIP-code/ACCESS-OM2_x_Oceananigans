@@ -108,7 +108,11 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 bottom_ds = open_dataset(MOM_input_topo_file)
 bottom = -readcubedata(bottom_ds["depth"]).data
-bottom = replace(bottom, 9999.0 => 0.0)
+# Land cells appear either as the literal sentinel 9999.0 (older topog.nc) or
+# as `missing` (newer files where _FillValue is decoded by YAXArrays, e.g.
+# 01deg_jra55v140_iaf cycles). Handle both, then strip the Missing union so
+# downstream `set!` into Float64 fields succeeds.
+bottom = Float64.(replace(bottom, 9999.0 => 0.0, missing => 0.0))
 
 # Cross-check our topography against the ocean_grid.nc that MOM writes at
 # runtime. This is *only* a sanity check — `ht`/`kmt` aren't used to build
