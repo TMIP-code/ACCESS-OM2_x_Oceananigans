@@ -42,10 +42,14 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 PROFILE="${PROFILE:-no}"
 if [ "$PROFILE" = "yes" ]; then
     export JULIA_NVTX_CALLBACKS=gc
-    export BENCHMARK_STEPS="${BENCHMARK_STEPS:-20}"
+    # Default 240 = 20 batches × K=12 (= max divisor in {6, 9, 12, 18, 36};
+    # also covers non-TB profiles cleanly). Override at submission with
+    # BENCHMARK_STEPS=<n> if you need a shorter run.
+    export BENCHMARK_STEPS="${BENCHMARK_STEPS:-240}"
     echo "PROFILE=yes: limiting simulation to BENCHMARK_STEPS=$BENCHMARK_STEPS"
     # Synchronized GC for distributed profiling (see docs/DISTRIBUTED_GC.md).
-    # Default N=5 → ~4 fires across the 20-step benchmark; SYNC_GC_NSTEPS=0 disables.
+    # Default N=5 → ~48 fires across the 240-step benchmark; SYNC_GC_NSTEPS=0
+    # disables. Under TBLOCKING the unit becomes batches (= N·K raw steps).
     export SYNC_GC_NSTEPS="${SYNC_GC_NSTEPS:-5}"
     if [ "$SYNC_GC_NSTEPS" -gt 0 ]; then
         sync_gc_tag="syncGCyes_N${SYNC_GC_NSTEPS}"
