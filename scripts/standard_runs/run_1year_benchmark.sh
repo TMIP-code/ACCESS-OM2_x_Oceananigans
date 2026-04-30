@@ -69,7 +69,7 @@ fi
 if [ "$PROFILE" = "yes" ] && [ "$NGPUS" -gt 1 ]; then
     echo "Running with MPI profiling (NGPUS=$NGPUS, all ranks)"
     echo "logging output in $log_file"
-    mpiexec --bind-to socket --map-by socket -n "$NGPUS" --report-bindings --display map-devel,bind bash -c "
+    mpiexec --bind-to numa --map-by numa -n "$NGPUS" --report-bindings --display map-devel,bind bash -c "
         nsys profile \
             --trace=nvtx,cuda,mpi \
             --cuda-memory-usage=true \
@@ -88,7 +88,7 @@ elif [ "$PROFILE" = "yes" ]; then
 elif [ "$NGPUS" -gt 1 ]; then
     echo "Running (NGPUS=$NGPUS)"
     echo "logging output in $log_file"
-    mpiexec --bind-to socket --map-by socket -n $NGPUS --report-bindings --display map-devel,bind $JULIA_CMD \
+    mpiexec --bind-to numa --map-by numa -n $NGPUS --report-bindings --display map-devel,bind $JULIA_CMD \
         src/run_1year_benchmark.jl &> "$log_file"
 else
     echo "Running (serial)"
