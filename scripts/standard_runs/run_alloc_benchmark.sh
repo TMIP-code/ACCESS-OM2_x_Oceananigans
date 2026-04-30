@@ -29,7 +29,7 @@ JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 if [ "$NGPUS" -gt 1 ]; then
     echo "Running alloc benchmark (NGPUS=$NGPUS)"
     echo "logging output in $log_file"
-    mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_CMD \
+    mpiexec --bind-to socket --map-by socket -n $NGPUS --report-bindings $JULIA_CMD \
         src/run_alloc_benchmark.jl &> "$log_file"
 else
     echo "Running alloc benchmark (serial)"

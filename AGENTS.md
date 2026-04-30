@@ -294,7 +294,7 @@ Memory is auto-set by the driver: 256GB for gpuhopper, 96GB for gpuvolta.
 
 Multi-GPU runs use `mpiexec` with socket binding flags:
 ```bash
-mpiexec --bind-to socket --map-by socket -n $NGPUS julia --project ...
+mpiexec --bind-to socket --map-by socket -n $NGPUS --report-bindings julia --project ...
 ```
 
 **Why `--bind-to socket --map-by socket`:** Gadi's default behaviour assigns MPI ranks to CPU sockets randomly. Since each GPU is physically attached to a specific CPU socket, random assignment means a CPU may be bound to a GPU on a different socket, making CPU-GPU communication cross the inter-socket link and become extremely slow. Socket binding ensures each MPI rank runs on the CPU socket directly connected to its GPU, giving the fastest possible CPU-GPU data path.

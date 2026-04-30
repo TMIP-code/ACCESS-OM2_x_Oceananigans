@@ -37,7 +37,7 @@ log_file="$run_log_dir/${MODEL_CONFIG}_${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag
 
 NGPUS="${PBS_NGPUS:-1}"
 JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
-[ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+[ "$NGPUS" -gt 1 ] && JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS --report-bindings $JULIA_LAUNCHER"
 
 echo "Running src/solve_periodic_NK.jl for PARENT_MODEL=$PARENT_MODEL (NGPUS=$NGPUS)"
 echo "logging output in $log_file"

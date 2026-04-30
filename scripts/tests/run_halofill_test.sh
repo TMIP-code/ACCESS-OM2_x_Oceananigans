@@ -28,7 +28,7 @@ NGPUS="${PBS_NGPUS:-0}"
 NCPUS="${PBS_NCPUS:-1}"
 JULIA_LAUNCHER="julia $JULIA_BOUNDS_FLAG --project"
 if [ "$NGPUS" -gt 1 ]; then
-    JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS $JULIA_LAUNCHER"
+    JULIA_LAUNCHER="mpiexec --bind-to socket --map-by socket -n $NGPUS --report-bindings $JULIA_LAUNCHER"
 elif [ "$NGPUS" -eq 0 ] && [ "$NCPUS" -gt 1 ]; then
     JULIA_LAUNCHER="mpiexec -n $NCPUS $JULIA_LAUNCHER"
 fi
