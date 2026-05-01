@@ -32,6 +32,17 @@ log_file="$run_log_dir/${MODEL_CONFIG}_1yearfast_${job_id}.log"
 NGPUS="${PBS_NGPUS:-1}"
 JULIA_CMD="julia $JULIA_BOUNDS_FLAG --project"
 
+# MPI rank binding for multi-rank runs. Default 'numa' (NCI Hybrid MPI
+# pattern #9: 1 rank per NUMA domain). Set MPI_BINDING=socket to A/B
+# against the historical socket-binding baseline.
+MPI_BINDING="${MPI_BINDING:-numa}"
+case "$MPI_BINDING" in
+    numa)   MPI_BIND_FLAGS="--bind-to numa --map-by numa" ;;
+    socket) MPI_BIND_FLAGS="--bind-to socket --map-by socket" ;;
+    *) echo "ERROR: MPI_BINDING must be numa or socket (got: $MPI_BINDING)" >&2; exit 1 ;;
+esac
+echo "MPI_BINDING=$MPI_BINDING ($MPI_BIND_FLAGS)"
+
 # Nsight Systems profiling: set PROFILE=yes to wrap the run with nsys profile.
 # Produces .nsys-rep files in the log directory for analysis with Nsight Systems GUI.
 # Uses --capture-range=cudaProfilerApi so nsys only records data during the
@@ -69,7 +80,7 @@ fi
 if [ "$PROFILE" = "yes" ] && [ "$NGPUS" -gt 1 ]; then
     echo "Running with MPI profiling (NGPUS=$NGPUS, all ranks)"
     echo "logging output in $log_file"
-    mpiexec --bind-to numa --map-by numa -n "$NGPUS" --report-bindings --display map-devel,bind bash -c "
+    mpiexec $MPI_BIND_FLAGS -n "$NGPUS" --report-bindings --display map-devel,bind bash -c "
         nsys profile \
             --trace=nvtx,cuda,mpi \
             --cuda-memory-usage=true \
@@ -88,7 +99,7 @@ elif [ "$PROFILE" = "yes" ]; then
 elif [ "$NGPUS" -gt 1 ]; then
     echo "Running (NGPUS=$NGPUS)"
     echo "logging output in $log_file"
-    mpiexec --bind-to numa --map-by numa -n $NGPUS --report-bindings --display map-devel,bind $JULIA_CMD \
+    mpiexec $MPI_BIND_FLAGS -n $NGPUS --report-bindings --display map-devel,bind $JULIA_CMD \
         src/run_1year_benchmark.jl &> "$log_file"
 else
     echo "Running (serial)"
