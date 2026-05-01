@@ -45,6 +45,85 @@ GM-Redi uses `SeawaterBuoyancy(LinearEquationOfState())` with T/S prescribed fro
 All 2x2 runs that finished FTS loading hit NaN (iter 900-1900).
 All 1x2/1x4 runs NaN at iter 400.
 
+## ACCESS-OM2-01 (3600×2700×75)
+
+First successful 0.1° (eddy-resolving) runs. Experiment
+`01deg_jra55v140_iaf_cycle4`, TIME_WINDOW `1958-1987`, Δt = 400 s
+(78900 steps for 1 yr). Submitted via the standard `JOB_CHAIN=run1yr`
+path (`scripts/standard_runs/run_1year.sh`, with JLD2 output writers
+enabled), at commit `016505b`.
+
+Model config flags (all defaults):
+
+- `VELOCITY_SOURCE=cgridtransports`
+- `W_FORMULATION=wdiagnosed` (model diagnoses w internally, so the
+  `diagnose_w` preprocessing step is not needed for the run)
+- `ADVECTION_SCHEME=centered2`
+- `TIMESTEPPER=AB2`
+- `GM_REDI=no`, `MONTHLY_KAPPAV=no`
+- `eta_t` source: cycle4 saves `sea_level = eta_t + p_atm/(ρ₀g)`
+  rather than `eta_t`; `periodicaverage.py` falls back to `sea_level`
+  with the IB-correction caveat documented in
+  [src/periodicaverage.py](../src/periodicaverage.py).
+
+### 1-year forward-map walltime
+
+| Partition | GPU                      | 1-yr integration | Total wall | Setup | Steps | Δt    | Status   | Job ID    |
+|-----------|--------------------------|------------------|------------|-------|-------|-------|----------|-----------|
+| 1×4       | gpuhopper (4× H200)      | **1.670 h**      | 1:54:33    | ~14 m | 78900 | 400 s | Complete | 167345793 |
+| 1×8       | gpuhopper (8× H200, 2 nodes) | **1.670 h**  | 2:00:37    | ~20 m | 78900 | 400 s | Complete | 167345796 |
+| 1×8       | gpuvolta (8× V100)       | OOM at FTS load  | 0:16:38    | —     | —     | —     | Failed   | 167416139 |
+
+**Strong-scaling note:** 1×8 didn't reduce model integration time over
+1×4 (both 1.670 h). The setup phase (FTS loading on 2 nodes vs. 1)
+costs the extra ~6 min observed in total wall. Either the workload
+doesn't scale past 4 H200 ranks at this resolution, or MPI/halo
+communication absorbs the extra GPUs — worth profiling separately.
+
+### PBS resource usage
+
+| Partition | Job ID    | Mem requested | Mem used | NCPUs | NGPUs | Walltime requested | Walltime used | CPU time | Comment         |
+|-----------|-----------|---------------|----------|-------|-------|--------------------|---------------|----------|-----------------|
+| 1×4       | 167345793 | 1024 GB       | **320 GB** (31 %) | 48 | 4 | 16:00:00       | 01:54:33      | 07:30:00 | 1 node, gpuhopper |
+| 1×8       | 167345796 | 2048 GB       | **382 GB** (19 %) | 96 | 8 | 16:00:00       | 02:00:37      | 16:27:00 | 2 nodes, gpuhopper |
+
+Memory headroom is large in both cases — could shrink mem requests if
+SU pressure becomes an issue. Walltime budget is ~10× too generous;
+~3:00:00 would suffice with margin.
+
+### What didn't work
+
+- **`diagnose_w` on a single H200** (job 167339769) OOMed at FTS load:
+  attempted to allocate 78 GiB on top of 83 GiB usage, exceeding the
+  140 GB H200 limit. With `wdiagnosed` we don't actually consume
+  `w_from_mass_transport` from preprocessing, so this step can be
+  dropped from the OM2-01 chain. If we ever switch to `wprescribed`
+  with a diagnosed source, `diagnose_w` itself will need to be
+  partitioned (or moved to CPU).
+- **1×8 on gpuvolta** (job 167416139) OOMed at distributed FTS load
+  in `setup_model.jl:142`. V100 has only 32 GB GPU memory per card —
+  too small for any reasonable per-rank slab of a 3600×2700×75 grid
+  at 1×8. Higher `1×N` (e.g. 1×16, 2×8) would need testing on
+  gpuvolta if that path mattered.
+
+### Preprocessing resource usage (for context)
+
+The pipeline upstream of `run1yr` for OM2-01 cycle4 / TIME_WINDOW
+`1958-1987`:
+
+| Step      | Job ID    | Queue   | NCPUs | Mem req | Mem used | Walltime  | SUs   | Notes |
+|-----------|-----------|---------|-------|---------|----------|-----------|-------|-------|
+| prep      | 166489939 | megamem | 32    | 2048 GB | 943 GB   | 7:48:53   | 1250  | `periodicaverage.py` — monthly clim + yearly avg |
+| grid      | 167339766 | express | 12    | 47 GB   | 1.6 GB   | 0:01:18   | small | `create_grid.jl` |
+| vel       | 167339767 | hugemem | 16    | 512 GB  | 339 GB   | 0:58:43   | medium| `prep_velocities.jl` |
+| clo       | 167345779 | hugemem | 16    | 512 GB  | 340 GB   | 0:39:48   | medium| `build_closures.jl` (47 GB express OOMed; bumped to vel envelope) |
+| partition | 167345792 | megamem | 4     | 1800 GB | 1.50 TB  | 0:37:13   | medium| 1×4 — each rank loads global FTS |
+| partition | 167345794 | megamem | 8     | 3000 GB | 2.05 TB  | 0:50:09   | medium| 1×8 — same pattern, 8 ranks   |
+
+Compared to OM2-025 baselines (158 GB / 36 min for `prep`, 47 GB / 49
+min for `vel`), OM2-01 lands at roughly the predicted ×6 memory and
+×10 walltime ratios.
+
 ## Known Issues
 
 ### NaN in distributed runs
