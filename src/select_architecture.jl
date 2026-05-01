@@ -65,6 +65,11 @@ if nranks > 1
     if device isa GPU
         @info "CUDA device: $(CUDA.device())"
     end
+    # Diagnostic: is this MPI build CUDA-aware? GPU-buffer halo exchanges
+    # silently host-stage if false — see docs/OM2_01_NODE_SCALING_INVESTIGATION.md.
+    if rank == 0
+        @info "MPI.has_cuda() = $(MPI.has_cuda())"
+    end
 else
     arch = device
     arch_str = device_str
