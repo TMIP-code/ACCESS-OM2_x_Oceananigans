@@ -17,7 +17,9 @@
 #PBS -N mpi_bw_test
 #PBS -P y99
 #PBS -q gpuvolta
-#PBS -l select=2:ngpus=4:ncpus=48:mem=384GB
+#PBS -l ngpus=8
+#PBS -l ncpus=96
+#PBS -l mem=768GB
 #PBS -l walltime=00:20:00
 #PBS -l jobfs=10GB
 #PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99
@@ -47,7 +49,11 @@ NGPUS="${PBS_NGPUS:-8}"
 echo "Running test/test_mpi_bandwidth.jl on $NGPUS GPUs (gpuvolta, 2 nodes × 4 V100)"
 echo "logging output in $log_file"
 
-mpiexec --bind-to socket --map-by socket -n "$NGPUS" --report-bindings \
+# --map-by ppr:4:node forces exactly 4 ranks per chassis. Combined with
+# ngpus=8, that guarantees 2 chassis (since gpuvolta has 4 V100 per
+# chassis). The previous run used --map-by socket and ended up packing
+# all 8 ranks onto a single chassis — see commit log for details.
+mpiexec --bind-to socket --map-by ppr:4:node -n "$NGPUS" --report-bindings \
     julia $JULIA_BOUNDS_FLAG --project test/test_mpi_bandwidth.jl \
     2>&1 | tee "$log_file"
 
