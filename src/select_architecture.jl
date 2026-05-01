@@ -67,9 +67,10 @@ if nranks > 1
     end
     # Diagnostic: is this MPI build CUDA-aware? GPU-buffer halo exchanges
     # silently host-stage if false — see docs/OM2_01_NODE_SCALING_INVESTIGATION.md.
-    if rank == 0
-        @info "MPI.has_cuda() = $(MPI.has_cuda())"
-    end
+    # Print on every rank: with MPItrampoline the underlying libmpi is loaded
+    # per process, so per-rank divergence is theoretically possible. Once we
+    # confirm all ranks agree, this can be scaled back to rank 0 only.
+    @info "rank $rank: MPI.has_cuda() = $(MPI.has_cuda())"
 else
     arch = device
     arch_str = device_str
