@@ -17,9 +17,7 @@
 #PBS -N mpi_bw_test
 #PBS -P y99
 #PBS -q gpuvolta
-#PBS -l ngpus=8
-#PBS -l ncpus=96
-#PBS -l mem=768GB
+#PBS -l select=2:ngpus=4:ncpus=48:mem=384GB
 #PBS -l walltime=00:20:00
 #PBS -l jobfs=10GB
 #PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99

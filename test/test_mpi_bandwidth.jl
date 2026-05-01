@@ -81,18 +81,23 @@ MPI.Barrier(COMM)
 # --- Gather hostnames so rank 0 can pick intra/inter-node peers ---
 all_hosts = MPI.gather(host, COMM; root = 0)
 
-intra_peer = -1     # peer for rank 0, same host
-inter_peer = -1     # peer for rank 0, different host
-
-if RANK == 0
-    for r in 1:(NRANKS - 1)
-        if all_hosts[r + 1] == all_hosts[1] && intra_peer < 0
-            intra_peer = r
+function pick_peers(all_hosts)
+    intra = -1
+    inter = -1
+    n = length(all_hosts)
+    for r in 1:(n - 1)
+        if all_hosts[r + 1] == all_hosts[1] && intra < 0
+            intra = r
         end
-        if all_hosts[r + 1] != all_hosts[1] && inter_peer < 0
-            inter_peer = r
+        if all_hosts[r + 1] != all_hosts[1] && inter < 0
+            inter = r
         end
     end
+    return intra, inter
+end
+
+intra_peer, inter_peer = if RANK == 0
+    ip, xp = pick_peers(all_hosts)
     println()
     println("Hostnames per rank:")
     for r in 0:(NRANKS - 1)
@@ -100,9 +105,12 @@ if RANK == 0
     end
     println()
     println("Selected pairs (rank 0 ↔ peer):")
-    println("  intra-node peer = $intra_peer")
-    println("  inter-node peer = $inter_peer")
+    println("  intra-node peer = $ip")
+    println("  inter-node peer = $xp")
     println()
+    (ip, xp)
+else
+    (-1, -1)
 end
 
 intra_peer = MPI.bcast(intra_peer, COMM; root = 0)
