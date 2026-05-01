@@ -60,6 +60,23 @@ function load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
     # Create empty FTS on the distributed grid
     dist_fts = FieldTimeSeries(loc, grid, times; backend = InMemory(), time_indexing)
 
+    # Sanity-check halo-aware shape: the parent (halo'd) array on the runtime
+    # grid must match the snapshot saved by partition_data.jl. A mismatch
+    # almost always means GRID_HX/HY/HZ at runtime differ from when this
+    # partition file was built — fail loudly with the actionable message
+    # instead of letting copyto! bounds-error deep inside CUDA.jl.
+    expected = size(parent(dist_fts[1].data))
+    actual = size(snapshots[1])
+    if expected != actual
+        error(
+            "Partition halo-size mismatch in $rank_file for field '$name': " *
+                "runtime grid expects parent shape $expected, but file has $actual. " *
+                "This usually means GRID_HX/HY/HZ at run time differ from when " *
+                "the partition was built. Either set GRID_HX/HY/HZ to match, or " *
+                "rebuild the partition (JOB_CHAIN=partition-...)."
+        )
+    end
+
     # Copy pre-partitioned parent data directly into each snapshot.
     # Use copyto! to handle CPU→GPU transfer when grid is on GPU.
     for n in eachindex(times)
