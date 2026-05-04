@@ -17,11 +17,13 @@ the model integration time at all. Setup (FTS load) cost grows by
 ~6 min — also not free. SU pressure roughly doubles for no walltime
 benefit.
 
-Profile jobs **167527948** (1×4) and **167527949** (1×8) were
-submitted at the very end of the session with `BENCHMARK_STEPS=240`
-and `PROFILE=yes`; their `.qdrep`/`.nsys-rep` outputs land under
-`outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1958-1987/standardrun/.../profile_*/`
-once they finish. **First action of the next session: open both
+Profile jobs **167682325** (1×4) and **167682331** (1×8) are queued
+with `BENCHMARK_STEPS=240` and `PROFILE=yes` (4 h walltime budget).
+Their `.nsys-rep` outputs land under
+`logs/julia/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1958-1987/standardrun/cgridtransports_wdiagnosed_centered2_AB2_1yearfast_<jobid>_profile_<sync_gc_tag>_rank<N>.nsys-rep`
+once they finish. (An earlier pair of IDs `167527948`/`167527949`
+recorded in this doc never produced any PBS or Julia log artifacts —
+they were either never submitted or qdel'd before running.) **First action of the next session: open both
 profiles in Nsight Systems and compare per-step phase timings
 (compute / halo / GC / output).**
 
@@ -162,7 +164,7 @@ similar resolutions.
    `MPI_LAUNCHER_AND_BINDING.md`, `DISTRIBUTED_GC.md`, `SYNC_GC.md`,
    `COMBINED_SCALING_BENCHMARKS.md`, `PROFILING.md`. These already
    capture the playbook for distributed Oceananigans on Gadi.
-2. **Open the profile jobs** (`167527948`/`167527949`) in Nsight
+2. **Open the profile jobs** (`167682325` 1×4 / `167682331` 1×8) in Nsight
    Systems. Compare per-step timeline. Bucket the time into:
    `compute kernels`, `MPI halo fill`, `GC pauses`, `output writers`,
    `other`. Numbers go into `BENCHMARKS.md` under OM2-01.
