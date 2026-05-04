@@ -163,9 +163,11 @@ produces a silent divergence that shows up in the 2×2 case first.
 
 1. **Halo size ≥ K+1** on each partitioned horizontal direction. K halo
    points consumed per batch + 1 safety margin.
-2. **Extended `KernelParameters`**: sub-step k spans
-   `(1 - margin) : (N + margin)` with `margin = K - k + 1`. Sub-step 1
-   is widest; sub-step K has margin 1.
+2. **Extended `KernelParameters`**: every sub-step spans
+   `(1 - K) : (N + K)` (constant margin = K). With B=1 stencil and
+   halo H = K+1, polluted outer-halo cells propagate inward at most
+   one cell per sub-step, never reaching the interior `[1, N]` within
+   the K-step batch.
 3. **Bypass `complete_communication_and_compute_tracer_buffer!`**. Call
    `compute_hydrostatic_tracer_tendencies!(model, kp; active_cells_map=nothing)`
    and `compute_tracer_flux_bcs!(model)` directly — the standard path

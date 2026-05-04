@@ -2,7 +2,7 @@
 Temporal blocking for tracer advance on distributed tripolar grids.
 
 Ported from the validated MWE:
-  /g/data/y99/bp3051/.julia/dev/Oceananigans/temporal_blocking_tripolar_distributed.jl
+  /g/data/y99/bp3051/.julia/dev/Oceananigans/temporal_blocking_tripolar_distributed_constkp.jl
   /g/data/y99/bp3051/.julia/dev/Oceananigans/temporal_blocking_tripolar.md
 
 Requires halo size `H ≥ K + 1` on each partitioned horizontal
@@ -21,11 +21,6 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels: compute_hydrostatic_trac
 using Oceananigans.TurbulenceClosures: implicit_step!
 using Oceananigans.Fields: instantiated_location
 using Oceananigans.OutputReaders: Time
-
-extended_kernel_parameters(K, k, Nx, Ny, Nz) =
-let margin = K - k + 1
-    KernelParameters((1 - margin):(Nx + margin), (1 - margin):(Ny + margin), 1:Nz)
-end
 
 function compute_tracer_tendencies_in_halo!(model, kp)
     # Direct call bypasses complete_communication_and_compute_tracer_buffer!,
@@ -103,10 +98,12 @@ function multi_time_step!(
 
     maybe_prepare_first_time_step!(model, [])
 
+    # Constant extended kernel parameters: margin = K for every sub-step.
+    kp = KernelParameters((1 - K):(Nx + K), (1 - K):(Ny + K), 1:Nz)
+
     for k in 1:K
         euler = (Δt_FT != model.clock.last_Δt)
         χ = ifelse(euler, convert(FT, -0.5), model.timestepper.χ)
-        kp = extended_kernel_parameters(K, k, Nx, Ny, Nz)
 
         compute_tracer_tendencies_in_halo!(model, kp)
         ab2_step_tracers_in_halo!(model.tracers, model, Δt_FT, χ, kp)
@@ -133,11 +130,9 @@ function multi_time_step!(
             # z-Bounded) without triggering MPI halo communication.
             fill_halo_regions!(model.tracers; only_local_halos = true)
 
-            # Corner-cell fix: reapply z-BC over the extended xy range for
-            # the next sub-step. Without it, corner halos go stale and
-            # blow up over K sub-steps.
-            margin_next = K - (k + 1) + 1
-            fill_z_halos_over_extended_xy!(model.tracers, model.grid, Nx, Ny, margin_next)
+            # Corner-cell fix: reapply z-BC over the extended xy range.
+            # Without it, corner halos go stale and blow up over K sub-steps.
+            fill_z_halos_over_extended_xy!(model.tracers, model.grid, Nx, Ny, K)
         end
     end
 
