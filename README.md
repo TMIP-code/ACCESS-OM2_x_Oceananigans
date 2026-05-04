@@ -164,6 +164,98 @@ scripts/
 └── debugging/                 # Debug/check scripts
 ```
 
+## Tracking submissions
+
+Every `scripts/driver.sh` invocation drops a TOML **manifest** next to its
+outputs and appends one row per submitted PBS job to a global TSV
+**index**. Together they answer "what did I submit, when, how, and how
+did it turn out?" without grep'ing PBS history.
+
+### Per-case launcher (optional)
+
+For one-off comparison runs, define a case file under
+`scripts/runs/cases/{name}.sh` that just `export`s env vars
+(mirroring the `model_configs/{PARENT_MODEL}.sh` pattern) and submit it
+with the launcher:
+
+```bash
+bash scripts/runs/run_case.sh scripts/runs/cases/OM2-1_TR1968-1977_MLD1972.sh
+```
+
+The launcher sources the case file (so its exports become env vars), sets
+`CASE_FILE` so the manifest records which case was used, and execs
+`scripts/driver.sh`.
+
+### Per-run manifest
+
+Dropped at:
+
+```
+outputs/{PM}/{EXP}/{output_tag}/manifests/{timestamp}_{pid}.toml
+```
+
+Contents: `[meta]` (timestamp, user, host, case_file), `[git]`
+(commit, branch, dirty), `[env]` (every key in `COMMON_VARS` plus
+`JOB_CHAIN`, `TM_SOURCE`, etc.), and a `[[jobs]]` table with one entry
+per PBS job (step, jobid, script, deps).
+
+### Submissions index
+
+`scripts/runs/submissions.tsv` — append-only, one row per PBS job, 20
+columns:
+
+```
+timestamp jobid step deps manifest_path case_file git_commit
+JOB_CHAIN PARENT_MODEL TIME_WINDOW MLD_TIME_WINDOW script
+exit_code queue walltime_req walltime_used mem_req mem_used ncpus ngpus
+```
+
+The first 12 columns are written at submit time; the 8 trailing
+PBS-side columns are filled later by **reconcile**.
+
+The TSV is `.gitignore`d (it's mutable runtime state); the manifests
+are the source of truth, the TSV is just a finding aid.
+
+### When to run reconcile
+
+Run **after a batch of jobs has finished** (or whenever you want
+up-to-date PBS state in the TSV):
+
+```bash
+bash scripts/runs/reconcile_submissions.sh
+```
+
+The script queries `qstat -fx <jobid>` for each row missing PBS-side
+fields and rewrites the TSV in place. It's idempotent and safe to run
+repeatedly. Behaviour per row:
+
+| State | Action |
+|-------|--------|
+| DRY_RUN_* | `exit_code=DRY`, others `-` |
+| Still Q/H/R | leave PBS fields empty (next reconcile picks up) |
+| Finished, in qstat history | fill all 8 fields; mem normalised to GB |
+| Aged out of qstat | `exit_code=?`, others `?` (preserves prior values if any) |
+
+PBS history retention on Gadi is ~7 days, so reconcile within that
+window or the row sticks at `?`.
+
+Tip: reconcile near job completion to avoid losing data; if you wait
+weeks, the values won't be recoverable.
+
+### Rebuilding the TSV from manifests
+
+If the index is lost, corrupted, or schema-drifted, rebuild it from the
+manifests (the source of truth):
+
+```bash
+python3 scripts/runs/rebuild_submissions.py
+bash scripts/runs/reconcile_submissions.sh
+```
+
+`rebuild_submissions.py` walks `outputs/**/manifests/*.toml` and emits
+one TSV row per `[[jobs]]` entry with the 12 stable fields populated.
+Reconcile then fills the PBS-side fields.
+
 ## Multi-GPU (MPI) runs
 
 Multi-GPU simulations use MPI to distribute the grid across GPUs. All PBS scripts automatically detect `NGPUS > 1` and launch via `mpiexec`.
