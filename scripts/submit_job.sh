@@ -39,7 +39,7 @@ SUBMISSIONS_TSV="${SUBMISSIONS_TSV:-scripts/runs/submissions.tsv}"
 _ensure_submissions_tsv_header() {
     [ -f "$SUBMISSIONS_TSV" ] && return 0
     mkdir -p "$(dirname "$SUBMISSIONS_TSV")"
-    printf 'timestamp\tjobid\tstep\tdeps\tmanifest_path\tcase_file\tgit_commit\tJOB_CHAIN\tPARENT_MODEL\tTIME_WINDOW\tMLD_TIME_WINDOW\tscript\n' > "$SUBMISSIONS_TSV"
+    printf 'timestamp\tjobid\tstep\tdeps\tmanifest_path\tcase_file\tgit_commit\tJOB_CHAIN\tPARENT_MODEL\tTIME_WINDOW\tMLD_TIME_WINDOW\tscript\texit_code\twalltime_used\n' > "$SUBMISSIONS_TSV"
 }
 
 submit_job() {
@@ -146,7 +146,9 @@ submit_job() {
     local tw="${TIME_WINDOW:-}"
     local mtw=""
     [ "${MLD_EXPLICIT:-no}" = "yes" ] && mtw="${MLD_TIME_WINDOW:-}"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    # exit_code and walltime_used are filled later by
+    # scripts/runs/reconcile_submissions.sh once jobs finish.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\n' \
         "$ts" "$job_id" "$name" "$deps" "$manifest" "$case_file" \
         "$git_commit" "$job_chain" "$pm" "$tw" "$mtw" "$script" \
         >> "$SUBMISSIONS_TSV"
