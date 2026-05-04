@@ -15,9 +15,9 @@ Sentinels:
   "?"   finished but Exit_status missing, or aged out of qstat
   "-"   field unavailable from qstat
 
-Memory fields are normalised to GB (e.g. "47.000GB"); other units in the
-qstat output ("b", "kb", "mb", "tb") are converted on read. Pre-existing
-"X.XXXGB" values pass through unchanged.
+Memory fields are normalised to integer GB (e.g. "47GB"); other units in the
+qstat output ("b", "kb", "mb", "tb") are converted on read and rounded to
+the nearest GB. Pre-existing "X.XXXGB" values are also re-rounded.
 
 Tolerates older row formats (12 or 14 columns from earlier schema versions)
 by left-padding the row to 20 fields and using the schema position to
@@ -49,7 +49,7 @@ IDX_EXIT, IDX_QUEUE, IDX_WREQ, IDX_WUSE, IDX_MREQ, IDX_MUSE, IDX_NCPUS, IDX_NGPU
 
 
 def to_gb(v):
-    """Normalise PBS memory strings to '%.3fGB'. Sentinels pass through."""
+    """Normalise PBS memory strings to integer-GB ('NNGB'). Sentinels pass through."""
     if v in ("", "-", "?"):
         return v
     m = re.match(r"^([\d.]+)\s*([a-zA-Z]*)$", v)
@@ -67,7 +67,7 @@ def to_gb(v):
     }.get(suf)
     if factor is None:
         return v
-    return f"{n * factor:.3f}GB"
+    return f"{round(n * factor)}GB"
 
 
 def qstat_fx(jobid):
