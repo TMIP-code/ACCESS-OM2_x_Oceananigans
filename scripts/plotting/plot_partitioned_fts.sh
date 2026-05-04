@@ -18,7 +18,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
-log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/partitions
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/plot/partitions
 mkdir -p "$log_dir"
 log_file="$log_dir/plot_partitioned_fts_${PARTITION}_${job_id}.log"
 

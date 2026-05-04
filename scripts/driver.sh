@@ -64,7 +64,21 @@ if [ -z "${EXPERIMENT:-}" ]; then
     esac
 fi
 TIME_WINDOW=${TIME_WINDOW:-1968-1977}
-export EXPERIMENT TIME_WINDOW
+
+# MLD time window (decoupled from TIME_WINDOW). Same logic as env_defaults.sh:
+# explicit set ⇒ test/ subtree; unset ⇒ production layout (back-compat).
+MLD_EXPLICIT="no"
+if [ -n "${MLD_TIME_WINDOW:-}" ]; then
+    MLD_EXPLICIT="yes"
+else
+    MLD_TIME_WINDOW="$TIME_WINDOW"
+fi
+if [ "$MLD_EXPLICIT" = "yes" ]; then
+    OUTPUT_TAG="test/TR${TIME_WINDOW}_MLD${MLD_TIME_WINDOW}"
+else
+    OUTPUT_TAG="$TIME_WINDOW"
+fi
+export EXPERIMENT TIME_WINDOW MLD_TIME_WINDOW MLD_EXPLICIT OUTPUT_TAG
 
 # Source model config for MODEL_SHORT and walltimes
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
@@ -223,6 +237,7 @@ LOAD_BALANCE=${LOAD_BALANCE:-no}
 COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
 COMMON_VARS+=",EXPERIMENT=${EXPERIMENT}"
 COMMON_VARS+=",TIME_WINDOW=${TIME_WINDOW}"
+[ "$MLD_EXPLICIT" = "yes" ] && COMMON_VARS+=",MLD_TIME_WINDOW=${MLD_TIME_WINDOW}"
 COMMON_VARS+=",GIT_COMMIT=${GIT_COMMIT}"
 COMMON_VARS+=",VELOCITY_SOURCE=${VELOCITY_SOURCE}"
 COMMON_VARS+=",ADVECTION_SCHEME=${ADVECTION_SCHEME}"
@@ -239,10 +254,23 @@ COMMON_VARS+=",LOAD_BALANCE=${LOAD_BALANCE}"
 MPI_BINDING=${MPI_BINDING:-numa}
 COMMON_VARS+=",MPI_BINDING=${MPI_BINDING}"
 
+# --- Submission manifest path (TOML, written at exit) ---
+# Mirrors outputdir construction in src/shared_utils/config.jl: when no profile
+# is configured (current state), outputs land relative to the repo root.
+MANIFEST_DIR="${repo_root}/outputs/${PARENT_MODEL}/${EXPERIMENT}/${OUTPUT_TAG}/manifests"
+SUBMIT_TS=$(date -Iseconds)
+SUBMIT_ID="$(date +%Y%m%dT%H%M%S)_$$"
+MANIFEST_PATH="${MANIFEST_DIR}/${SUBMIT_ID}.toml"
+export SUBMIT_TS MANIFEST_PATH
+mkdir -p "$MANIFEST_DIR"
+
 echo "=== ${PARENT_MODEL} pipeline driver ==="
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "EXPERIMENT=$EXPERIMENT"
 echo "TIME_WINDOW=$TIME_WINDOW"
+echo "MLD_TIME_WINDOW=$MLD_TIME_WINDOW (explicit=$MLD_EXPLICIT)"
+echo "OUTPUT_TAG=$OUTPUT_TAG"
+echo "MANIFEST_PATH=$MANIFEST_PATH"
 echo "JOB_CHAIN=$JOB_CHAIN"
 echo "GIT_COMMIT=$GIT_COMMIT"
 echo "TM_SOURCE=$TM_SOURCE"
@@ -535,3 +563,87 @@ fi
 # ============================================================
 
 print_summary "${PARENT_MODEL} (TM_SOURCE=$TM_SOURCE)"
+
+# ============================================================
+# Manifest (TOML, dropped next to outputs)
+# ============================================================
+
+write_manifest() {
+    local n_submitted
+    n_submitted=$(wc -l < "$_SUBMIT_LOG" 2>/dev/null || echo 0)
+    [ "$n_submitted" -eq 0 ] && { echo "(no jobs submitted; skipping manifest)" >&2; return 0; }
+
+    # Git info — driver requires clean tree before submission, but DRY_RUN may bypass.
+    local git_branch git_dirty
+    git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+        git_dirty="true"
+    else
+        git_dirty="false"
+    fi
+
+    local host user case_file_q
+    host=$(hostname)
+    user=${USER:-unknown}
+    case_file_q="${CASE_FILE:-}"
+
+    {
+        echo "# auto-written by scripts/driver.sh @ submit time"
+        echo "[meta]"
+        echo "timestamp = \"${SUBMIT_TS}\""
+        echo "submit_id = \"${SUBMIT_ID}\""
+        echo "user      = \"${user}\""
+        echo "host      = \"${host}\""
+        echo "case_file = \"${case_file_q}\""
+        echo ""
+        echo "[git]"
+        echo "commit = \"${GIT_COMMIT}\""
+        echo "branch = \"${git_branch}\""
+        echo "dirty  = ${git_dirty}"
+        echo ""
+        echo "[env]"
+        # Reflect COMMON_VARS as TOML key/value pairs.
+        local IFS_save="$IFS"
+        IFS=','
+        for kv in $COMMON_VARS; do
+            local k="${kv%%=*}"
+            local v="${kv#*=}"
+            # Skip empty values to keep manifest tidy.
+            [ -z "$v" ] && continue
+            echo "${k} = \"${v}\""
+        done
+        IFS="$IFS_save"
+        # JOB_CHAIN isn't in COMMON_VARS, but it's the most useful piece of intent.
+        echo "JOB_CHAIN = \"${JOB_CHAIN}\""
+        echo "TM_SOURCE = \"${TM_SOURCE}\""
+        echo "JVP_METHOD = \"${JVP_METHOD}\""
+        echo "LINEAR_SOLVER = \"${LINEAR_SOLVER}\""
+        echo "LUMP_AND_SPRAY = \"${LUMP_AND_SPRAY}\""
+        echo "INITIAL_AGE = \"${INITIAL_AGE}\""
+        echo "PARTITION = \"${PARTITION}\""
+        echo "GPU_QUEUE = \"${GPU_QUEUE}\""
+        echo ""
+        # One [[jobs]] block per submitted PBS job.
+        while IFS='|' read -r step jobid deps script; do
+            echo "[[jobs]]"
+            echo "step   = \"${step}\""
+            echo "jobid  = \"${jobid}\""
+            echo "script = \"${script}\""
+            if [ -z "$deps" ]; then
+                echo "deps   = []"
+            else
+                # Convert "a:b:c" → ["a","b","c"]
+                local deps_quoted
+                deps_quoted=$(echo "$deps" | awk -F: '{out=""; for(i=1;i<=NF;i++){out=out"\""$i"\""; if(i<NF) out=out","} print out}')
+                echo "deps   = [${deps_quoted}]"
+            fi
+            echo ""
+        done < "$_SUBMIT_LOG"
+    } > "$MANIFEST_PATH"
+
+    echo "" >&2
+    echo "Manifest written: $MANIFEST_PATH" >&2
+    echo "Index updated:    $SUBMISSIONS_TSV" >&2
+}
+
+write_manifest

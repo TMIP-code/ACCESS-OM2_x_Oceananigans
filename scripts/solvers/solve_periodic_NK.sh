@@ -31,7 +31,7 @@ lumpspray_tag="prec"
 [ "${LUMP_AND_SPRAY:-no}" = "yes" ] && lumpspray_tag="LSprec"
 
 job_id="${PBS_JOBID:-interactive}"
-run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/periodic/NK
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/periodic/NK
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}_${job_id}.log"
 

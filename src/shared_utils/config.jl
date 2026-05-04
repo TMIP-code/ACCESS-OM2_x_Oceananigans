@@ -59,9 +59,18 @@ Load project configuration from LocalPreferences.toml, ARGS, or ENV.
 Priority: ARGS[parentmodel_arg_index] > ENV["PARENT_MODEL"] > TOML defaults > "ACCESS-OM2-1".
 
 Returns a NamedTuple with fields:
-  parentmodel, experiment, time_window,
+  parentmodel, experiment,
+  time_window, mld_time_window,
   experiment_dir, monthly_dir, yearly_dir,
+  mld_monthly_dir, mld_yearly_dir,
   outputdir, Δt_seconds, profile
+
+When `MLD_TIME_WINDOW` is set in the environment (regardless of value), the
+MLD-related directories are derived from it (decoupled from `TIME_WINDOW`,
+which then refers to the transport-window only) and `outputdir` is routed
+under a `test/TR{TIME_WINDOW}_MLD{MLD_TIME_WINDOW}/` subtree to keep test
+runs isolated from production trees. When `MLD_TIME_WINDOW` is unset,
+behaviour is fully back-compatible.
 """
 function load_project_config(; parentmodel_arg_index = 1)
     cfg_file = "LocalPreferences.toml"
@@ -93,26 +102,48 @@ function load_project_config(; parentmodel_arg_index = 1)
     isempty(experiment) && error("No default EXPERIMENT for $parentmodel; set EXPERIMENT env var")
     time_window = get(ENV, "TIME_WINDOW", "1968-1977")
 
+    # MLD time window: explicit env var only — `haskey` (not `get` with default)
+    # so we can detect "set vs unset" and route outputs accordingly.
+    mld_explicit = haskey(ENV, "MLD_TIME_WINDOW") && !isempty(ENV["MLD_TIME_WINDOW"])
+    mld_time_window = mld_explicit ? ENV["MLD_TIME_WINDOW"] : time_window
+
     # Centralized path construction
     experiment_dir = normpath(joinpath(@__DIR__, "..", "..", "preprocessed_inputs", parentmodel, experiment))
     time_window_dir = joinpath(experiment_dir, time_window)
     monthly_dir = joinpath(time_window_dir, "monthly")
     yearly_dir = joinpath(time_window_dir, "yearly")
 
-    # outputdir now includes experiment/time_window
+    mld_time_window_dir = joinpath(experiment_dir, mld_time_window)
+    mld_monthly_dir = joinpath(mld_time_window_dir, "monthly")
+    mld_yearly_dir = joinpath(mld_time_window_dir, "yearly")
+
+    # outputdir: test/ subtree when MLD_TIME_WINDOW is explicitly set,
+    # otherwise unchanged from production layout.
+    output_tag = mld_explicit ?
+        joinpath("test", "TR$(time_window)_MLD$(mld_time_window)") :
+        time_window
     if profile === nothing
-        outputdir = normpath(joinpath(@__DIR__, "..", "..", "outputs", parentmodel, experiment, time_window))
+        outputdir = normpath(joinpath(@__DIR__, "..", "..", "outputs", parentmodel, experiment, output_tag))
     else
-        outputdir = joinpath(profile["outputdir"], experiment, time_window)
+        outputdir = joinpath(profile["outputdir"], experiment, output_tag)
     end
 
-    @info "GIT_COMMIT   = $(get(ENV, "GIT_COMMIT", "unknown"))"
-    @info "EXPERIMENT   = $experiment"
-    @info "TIME_WINDOW  = $time_window"
+    @info "GIT_COMMIT       = $(get(ENV, "GIT_COMMIT", "unknown"))"
+    @info "EXPERIMENT       = $experiment"
+    @info "TIME_WINDOW      = $time_window"
+    @info "MLD_TIME_WINDOW  = $mld_time_window$(mld_explicit ? "" : "  (default = TIME_WINDOW; not set)")"
+    @info "experiment_dir   = $experiment_dir"
+    @info "monthly_dir      = $monthly_dir"
+    @info "yearly_dir       = $yearly_dir"
+    @info "mld_monthly_dir  = $mld_monthly_dir"
+    @info "mld_yearly_dir   = $mld_yearly_dir"
+    @info "outputdir        = $outputdir"
 
     return (;
-        parentmodel, experiment, time_window,
+        parentmodel, experiment,
+        time_window, mld_time_window,
         experiment_dir, monthly_dir, yearly_dir,
+        mld_monthly_dir, mld_yearly_dir,
         outputdir, Δt_seconds = Δt, profile,
     )
 end

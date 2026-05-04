@@ -65,7 +65,7 @@ duration_configs = Dict(
 haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be one of: $(join(keys(duration_configs), ", "))")
 (; colorrange, levels) = duration_configs[DURATION]
 
-(; parentmodel, experiment_dir, monthly_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
+(; parentmodel, experiment_dir, monthly_dir, mld_monthly_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
@@ -206,18 +206,18 @@ if isfile(T_file) && isfile(S_file)
 end
 
 # Optionally add MLD if monthly FTS exists
-mld_file = joinpath(monthly_dir, "mld_monthly.jld2")
+mld_file = joinpath(mld_monthly_dir, "mld_monthly.jld2")
 if isfile(mld_file)
-    @info "Loading MLD FTS for surface animations"
+    @info "Loading MLD FTS from: $mld_file"
     mld_ts = FieldTimeSeries(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
     push!(field_specs, ("MLD", mld_ts, nothing))
     push!(field_specs, ("MLK", mld_ts, nothing))
 end
 
 # Optionally add κV at ~200m depth if monthly FTS exists
-κV_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
+κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
 if isfile(κV_file)
-    @info "Loading κV FTS for ~200m depth animations"
+    @info "Loading κV FTS from: $κV_file"
     κV_ts = FieldTimeSeries(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
     k_200m = find_nearest_depth_index(grid, 200)
     k_200m_halos = k_200m + Hz  # offset for halo in parent array

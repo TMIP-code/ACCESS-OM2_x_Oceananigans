@@ -44,7 +44,7 @@ else
     COARSE_TAG="full"
 fi
 
-run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/TM
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/TM
 mkdir -p "$run_log_dir"
 job_id="${PBS_JOBID:-interactive}"
 

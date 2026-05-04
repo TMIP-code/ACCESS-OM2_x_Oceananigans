@@ -20,7 +20,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
-run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/alloc_profile
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/alloc_profile
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_alloc_profile_${job_id}.log"
 

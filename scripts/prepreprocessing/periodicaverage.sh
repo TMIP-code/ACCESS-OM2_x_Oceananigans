@@ -33,7 +33,7 @@ echo "TIME_WINDOW=$TIME_WINDOW"
 
 job_id="${PBS_JOBID:-interactive}"
 
-log_dir=logs/python/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW
+log_dir=logs/python/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG
 mkdir -p "$log_dir"
 
 echo "Loading conda/analysis3 module"

@@ -13,7 +13,23 @@ if [ -z "${EXPERIMENT:-}" ]; then
     esac
 fi
 TIME_WINDOW=${TIME_WINDOW:-1968-1977}
-export EXPERIMENT TIME_WINDOW
+
+# MLD time window (decoupled from TIME_WINDOW). When unset/empty, MLD inputs
+# come from TIME_WINDOW and outputs/logs land in the production tree. When
+# explicitly set, MLD inputs come from MLD_TIME_WINDOW and outputs/logs are
+# routed under test/TR{TIME_WINDOW}_MLD{MLD_TIME_WINDOW}/.
+MLD_EXPLICIT="no"
+if [ -n "${MLD_TIME_WINDOW:-}" ]; then
+    MLD_EXPLICIT="yes"
+else
+    MLD_TIME_WINDOW="$TIME_WINDOW"
+fi
+if [ "$MLD_EXPLICIT" = "yes" ]; then
+    LOG_TW_TAG="test/TR${TIME_WINDOW}_MLD${MLD_TIME_WINDOW}"
+else
+    LOG_TW_TAG="$TIME_WINDOW"
+fi
+export EXPERIMENT TIME_WINDOW MLD_TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG
 
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}     # cgridtransports | totaltransport
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}              # wdiagnosed | wprescribed
@@ -67,6 +83,8 @@ export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
 echo "TIME_WINDOW=$TIME_WINDOW"
+echo "MLD_TIME_WINDOW=$MLD_TIME_WINDOW (explicit=$MLD_EXPLICIT)"
+echo "LOG_TW_TAG=$LOG_TW_TAG"
 echo "VELOCITY_SOURCE=$VELOCITY_SOURCE"
 echo "W_FORMULATION=$W_FORMULATION"
 echo "PRESCRIBED_W_SOURCE=$PRESCRIBED_W_SOURCE"

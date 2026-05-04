@@ -21,7 +21,7 @@ source scripts/env_defaults.sh
 : "${SOURCE_A:?SOURCE_A required}" "${SOURCE_B:?SOURCE_B required}"
 COMPARE_LABEL=${COMPARE_LABEL:-compare}
 
-log_dir="logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/compare"
+log_dir="logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/plot/compare"
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 

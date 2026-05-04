@@ -19,7 +19,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
-run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/standardrun
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/standardrun
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_100years_${job_id}.log"
 

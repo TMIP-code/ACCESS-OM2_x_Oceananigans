@@ -23,7 +23,7 @@ export NYEARS
 echo "NYEARS=$NYEARS"
 
 job_id="${PBS_JOBID:-interactive}"
-run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/standardrun
+run_log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/standardrun
 mkdir -p "$run_log_dir"
 log_file="$run_log_dir/${MODEL_CONFIG}_long_${NYEARS}years_${job_id}.log"
 

@@ -26,7 +26,7 @@ lumpspray_tag="prec"
 solver_tag="${LINEAR_SOLVER:-Pardiso}_${lumpspray_tag}"
 
 echo "Running plot_periodic_1year_age.jl on CPU"
-log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/periodic
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/plot/periodic
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_periodic_1year_age.jl &> "$log_dir/1year_${MODEL_CONFIG}_${solver_tag}_${job_id}.log"

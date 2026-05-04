@@ -55,7 +55,7 @@ using Printf
 
 include("shared_functions.jl")
 
-(; parentmodel, experiment, time_window, experiment_dir, monthly_dir, yearly_dir, outputdir, Δt_seconds) = load_project_config()
+(; parentmodel, experiment, time_window, mld_time_window, experiment_dir, monthly_dir, yearly_dir, mld_monthly_dir, mld_yearly_dir, outputdir, Δt_seconds) = load_project_config()
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
@@ -210,7 +210,9 @@ flush(stdout); flush(stderr)
 
 # Load MLD-based vertical diffusivity (static yearly average)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
-mld_file = joinpath(yearly_dir, "mld_yearly.nc")
+mld_file = joinpath(mld_yearly_dir, "mld_yearly.nc")
+@info "Loading MLD (yearly) from: $mld_file"
+flush(stdout); flush(stderr)
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 @show κVField
 
@@ -218,7 +220,8 @@ mld_file = joinpath(yearly_dir, "mld_yearly.nc")
 if MONTHLY_KAPPAV
     @info "Loading monthly κV FTS (time-varying vertical diffusivity)"
     flush(stdout); flush(stderr)
-    κV_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
+    κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
+    @info "Loading κV (monthly) from: $κV_file"
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
     @show κV_ts

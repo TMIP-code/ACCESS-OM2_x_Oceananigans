@@ -24,9 +24,23 @@
 #   Appends to a temp file for tracking (step counter + summary)
 #   Echoes "[STEP] NAME: JOB_ID (afterok deps)" to stderr
 
-# Temp file for tracking submitted jobs (persists across subshells)
+# Temp file for tracking submitted jobs (persists across subshells).
+# Lines are written as: step|jobid|deps|script
+# - step:    short step name (e.g., TMbuild, NK_c)
+# - jobid:   PBS job id returned by qsub
+# - deps:    colon-separated afterok dependency job IDs (may be empty)
+# - script:  path to the PBS script that was submitted
 _SUBMIT_LOG=$(mktemp)
 trap "rm -f $_SUBMIT_LOG" EXIT
+
+# Append-only central index of every submission across all driver invocations.
+# One row per PBS job. Header is written on first creation.
+SUBMISSIONS_TSV="${SUBMISSIONS_TSV:-scripts/runs/submissions.tsv}"
+_ensure_submissions_tsv_header() {
+    [ -f "$SUBMISSIONS_TSV" ] && return 0
+    mkdir -p "$(dirname "$SUBMISSIONS_TSV")"
+    printf 'timestamp\tjobid\tstep\tdeps\tmanifest_path\tcase_file\tgit_commit\tJOB_CHAIN\tPARENT_MODEL\tTIME_WINDOW\tMLD_TIME_WINDOW\tscript\n' > "$SUBMISSIONS_TSV"
+}
 
 submit_job() {
     local name="$1" walltime="$2" script="$3"
@@ -111,13 +125,31 @@ submit_job() {
     fi
 
     # Register in temp file (persists across subshells)
-    echo "${name}|${job_id}" >> "$_SUBMIT_LOG"
+    echo "${name}|${job_id}|${deps}|${script}" >> "$_SUBMIT_LOG"
     local step_num=$(wc -l < "$_SUBMIT_LOG")
 
     # Log to stderr
     local dep_msg=""
     [ -n "$deps" ] && dep_msg=" (afterok $deps)"
     echo "[$step_num] ${name}: ${job_id}${dep_msg}" >&2
+
+    # Append a row to the central submissions TSV. MANIFEST_PATH is set by
+    # driver.sh once known; left empty here is fine — driver.sh fills it in
+    # the manifest itself, and the rows can be joined back via timestamp+jobid.
+    _ensure_submissions_tsv_header
+    local ts="${SUBMIT_TS:-$(date -Iseconds)}"
+    local manifest="${MANIFEST_PATH:-}"
+    local case_file="${CASE_FILE:-}"
+    local git_commit="${GIT_COMMIT:-unknown}"
+    local job_chain="${JOB_CHAIN:-}"
+    local pm="${PARENT_MODEL:-}"
+    local tw="${TIME_WINDOW:-}"
+    local mtw=""
+    [ "${MLD_EXPLICIT:-no}" = "yes" ] && mtw="${MLD_TIME_WINDOW:-}"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ts" "$job_id" "$name" "$deps" "$manifest" "$case_file" \
+        "$git_commit" "$job_chain" "$pm" "$tw" "$mtw" "$script" \
+        >> "$SUBMISSIONS_TSV"
 
     # Return job ID on stdout
     echo "$job_id"
@@ -133,7 +165,7 @@ print_summary() {
     if [ "$count" -eq 0 ]; then
         echo "  (no jobs submitted)" >&2
     else
-        while IFS='|' read -r name job_id; do
+        while IFS='|' read -r name job_id deps script; do
             printf "  %-25s %s\n" "$name" "$job_id" >&2
         done < "$_SUBMIT_LOG"
     fi

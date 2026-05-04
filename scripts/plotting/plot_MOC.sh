@@ -18,7 +18,7 @@ cd $repo_root
 source scripts/env_defaults.sh
 
 echo "Running plot_MOC.jl on CPU"
-log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$TIME_WINDOW/plot/MOC
+log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/plot/MOC
 mkdir -p "$log_dir"
 job_id="${PBS_JOBID:-interactive}"
 julia --project src/plot_MOC.jl &> "$log_dir/plot_MOC_${job_id}.log"
