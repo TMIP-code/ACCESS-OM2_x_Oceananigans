@@ -11,3 +11,4 @@ settings
 .claude/.nfs*
 test*.jld2
 plans/
+scripts/runs/submissions.tsv
