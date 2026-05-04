@@ -307,3 +307,49 @@ out kernel specialisation as a contributor.
 |--------|-----------|-------|
 | `167682325` | 1×4 | OM2-01 H200, `cgridtransports`, no TBLOCKING, halos=7 |
 | `167682331` | 1×8 | OM2-01 H200, `cgridtransports`, no TBLOCKING, halos=7 |
+
+---
+
+## OM2-025 1×4 vs 1×8 V100 strong-scaling NCU analysis (2026-05-04)
+
+**Context:** Re-ran identical OM2-025 jobs with constant-K temporal blocking (`TBLOCKING=12`, `BENCHMARK_STEPS=24`) and single method instance per kernel. Initial observation: 1×8 wall time only 4.4% faster than 1×4, vs expected 2× from 4× GPU count doubling. NCU roofline profiling on rank 0 to diagnose per-kernel scaling.
+
+**Jobs and Timing:**
+
+| Job ID | Partition | Wall Time | Duration |
+|--------|-----------|-----------|----------|
+| 167715278 | 1×4 | 685 s | 11:25 |
+| 167715279 | 1×8 | 655 s | 10:55 |
+| **Ratio** | 1:2 | **0.956× (4.4% slower)** | — |
+
+**Per-Kernel NCU Metrics (Rank 0, `--set roofline`):**
+
+| Metric | 1×4 | 1×8 | Ratio |
+|--------|-----|-----|-------|
+| **Kernel Duration (avg)** | 20.38 ms | 10.72 ms | **1.90× faster** |
+| Grid (blocks) | 87,400 | 46,000 | 1.9 ÷ cells |
+| Block size | 256×1×1 | 256×1×1 | same |
+| Invocations (rank 0) | 12 | 12 | same |
+| Memory Throughput | 43.88% | 37.00% | 1×4 memory-bound |
+| DRAM Throughput | 43.88% | 37.00% | 1×4 memory-bound |
+| L1/TEX Throughput | 19.89% | 20.08% | ~same (±0.2%) |
+| L2 Throughput | 21.13% | 21.43% | ~same (±0.3%) |
+| Compute (SM) Throughput | 22.20% | 22.73% | ~same (±0.5%) |
+| SM Frequency (avg) | 1.29 GHz | 1.29 GHz | same |
+| DRAM Frequency (avg) | 862.82 MHz | 877.05 MHz | +1.6% (1×8) |
+
+**Key Finding: MPI Overhead Dominates**
+
+The kernel accelerates **1.90×** per-rank when doubling partitions from 1×4 to 1×8, but end-to-end wall time improves only **4.4%**. This ~40× gap between kernel scaling and wall-time scaling indicates:
+
+1. **MPI communication overhead dominates** — synchronization, halo exchange, and load imbalance consume ~95% of the per-kernel speedup.
+2. **Not GPU saturation** — both configs are memory-bound (~37–44% memory throughput), not compute-bound. L1/L2/compute throughput are identical, ruling out register pressure or occupancy limits as OM2-1 bottleneck.
+3. **Not kernel specialization** — constant-K design eliminated multiple method instances; same fast path for both partitions.
+
+**Contrast with OM2-1:** OM2-1's 1×2 profile showed **register pressure + latency-bound execution** (25% of max occupancy, only 25% of cycles issue instructions). OM2-025 exhibits the opposite pathology: **per-kernel scaling is excellent, but distributed overhead caps end-to-end improvement.**
+
+**Next Steps:**
+
+- Analyze MPI tracing (nsys) for 1×4 and 1×8 to quantify communication breakdown (halo exchange time, synchronization barriers, load imbalance).
+- Compare against 2×2 config (167702117/118) to see if square partitions reduce communication cost.
+- Profile OM2-1 H200 pair for comparison (expected higher memory bandwidth tolerance).
