@@ -15,9 +15,10 @@ Sentinels:
   "?"   finished but Exit_status missing, or aged out of qstat
   "-"   field unavailable from qstat
 
-Memory fields are normalised to integer GB (e.g. "47GB"); other units in the
-qstat output ("b", "kb", "mb", "tb") are converted on read and rounded to
-the nearest GB. Pre-existing "X.XXXGB" values are also re-rounded.
+Memory columns ("mem_req_GB", "mem_used_GB") hold integer GB as bare numbers
+(no unit suffix). PBS qstat memory values in "b"/"kb"/"mb"/"gb"/"tb" are
+converted on read and rounded to the nearest GB. Pre-existing "X.XXXGB" /
+"NNGB" values from older schema versions are also accepted and re-rounded.
 
 Tolerates older row formats (12 or 14 columns from earlier schema versions)
 by left-padding the row to 20 fields and using the schema position to
@@ -40,7 +41,7 @@ HEADER = [
     "git_commit", "JOB_CHAIN", "PARENT_MODEL", "TIME_WINDOW",
     "MLD_TIME_WINDOW", "script",
     "exit_code", "queue", "walltime_req", "walltime_used",
-    "mem_req", "mem_used", "ncpus", "ngpus",
+    "mem_req_GB", "mem_used_GB", "ncpus", "ngpus",
 ]
 N_COLS = len(HEADER)
 
@@ -49,7 +50,7 @@ IDX_EXIT, IDX_QUEUE, IDX_WREQ, IDX_WUSE, IDX_MREQ, IDX_MUSE, IDX_NCPUS, IDX_NGPU
 
 
 def to_gb(v):
-    """Normalise PBS memory strings to integer-GB ('NNGB'). Sentinels pass through."""
+    """Normalise PBS memory strings to bare integer GB (no unit suffix). Sentinels pass through."""
     if v in ("", "-", "?"):
         return v
     m = re.match(r"^([\d.]+)\s*([a-zA-Z]*)$", v)
@@ -58,7 +59,7 @@ def to_gb(v):
     n = float(m.group(1))
     suf = m.group(2).lower()
     factor = {
-        "":   1 / (1024 ** 3),
+        "":   1,                  # bare number = already GB (idempotent re-rounding)
         "b":  1 / (1024 ** 3),
         "kb": 1 / (1024 ** 2),
         "mb": 1 / 1024,
@@ -67,7 +68,7 @@ def to_gb(v):
     }.get(suf)
     if factor is None:
         return v
-    return f"{round(n * factor)}GB"
+    return f"{round(n * factor)}"
 
 
 def qstat_fx(jobid):

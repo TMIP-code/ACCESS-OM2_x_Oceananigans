@@ -23,7 +23,7 @@ HEADER = [
     "git_commit", "JOB_CHAIN", "PARENT_MODEL", "TIME_WINDOW",
     "MLD_TIME_WINDOW", "script",
     "exit_code", "queue", "walltime_req", "walltime_used",
-    "mem_req", "mem_used", "ncpus", "ngpus",
+    "mem_req_GB", "mem_used_GB", "ncpus", "ngpus",
 ]
 
 
