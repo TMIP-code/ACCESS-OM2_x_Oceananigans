@@ -100,7 +100,7 @@ if [ "$NGPUS" -gt 1 ]; then
     mpiexec $MPI_BIND_FLAGS -n "$NGPUS" --report-bindings --display map-devel,bind bash -c "
         if $cond; then
             $NCU ${NCU_FLAGS[*]} \
-                --output ${profile_base}_rank\${OMPI_COMM_WORLD_RANK} \
+                --export ${profile_base}_rank\${OMPI_COMM_WORLD_RANK} \
                 $JULIA_CMD src/run_1year_benchmark.jl
         else
             $JULIA_CMD src/run_1year_benchmark.jl
@@ -108,7 +108,7 @@ if [ "$NGPUS" -gt 1 ]; then
     " &> "$log_file"
 else
     $NCU "${NCU_FLAGS[@]}" \
-        --output "${profile_base}_rank0" \
+        --export "${profile_base}_rank0" \
         $JULIA_CMD src/run_1year_benchmark.jl &> "$log_file"
 fi
 
