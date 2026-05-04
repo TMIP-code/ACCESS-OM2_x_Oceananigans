@@ -205,3 +205,105 @@ A full-run profile is needed to see the actual distributed overhead breakdown.
 |--------|-------|-----------|---------|-----|------|
 | `163785756` | OM2-025 | 2x2 | prescribed | 4× H200 | GC fix + prescribed w |
 | `163785757` | OM2-025 | 2x2 | diagnosed | 4× H200 | GC fix only |
+
+---
+
+## OM2-025 1×4 vs 1×8 V100 strong-scaling profiles (2026-05-04)
+
+Submitted to localise the OM2-01 1×4→1×8 plateau on a smaller-resolution surrogate.
+Same `model_config` for direct comparison, K=12 TBLOCKING with halos=(13,13,2)
+matching the existing partition data.
+
+### Submission
+
+Driver invocation (1×4, partition already on disk → no partition build):
+
+```bash
+PARENT_MODEL=ACCESS-OM2-025 \
+TIME_WINDOW=1968-1977 \
+VELOCITY_SOURCE=totaltransport \
+TBLOCKING=12 \
+GRID_HX=13 GRID_HY=13 GRID_HZ=2 \
+GPU_QUEUE=gpuvolta \
+PARTITION=1x4 \
+PROFILE=yes \
+JOB_CHAIN=run1yrfast \
+bash scripts/driver.sh
+```
+
+For 1×8 the first submission also built the partition via
+`JOB_CHAIN=partition-run1yrfast`; once that exists subsequent submissions use
+`JOB_CHAIN=run1yrfast` directly.
+
+### Submitted runs
+
+| Job ID | Partition | Commit | Notes |
+|--------|-----------|--------|-------|
+| `167685248` | 1×4 | `c1938d3` | original Gc with 12 K-specializations |
+| `167685251` | partition build | `c1938d3` | built `partitions/1x8/` (CPU hugemem, ~7 min) |
+| `167685252` | 1×8 | `c1938d3` | original Gc with 12 K-specializations |
+| `167702117` | 1×4 | `5552e86` | single-method Gc (kernel-spec fix) |
+| `167702118` | 1×8 | `5552e86` | single-method Gc (kernel-spec fix) |
+
+### Env flags (full set propagated through driver)
+
+| Flag | Value | Purpose |
+|------|-------|---------|
+| `PARENT_MODEL` | `ACCESS-OM2-025` | parent model |
+| `EXPERIMENT` | `025deg_jra55_iaf_omip2_cycle6` (default) | parent forcing |
+| `TIME_WINDOW` | `1968-1977` | time window |
+| `VELOCITY_SOURCE` | `totaltransport` | match existing 1×4/1×8 partitions |
+| `W_FORMULATION` | `wdiagnosed` (default) | |
+| `ADVECTION_SCHEME` | `centered2` (default) | |
+| `TIMESTEPPER` | `AB2` (default) | |
+| `TBLOCKING` | `12` | K=12 substeps per macro-step |
+| `GRID_HX`/`GRID_HY` | `13` | required ≥ K+1 for TBLOCKING |
+| `GRID_HZ` | `2` | matches partition data |
+| `GPU_QUEUE` | `gpuvolta` | V100 (less busy than gpuhopper) |
+| `PARTITION` | `1x4` or `1x8` | strong-scaling pair |
+| `PROFILE` | `yes` | wraps each rank's Julia in `nsys profile` |
+| `BENCHMARK_STEPS` | `240` (default when PROFILE=yes) | profile length |
+| `SYNC_GC_NSTEPS` | `5` (default when PROFILE=yes) | synchronized GC every 5 batches |
+| `MPI_BINDING` | `numa` (default) | NCI Hybrid MPI pattern #9 |
+
+`MODEL_CONFIG = totaltransport_wdiagnosed_centered2_AB2_TB12`.
+
+### Outputs
+
+`.nsys-rep` files (one per rank) and the rank-0 `.log`:
+
+```
+logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/
+  totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_<JOBID>.gadi-pbs.log
+  totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_<JOBID>.gadi-pbs_profile_syncGCyes_N5_rank{0..N-1}.nsys-rep
+```
+
+Glob to download all profiles for both jobs:
+
+```
+/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_167685[0-9]*_rank*.nsys-rep
+/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/totaltransport_wdiagnosed_centered2_AB2_TB12_1yearfast_167702[0-9]*_rank*.nsys-rep
+```
+
+### Headline numbers (167685248 / 167685252, original Gc)
+
+| | 1×4 (rank0) | 1×8 (rank0) |
+|---|---|---|
+| Wall (240 steps) | 133.2 s | 138.9 s |
+| GPU active | 5.26 s | 5.81 s |
+| `MPI_Waitall` total | 1.99 s | 3.66 s |
+| `cuStreamSynchronize` total | 4.78 s | 5.34 s |
+| `Gc` per-instance avg | 17.6 ms | 21.7 ms |
+
+Conclusion: 1×8 plateau on V100 is dominated by **GPU strong-scaling
+inefficiency** (per-rank GPU work *grew* slightly despite half the cells), not
+by MPI bandwidth. Halo time grew (especially on chassis-edge ranks 3/4) but is
+≤5 % of wall. Re-running with single-method `Gc` (167702117/167702118) to rule
+out kernel specialisation as a contributor.
+
+### Companion OM2-01 H200 profile pair (queued)
+
+| Job ID | Partition | Notes |
+|--------|-----------|-------|
+| `167682325` | 1×4 | OM2-01 H200, `cgridtransports`, no TBLOCKING, halos=7 |
+| `167682331` | 1×8 | OM2-01 H200, `cgridtransports`, no TBLOCKING, halos=7 |
