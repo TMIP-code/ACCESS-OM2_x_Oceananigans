@@ -353,3 +353,20 @@ The kernel accelerates **1.90×** per-rank when doubling partitions from 1×4 to
 - Analyze MPI tracing (nsys) for 1×4 and 1×8 to quantify communication breakdown (halo exchange time, synchronization barriers, load imbalance).
 - Compare against 2×2 config (167702117/118) to see if square partitions reduce communication cost.
 - Profile OM2-1 H200 pair for comparison (expected higher memory bandwidth tolerance).
+
+---
+
+## OM2-025 K=24 vs K=12 strong-scaling test (2026-05-04, in progress)
+
+**Hypothesis:** Doubling temporal blocking K (12 → 24) **halves MPI halo passes** (2 → 1 per benchmark cycle) but **doubles buffer sizes**. Tests whether communication is **latency-bound** (fewer passes helps) vs **bandwidth-bound** (larger buffers hurt).
+
+**Configuration:**
+- Grid rebuilt with `GRID_HX=25, GRID_HY=25, GRID_HZ=2` (K+1 sizing)
+- Repartitioned with same halos
+- Both 1×4 and 1×8 run TBLOCKING=24, BENCHMARK_STEPS=24 (1 batch)
+- Compared against K=12 results (2 batches, 2 MPI passes)
+
+**Jobs submitted:**
+- Preprocessing (grid/vel/clo): 167715618–620
+- Partitions: 167715621 (1×4), 167715622 (1×8)
+- NCU runs: pending partition completion
