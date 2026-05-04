@@ -25,11 +25,21 @@ if [ -z "${EXPERIMENT:-}" ]; then
     esac
 fi
 TIME_WINDOW=${TIME_WINDOW:-1968-1977}
-export PARENT_MODEL EXPERIMENT TIME_WINDOW
+
+# Mirror env_defaults.sh logic for LOG_TW_TAG (this script doesn't source it).
+if [ -n "${MLD_TIME_WINDOW:-}" ]; then
+    LOG_TW_TAG="test/TR${TIME_WINDOW}_MLD${MLD_TIME_WINDOW}"
+else
+    MLD_TIME_WINDOW="$TIME_WINDOW"
+    LOG_TW_TAG="$TIME_WINDOW"
+fi
+export PARENT_MODEL EXPERIMENT TIME_WINDOW MLD_TIME_WINDOW LOG_TW_TAG
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
 echo "TIME_WINDOW=$TIME_WINDOW"
+echo "MLD_TIME_WINDOW=$MLD_TIME_WINDOW"
+echo "LOG_TW_TAG=$LOG_TW_TAG"
 
 job_id="${PBS_JOBID:-interactive}"
 
