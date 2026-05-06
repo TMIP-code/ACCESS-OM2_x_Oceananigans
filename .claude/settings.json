@@ -20,6 +20,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/format-julia.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "if": "Bash(qstat*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/runs/reconcile_submissions.sh",
+            "statusMessage": "Reconciling submissions.tsv..."
+          }
+        ]
       }
     ]
   },
