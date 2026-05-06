@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Fill empty PBS-side columns in scripts/runs/submissions.tsv by parsing
-PBS resource logs from logs/PBS/<jobid>.gadi-pbs.OU/ER for each row missing them.
+PBS resource logs from logs/PBS/<jobid>.gadi-pbs.OU/ER, with qstat fallback.
 
 Canonical 21-column schema:
   timestamp, jobid, step, deps, manifest_path, case_file, git_commit,
@@ -9,11 +9,15 @@ Canonical 21-column schema:
   exit_code, queue, walltime_req, walltime_used,
   mem_req_GB, mem_used_GB, ncpus, ngpus, service_units
 
+Data sources (priority order):
+  1. PBS log (logs/PBS/<jobid>.gadi-pbs.OU/ER) — preferred, persistent
+  2. qstat -fx (fallback) — when PBS log unavailable, but jobs still in PBS cache
+
 Sentinels:
-  ""    pending (queued/held/running) — PBS log not yet available
+  ""    pending (queued/held/running) — neither source has final data yet
   "DRY" DRY_RUN row (not a real job)
-  "?"   PBS log not found (job completed but log not recorded)
-  "-"   field unavailable from PBS log (e.g., queue not in log)
+  "?"   no source found (job completed, log not recorded, aged out of qstat)
+  "-"   field unavailable from either source (e.g., service_units from qstat)
 
 Memory columns ("mem_req_GB", "mem_used_GB") hold integer GB as bare numbers
 (no unit suffix). PBS log memory values in "b"/"kb"/"mb"/"gb"/"tb" are
@@ -199,16 +203,77 @@ def parse_pbs_log(log_path):
     return (exit_code, queue, walltime_req, walltime_use, mem_req, mem_use, ncpus, ngpus, service_units)
 
 
+def qstat_fx(jobid):
+    """Run `qstat -fx <jobid>`; return parsed key→value or None if not found.
+
+    Fallback for when PBS logs are unavailable.
+    """
+    try:
+        out = subprocess.run(
+            ["qstat", "-fx", jobid],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    fields = {}
+    cur_key = None
+    for line in out.stdout.splitlines():
+        # qstat -f wraps long values onto continuation lines starting with whitespace.
+        if line.startswith("\t") or line.startswith("        "):
+            if cur_key:
+                fields[cur_key] += line.strip()
+            continue
+        if " = " in line:
+            k, v = line.split(" = ", 1)
+            cur_key = k.strip()
+            fields[cur_key] = v.strip()
+    return fields
+
+
+def parse_qstat_fallback(info):
+    """Extract PBS-side fields from a parsed qstat -fx dict (fallback only).
+
+    Used when PBS logs are unavailable. Returns 9-tuple to match parse_pbs_log.
+    """
+    state = info.get("job_state", "")
+    if state != "F":
+        # Still pending — return empties
+        return ("", "-", "", "", "-", "-", "-", "-", "-")
+    exit_code = info.get("Exit_status", "?") or "?"
+    queue = info.get("queue", "-") or "-"
+    wreq = info.get("Resource_List.walltime", "-") or "-"
+    wuse = info.get("resources_used.walltime", "-") or "-"
+    mreq = to_gb(info.get("Resource_List.mem", "-") or "-")
+    muse = to_gb(info.get("resources_used.mem", "-") or "-")
+    ncpus = info.get("Resource_List.ncpus", "-") or "-"
+    ngpus = info.get("Resource_List.ngpus", "0") or "0"
+    # qstat doesn't provide service_units
+    return (exit_code, queue, wreq, wuse, mreq, muse, ncpus, ngpus, "-")
+
+
 def get_pbs_fields(jobid):
-    """Get PBS-side fields from PBS log file.
+    """Get PBS-side fields from PBS log file or qstat (fallback).
 
     Returns tuple (exit_code, queue, walltime_req, walltime_used, mem_req, mem_used, ncpus, ngpus, service_units)
-    or None if not found.
+    or None if not found in either source.
+
+    Priority: PBS log > qstat fallback
     """
+    # Try PBS log first
     log_path = pbs_log_path(jobid)
-    if log_path is None:
+    if log_path is not None:
+        result = parse_pbs_log(log_path)
+        if result is not None:
+            return result
+
+    # Fallback to qstat if PBS log unavailable
+    info = qstat_fx(jobid)
+    if info is None:
         return None
-    return parse_pbs_log(log_path)
+    return parse_qstat_fallback(info)
 
 
 def normalise_row(row):
