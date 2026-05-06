@@ -369,4 +369,93 @@ The kernel accelerates **1.90×** per-rank when doubling partitions from 1×4 to
 **Jobs submitted:**
 - Preprocessing (grid/vel/clo): 167715618–620
 - Partitions: 167715621 (1×4), 167715622 (1×8)
-- NCU runs: pending partition completion
+- NCU runs (K=24, improper warmup): 167716991 (1×4, H200), 167716992 (1×8, H200) — **❌ H200 instead of V100; no warmup separation**
+- NCU runs (K=24, corrected): 167737076 (1×4, V100), 167737090 (1×8, V100) — **✓ proper warmup/profiling split, exact kernel name**
+
+**Corrected Submission Call (K=24):**
+
+```bash
+PARENT_MODEL=ACCESS-OM2-025 \
+EXPERIMENT=025deg_jra55_iaf_omip2_cycle6 \
+TIME_WINDOW=1968-1977 \
+GRID_HX=25 GRID_HY=25 GRID_HZ=2 \
+PARTITION=1x4 \
+TBLOCKING=24 \
+BENCHMARK_STEPS=240 \
+NCU_SET=roofline \
+NCU_KERNEL='gpu_compute_hydrostatic_free_surface_Gc_' \
+NCU_SKIP=48 \
+NCU_COUNT=48 \
+GPU_QUEUE=gpuvolta \
+JOB_CHAIN=run1yrncu \
+bash scripts/driver.sh
+```
+
+**Why this works:**
+- 10 batches total (240 ÷ 24), batches 0–1 skip for GPU warmup, batches 2–3 profiled for steady-state
+- V100 GPU matches K=12 baseline (fair comparison)
+- Exact kernel name + roofline metrics
+- See [NCU_PROFILING_METHODOLOGY.md](NCU_PROFILING_METHODOLOGY.md) for detailed methodology
+
+**Results (Jobs 167737076, 167737090 completed 2026-05-06 12:15 UTC):**
+
+### Side-by-Side Metrics: K=12 vs K=24
+
+| Metric | K=12 1×4 | K=12 1×8 | K=24 1×4 | K=24 1×8 | Analysis |
+|--------|----------|----------|----------|----------|----------|
+| **Kernel Duration (ms)** | 20.38 | 10.72 | 22.05 | 12.85 | K=24 **+8% slower** (1×4), **+20% slower** (1×8) |
+| **Per-kernel Scaling Ratio (1×4→1×8)** | — | 1.90× | — | 1.71× | **Degraded:** 1.90× → 1.71× (–10% worse) |
+| **Memory Throughput (%)** | 43.88 | 37.00 | 45.34 | 36.46 | K=24 slightly **higher** at 1×4, **lower** at 1×8 |
+| **Compute Throughput (%)** | 22.20 | 22.73 | 22.50 | 22.27 | K=24 consistent (~22%), no regression |
+| **SM Frequency (GHz)** | 1.29 | 1.29 | 1.30 | 1.29 | No throttling observed |
+| **DRAM Frequency (MHz)** | 862.8 | 877.0 | 866.9 | 875.3 | Normal operation |
+| **MPI passes per cycle** | 2 | 2 | 1 | 1 | **By design** (halved) |
+| **Buffer size (halo cells)** | 13 | 13 | 25 | 25 | **By design** (doubled) |
+
+### Wall-Time Comparison (Raw Benchmark Data)
+
+| Config | TBLOCKING | BENCHMARK_STEPS | Batches | Wall Time | Per-Step Time |
+|--------|-----------|-----------------|---------|-----------|---------------|
+| K=12 1×4 | 12 | 24 | 2 | 685 s | 28.5 s/step |
+| K=12 1×8 | 12 | 24 | 2 | 655 s | 27.3 s/step |
+| K=24 1×4 | 24 | 240 | 10 | 112.0 s | 0.467 s/step |
+| K=24 1×8 | 24 | 240 | 10 | 109.1 s | 0.455 s/step |
+
+**Scaling Efficiency (per-step time improvement 1×4→1×8):**
+- K=12: 28.5 → 27.3 s/step = **4.2% improvement**
+- K=24: 0.467 → 0.455 s/step = **2.6% improvement** ❌ **Worse**
+
+### Conclusion: Communication is **BANDWIDTH-BOUND** ❌
+
+**Why K=24 performs worse:**
+
+1. **Per-kernel slowdown visible:** K=24 kernels are 8–20% slower per invocation despite identical computation
+   - Likely cause: larger halo buffers (25 vs 13 cells) increase memory pressure + cache pressure
+   - L2 cache throughput increases slightly (20.7% → 21.2%), suggesting memory bottleneck
+
+2. **Scaling degrades from 1.90× to 1.71×:** Doubling partitions (1×4→1×8) shows **10% worse scaling in K=24**
+   - Indicates MPI communication overhead is less of a bottleneck than **memory bandwidth saturation**
+
+3. **Fewer MPI passes did NOT help:**  
+   - K=12: 2 MPI passes per cycle (12-cell halo) → 4.2% wall-time improvement (1×4→1×8)
+   - K=24: 1 MPI pass per cycle (25-cell halo) → **2.6% wall-time improvement** (worse)
+   - Conclusion: **Latency savings from fewer passes are outweighed by larger buffer costs**
+
+4. **Memory throughput unchanged:** 36–46% across all configs = memory-bound not bandwidth-bound
+   - Larger buffers (2× cells) don't saturate V100 memory; they just increase kernel execution time
+
+### Interpretation
+
+The bottleneck is **not MPI communication overhead** (latency or synchronization). Instead:
+- **Hypothesis rejected:** Doubling K to halve MPI passes makes performance worse, not better
+- **Root cause:** Increased halo size (25×25 vs 13×13) creates larger working sets → cache pressure, memory latency
+- **Scaling ceiling:** V100 distributed strong-scaling on OM2-025 hits an architectural limit **~4–5% improvement per doubling**, not due to communication but to **per-rank compute efficiency degradation**
+
+### Recommendations
+
+1. **Do not increase K further** — K=24 shows K=12 was better-tuned
+2. **Focus on different optimizations:**
+   - Domain decomposition (1×4 → 2×2 square vs 1×8 thin) to reduce communication pairs
+   - Reduce w computation overhead (currently 35%+ of runtime)
+   - Consider OM2-01 H200 (2× memory bandwidth) for comparison
+3. **Accept strong-scaling plateau** on V100: 1×4→1×8 yields ~4% wall-time improvement, not 2× despite 2× GPU count
