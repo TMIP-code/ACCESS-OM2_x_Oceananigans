@@ -39,7 +39,7 @@ SUBMISSIONS_TSV="${SUBMISSIONS_TSV:-scripts/runs/submissions.tsv}"
 _ensure_submissions_tsv_header() {
     [ -f "$SUBMISSIONS_TSV" ] && return 0
     mkdir -p "$(dirname "$SUBMISSIONS_TSV")"
-    printf 'timestamp\tjobid\tstep\tdeps\tmanifest_path\tcase_file\tgit_commit\tJOB_CHAIN\tPARENT_MODEL\tTIME_WINDOW\tMLD_TIME_WINDOW\tscript\texit_code\tqueue\twalltime_req\twalltime_used\tmem_req\tmem_used\tncpus\tngpus\n' > "$SUBMISSIONS_TSV"
+    printf 'timestamp\tjobid\tstep\tdeps\tmanifest_path\tcase_file\tgit_commit\tJOB_CHAIN\tPARENT_MODEL\tTIME_WINDOW\tMLD_TIME_WINDOW\tscript\texit_code\tqueue\twalltime_req\twalltime_used\tmem_req_GB\tmem_used_GB\tncpus\tngpus\tservice_units\n' > "$SUBMISSIONS_TSV"
 }
 
 submit_job() {
@@ -146,12 +146,13 @@ submit_job() {
     local tw="${TIME_WINDOW:-}"
     local mtw=""
     [ "${MLD_EXPLICIT:-no}" = "yes" ] && mtw="${MLD_TIME_WINDOW:-}"
-    # The 8 trailing PBS-side fields (exit_code, queue, walltime_req,
-    # walltime_used, mem_req, mem_used, ncpus, ngpus) are filled later by
-    # scripts/runs/reconcile_submissions.sh once jobs finish (qstat -fx).
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\t\t\t\t\t\n' \
+    # Queue is populated at submission time (known from --queue/--gpu/--cpu options).
+    # Other PBS-side fields (exit_code, walltime_req, walltime_used, mem_req_GB,
+    # mem_used_GB, ncpus, ngpus, service_units) are filled later by
+    # scripts/runs/reconcile_submissions.sh once jobs finish (from PBS logs).
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t%s\t\t\t\t\t\t\t\n' \
         "$ts" "$job_id" "$name" "$deps" "$manifest" "$case_file" \
-        "$git_commit" "$job_chain" "$pm" "$tw" "$mtw" "$script" \
+        "$git_commit" "$job_chain" "$pm" "$tw" "$mtw" "$script" "$queue" \
         >> "$SUBMISSIONS_TSV"
 
     # Return job ID on stdout
