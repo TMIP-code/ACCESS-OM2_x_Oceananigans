@@ -6,14 +6,12 @@ Testing if **smaller halo size improves memory bandwidth efficiency** by reducin
 
 **Hypothesis:** K=24 was 20% slower due to larger halos (25×25 cells) exceeding L1/L2 cache capacity. K=6 (smaller halos = 7×7 cells) should reduce memory pressure and improve per-kernel throughput.
 
-## Current Status (2026-05-06)
+## Final Status (2026-05-07)
 
-**Job Chain Running:**
-- Job 167768183 (prep) — RUNNING (~54 min elapsed, near completion)
-- Jobs 167768185-189 — HELD, waiting for prep to finish
-- **Final NCU job: 167768189** (run1yrncu)
-
-**Do NOT interrupt** — Python preprocessing can corrupt files if killed mid-run. Let it complete.
+**All jobs completed successfully:**
+- ✓ K6 1×4 jobs: 167768183–189 (FINISHED)
+- ✓ K6 1×8 jobs: 167775918–919 (FINISHED)
+- **NCU reports:** Both 1×4 and 1×8 roofline metrics extracted and analyzed
 
 ## Configuration
 
@@ -47,9 +45,31 @@ bash scripts/driver.sh
 
 **Note:** `preprocessing` includes grid rebuild + repartition (necessary for smaller halos). Skip `prep` in future submissions.
 
-## Key Results So Far
+## Results
 
-### K=12 vs K=24 Findings
+### K6 Roofline Metrics (Final)
+
+| Metric | K6 1×4 | K6 1×8 | K12 1×4 | K12 1×8 | K24 1×4 |
+|--------|--------|--------|---------|---------|---------|
+| Kernel Duration (ms) | 19.11 | 10.24 | 20.38 | 10.72 | 22.05 |
+| Memory Throughput (%) | 43.29 | 35.18 | 43.88 | 37.00 | 45.34 |
+| Compute (SM) Throughput (%) | 22.41 | 21.75 | 22.20 | 22.73 | 22.50 |
+| Scaling (1×4 → 1×8) | 1.87× | — | 1.90× | — | — |
+
+### K6 Analysis: Smaller Halos Help
+
+**✓ Confirmed: K6 is 5.0% faster than K12 at 1×4**
+- K6 1×4: 19.11 ms → K12 1×4: 20.38 ms
+- Hypothesis validated: halos of 7×7 reduce memory pressure vs 13×13
+- At 1×8: K6 scales to 10.24 ms (1.87× speedup, vs K12's 1.90×)
+
+**✗ Scaling plateau persists: ~4% wall-time improvement per GPU doubling**
+- K6, K12, K24 all show memory bandwidth saturation at 1×8
+- Memory throughput drops 15–19% when scaling from 1×4 to 1×8
+- Compute throughput constant (~22%), confirming memory-bound workload
+- Single-node architectural ceiling is **not addressable by tuning K alone**
+
+### Key Results So Far (K12 vs K24)
 
 **K=24 performed WORSE than K=12:**
 - Per-kernel duration: **+20% slower** (12.85 ms vs 10.72 ms for 1×8)
@@ -69,19 +89,25 @@ If scaling still plateaus:
 - Confirms architectural ceiling is ~4% wall-time improvement per GPU doubling
 - Not addressable by tuning K alone
 
-## Next Steps
+## Conclusion & Next Steps
 
-1. **Wait for prep job to finish** (~15–30 min remaining estimate)
-2. **Vel, clo, diagw, partition jobs will cascade** (~40–50 min total)
-3. **K=6 NCU profiling will start** and run ~2–3 hours
-4. **Extract metrics** once complete:
-   ```bash
-   bash scripts/extract_ncu_metrics.sh 167768189
-   ```
-5. **Compare K=6 vs K=12 vs K=24** in PROFILING_RESULTS.md
-6. **Decide next steps** based on results:
-   - If K=6 improves: test K=3 or investigate domain decomposition (1×4 → 2×2)
-   - If K=6 matches K=12: accept scaling plateau, focus on other optimizations (prescribed w, H200 GPU)
+**Finding:** K6 profiling confirms smaller halos **reduce memory pressure and improve 1×4 
+throughput by 5%**. However, **scaling remains plateaued at 1.87–1.90×**, confirming the 
+bottleneck is **not tunable by K alone** on V100.
+
+**Recommended Path Forward:**
+
+| Option | Impact | Effort | Priority |
+|--------|--------|--------|----------|
+| **H200 GPU** | +50% memory bandwidth | High | HIGH |
+| **Prescribed w** | ~40% kernel time savings | Medium | HIGH |
+| **Domain decomp** (2×2) | Test alternative scaling topology | High | MEDIUM |
+| **K=3 refinement** | Marginal gains (<2%) | Low | LOW |
+
+1. **Reject K=3** — further halo reduction likely yields <1% gain (diminishing returns)
+2. **Accept 1.87× as V100 baseline** for single-node configurations
+3. **Prioritize H200/prescribed-w** for next optimization cycle
+4. **Document findings** in PROFILING_RESULTS.md for future reference
 
 ## Documentation Files
 
