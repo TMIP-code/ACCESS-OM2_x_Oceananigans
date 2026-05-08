@@ -125,26 +125,26 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 | Partition | GPU | Config | Job ID | Wall time | Notes |
 |-----------|-----|--------|--------|-----------|-------|
-| 1x2 | V100 | baseline bench | | | |
-| 1x2 | V100 | baseline nsys | | | |
-| 1x2 | V100 | +GC bench | | | |
-| 1x2 | V100 | +GC nsys | | | |
-| 1x2 | V100 | +TB bench | | | |
-| 1x2 | V100 | +TB nsys | | | |
-| 1x2 | V100 | +LB bench | | | |
-| 1x2 | V100 | +LB nsys | | | |
-| 1x2 | H200 | baseline bench | | | |
-| 1x2 | H200 | baseline nsys | | | |
-| 1x2 | H200 | +GC bench | | | |
-| 1x2 | H200 | +GC nsys | | | |
-| 1x2 | H200 | +TB bench | | | |
-| 1x2 | H200 | +TB nsys | | | |
-| 1x2 | H200 | +LB bench | | | |
-| 1x2 | H200 | +LB nsys | | | |
-| 1x4 | H200 | baseline bench | | | |
-| 1x4 | H200 | baseline nsys | | | |
-| 1x8 | H200 | baseline bench | | | |
-| 1x8 | H200 | baseline nsys | | | |
+| 1x2 | V100 | baseline bench | 167950637 | Q | |
+| 1x2 | V100 | baseline nsys | 167950638 | Q | |
+| 1x2 | V100 | +GC bench | 167950639 | Q | |
+| 1x2 | V100 | +GC nsys | 167950640 | Q | |
+| 1x2 | V100 | +TB bench | 167950641 | Q | |
+| 1x2 | V100 | +TB nsys | 167950642 | Q | |
+| 1x2 | V100 | +LB bench | 167950643 | Q | |
+| 1x2 | V100 | +LB nsys | 167950645 | Q | |
+| 1x2 | H200 | baseline bench | 167950650 | Q | |
+| 1x2 | H200 | baseline nsys | 167950651 | Q | |
+| 1x2 | H200 | +GC bench | 167950652 | Q | |
+| 1x2 | H200 | +GC nsys | 167950653 | Q | |
+| 1x2 | H200 | +TB bench | 167950654 | Q | |
+| 1x2 | H200 | +TB nsys | 167950655 | Q | |
+| 1x2 | H200 | +LB bench | 167950656 | Q | |
+| 1x2 | H200 | +LB nsys | 167950657 | Q | |
+| 1x4 | H200 | baseline bench | 167950658 | Q | |
+| 1x4 | H200 | baseline nsys | 167950659 | Q | |
+| 1x8 | H200 | baseline bench | 167950660 | Q | |
+| 1x8 | H200 | baseline nsys | 167950661 | Q | |
 
 ---
 
