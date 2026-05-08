@@ -19,6 +19,11 @@ WALLTIME_VEL=01:00:00
 # 78GB peak when given 96GB. 96GB on express gives ~22% headroom.
 VEL_MEM=96GB
 
+# Partition build: with halos=13, observed peaks 195GB (1x4) and 268GB (1x8)
+# both hit caps with old defaults. 64GB/rank covers all sizes; hugemem queue
+# min 192GB still kicks in for 1x2.
+PARTITION_MEM_PER_RANK=64
+
 # --- Standard runs ---
 WALLTIME_RUN_1YEAR=${WALLTIME_RUN_1YEAR:-00:30:00}
 WALLTIME_RUN_10YEARS=48:00:00

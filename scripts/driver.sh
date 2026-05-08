@@ -367,7 +367,7 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
         # MEM_PER_CPU and queue minimums depend on PARTITION_QUEUE (falls back to CPU_QUEUE)
         case "${PARTITION_QUEUE:-$CPU_QUEUE}" in
             express|normal) part_mem_per_cpu=4;  part_mem_min=0 ;;
-            hugemem)        part_mem_per_cpu=32; part_mem_min=190 ;;
+            hugemem)        part_mem_per_cpu=32; part_mem_min=192 ;;
             megamem)        part_mem_per_cpu=64; part_mem_min=1000 ;;
             *)              part_mem_per_cpu=$MEM_PER_CPU; part_mem_min=0 ;;
         esac
