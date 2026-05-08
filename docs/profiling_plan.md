@@ -71,7 +71,8 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 | 1 | 1x2 | 167855305 | ✓ | 4m 13s | |
 | 2 | 1x4 | 167861041 | ✓ | 7m 11s | |
 | 2 | 1x8 | 167861043 | ✓ | 5m 17s | |
-| 3 | 1x2_LB | 167878729 | ✗ | 4m 25s | OOM-killed during `w` file; only u/v written. **Needs rebuild with more memory.** |
+| 3 | 1x2_LB | 167878729 | ✗ | 4m 25s | OOM-killed during `w` file; only u/v written. Default 8GB on express was insufficient. |
+| 3 | 1x2_LB (rebuild) | 167929025 | ✓ | 4m 42s | After fix: PARTITION_MEM_PER_RANK=12 → 24GB/6cpu (commit 32ff1db). All 8 files written. |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -87,10 +88,12 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 | 1x2 | +TB nsys | 167891398 | ✓ | 9m 35s | |
 | 1x2 | +LB bench | 167891866 | ✗ | 4m 46s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
 | 1x2 | +LB nsys | 167891868 | ✗ | 4m 59s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
-| 1x4 | baseline bench | 167891869 | Q | — | |
-| 1x4 | baseline nsys | 167891870 | Q | — | |
-| 1x8 | baseline bench | 167891401 | Q | — | |
-| 1x8 | baseline nsys | 167891402 | Q | — | |
+| 1x2 | +LB bench (retry) | TBD | Q | — | After 1x2_LB rebuild |
+| 1x2 | +LB nsys (retry) | TBD | Q | — | After 1x2_LB rebuild |
+| 1x4 | baseline bench | 167891869 | ✓ | 9m 12s | |
+| 1x4 | baseline nsys | 167891870 | ✓ | 10m 0s | |
+| 1x8 | baseline bench | 167891401 | ✓ | 9m 23s | |
+| 1x8 | baseline nsys | 167891402 | ✓ | 10m 29s | |
 
 ---
 
