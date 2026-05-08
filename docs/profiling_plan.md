@@ -71,26 +71,26 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 | 1 | 1x2 | 167855305 | ✓ | 4m 13s | |
 | 2 | 1x4 | 167861041 | ✓ | 7m 11s | |
 | 2 | 1x8 | 167861043 | ✓ | 5m 17s | |
-| 3 | 1x2_LB | 167878729 | ✓ | 4m 25s | |
+| 3 | 1x2_LB | 167878729 | ✗ | 4m 25s | OOM-killed during `w` file; only u/v written. **Needs rebuild with more memory.** |
 
 ### Simulation Results (fill in as jobs complete)
 
 | Partition | Config | Job ID | Status | Wall time | Notes |
 |-----------|--------|--------|--------|-----------|-------|
-| 1x1 | baseline bench | 167891368 | ⧗ | — | |
-| 1x1 | baseline nsys | 167891388 | ⧗ | — | |
-| 1x2 | baseline bench | 167891390 | ⧗ | — | |
-| 1x2 | baseline nsys | 167891391 | ⧗ | — | |
-| 1x2 | +GC bench | 167891392 | ⧗ | — | |
-| 1x2 | +GC nsys | 167891393 | ⧗ | — | |
-| 1x2 | +TB bench | 167891394 | ⧗ | — | |
-| 1x2 | +TB nsys | 167891398 | ⧗ | — | |
-| 1x2 | +LB bench | 167891866 | ⧗ | — | |
-| 1x2 | +LB nsys | 167891868 | ⧗ | — | |
-| 1x4 | baseline bench | 167891869 | ⧗ | — | |
-| 1x4 | baseline nsys | 167891870 | ⧗ | — | |
-| 1x8 | baseline bench | 167891401 | ⧗ | — | |
-| 1x8 | baseline nsys | 167891402 | ⧗ | — | |
+| 1x1 | baseline bench | 167891368 | ✓ | 8m 12s | |
+| 1x1 | baseline nsys | 167891388 | ✓ | 8m 14s | |
+| 1x2 | baseline bench | 167891390 | ✓ | 10m 57s | |
+| 1x2 | baseline nsys | 167891391 | ✓ | 9m 13s | |
+| 1x2 | +GC bench | 167891392 | ✓ | 9m 20s | |
+| 1x2 | +GC nsys | 167891393 | ✓ | 9m 54s | |
+| 1x2 | +TB bench | 167891394 | ✓ | 8m 43s | |
+| 1x2 | +TB nsys | 167891398 | ✓ | 9m 35s | |
+| 1x2 | +LB bench | 167891866 | ✗ | 4m 46s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
+| 1x2 | +LB nsys | 167891868 | ✗ | 4m 59s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
+| 1x4 | baseline bench | 167891869 | Q | — | |
+| 1x4 | baseline nsys | 167891870 | Q | — | |
+| 1x8 | baseline bench | 167891401 | Q | — | |
+| 1x8 | baseline nsys | 167891402 | Q | — | |
 
 ---
 
@@ -111,7 +111,7 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 | Step | Partition | GPU | Job ID | Status | Elapsed | Notes |
 |------|-----------|-----|--------|--------|---------|-------|
-| | | | | ⧗ | — | Pending |
+| | | | | Q | — | Pending |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -156,7 +156,7 @@ Skip 1x1 (doesn't fit on H200).
 
 | Step | Partition | Job ID | Status | Elapsed | Notes |
 |------|-----------|--------|--------|---------|-------|
-| | | | ⧗ | — | Pending |
+| | | | Q | — | Pending |
 
 ### Simulation Results (fill in as jobs complete)
 
