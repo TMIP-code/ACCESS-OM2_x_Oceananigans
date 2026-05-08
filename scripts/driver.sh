@@ -361,13 +361,22 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
     # If model config sets PARTITION_MEM_PER_RANK and PARTITION_MEM is unset,
     # compute mem = RANKS × per-rank. Bump ncpus to satisfy queue's mem/cpu ratio.
+    # PARTITION_QUEUE may differ from CPU_QUEUE (e.g., OM2-01 uses megamem just
+    # for partition).
     if [ -z "${PARTITION_MEM:-}" ] && [ -n "${PARTITION_MEM_PER_RANK:-}" ]; then
         PARTITION_MEM="$(( RANKS * PARTITION_MEM_PER_RANK ))GB"
-        # Express/normal need ≥ MEM_PER_CPU=4GB per cpu; ensure ncpus covers mem
-        min_ncpus_for_mem=$(( RANKS * PARTITION_MEM_PER_RANK / MEM_PER_CPU ))
+        # MEM_PER_CPU depends on PARTITION_QUEUE, falls back to CPU_QUEUE's MEM_PER_CPU
+        case "${PARTITION_QUEUE:-$CPU_QUEUE}" in
+            express|normal) part_mem_per_cpu=4 ;;
+            hugemem)        part_mem_per_cpu=32 ;;
+            megamem)        part_mem_per_cpu=64 ;;
+            *)              part_mem_per_cpu=$MEM_PER_CPU ;;
+        esac
+        min_ncpus_for_mem=$(( RANKS * PARTITION_MEM_PER_RANK / part_mem_per_cpu ))
         PARTITION_NCPUS=${PARTITION_NCPUS:-$(( min_ncpus_for_mem > RANKS ? min_ncpus_for_mem : RANKS ))}
     fi
     partition_flags=(--cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
+    [ -n "${PARTITION_QUEUE:-}" ] && partition_flags+=(--queue "${PARTITION_QUEUE}")
     [ -n "${PARTITION_NCPUS:-}" ] && partition_flags+=(--ncpus "${PARTITION_NCPUS}")
     [ -n "${PARTITION_MEM:-}" ] && partition_flags+=(--mem "${PARTITION_MEM}")
     PARTITION_JOB=$(submit_job partition "${PARTITION_WALLTIME:-00:30:00}" \

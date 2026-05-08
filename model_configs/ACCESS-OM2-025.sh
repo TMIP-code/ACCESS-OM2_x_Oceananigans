@@ -15,6 +15,9 @@ PREP_NCPUS=48
 PREP_MEM=192GB                    # actual ~160GB
 WALLTIME_GRID=00:30:00
 WALLTIME_VEL=01:00:00
+# vel: peak 47GB observed across 24 historical jobs (cap hit on 8/24 with default 47GB);
+# 78GB peak when given 96GB. 96GB on express gives ~22% headroom.
+VEL_MEM=96GB
 
 # --- Standard runs ---
 WALLTIME_RUN_1YEAR=${WALLTIME_RUN_1YEAR:-00:30:00}

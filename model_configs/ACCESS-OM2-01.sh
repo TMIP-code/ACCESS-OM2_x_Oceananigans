@@ -30,6 +30,11 @@ CLO_NCPUS=16
 CLO_MEM=512GB
 CLO_QUEUE=hugemem
 PARTITION_WALLTIME=02:00:00
+# Partition build: peak ~370GB/rank observed for 1x4 (1.47TB total) and ~256GB/rank
+# for 1x8 (2.05TB). 350GB/rank covers all sizes with headroom; megamem queue
+# (3TB max) needed for 1x8 (2.8TB).
+PARTITION_QUEUE=megamem
+PARTITION_MEM_PER_RANK=350
 
 # --- Standard runs ---
 WALLTIME_RUN_1YEAR=${WALLTIME_RUN_1YEAR:-16:00:00}

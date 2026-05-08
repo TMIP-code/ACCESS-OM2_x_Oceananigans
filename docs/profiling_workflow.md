@@ -265,15 +265,27 @@ PARENT_MODEL=ACCESS-OM2-1 GRID_HX=13 GRID_HY=13 PARTITION=1x4 LOAD_BALANCE=cell 
 
 The `_LB` suffix is added automatically to the output directory; passing `PARTITION=1x4_LB` directly fails because bash arithmetic can't parse the suffix.
 
-**Memory defaults:** Each partition build rank loads the full serial FTS into memory, so peak memory scales linearly with NRANKS. Model configs set `PARTITION_MEM_PER_RANK` (added 2026-05-08 for OM2-1):
+**Memory defaults:** Each partition build rank loads the full serial FTS into memory, so peak memory scales linearly with NRANKS. Model configs set `PARTITION_MEM_PER_RANK` (added 2026-05-08):
 
-| Model | Per-rank | 1x2 | 1x4 | 1x8 |
-|-------|----------|-----|-----|-----|
-| OM2-1 | 12 GB | 24GB/6cpu | 48GB/12cpu | 96GB/24cpu |
-| OM2-025 | (uses hugemem queue minimum 192GB) | | | |
-| OM2-01 | (uses megamem queue, sized per-rank ~370GB) | | | |
+| Model | Per-rank | Queue | 1x2 | 1x4 | 1x8 |
+|-------|----------|-------|-----|-----|-----|
+| OM2-1 | 12 GB | express | 24GB/6cpu | 48GB/12cpu | 96GB/24cpu |
+| OM2-025 | — (uses hugemem 192GB minimum, peak 220GB at 1x8) | hugemem | 192GB | 192GB | 256GB |
+| OM2-01 | 350 GB | megamem | 700GB | 1.4TB | 2.8TB |
 
 If a partition build dies with exit 137 (SIGKILL) and only some FTS rank files are written (e.g., u/v but no w/eta), it was OOM-killed. Bump `PARTITION_MEM_PER_RANK` in the model config.
+
+### Pipeline Step Resource Requirements
+
+Memory peaks observed across all historical runs in `logs/PBS/` (sized for safety, not just observed peak):
+
+| Model | grid | vel | prep | partition |
+|-------|------|-----|------|-----------|
+| OM2-1 | express 47GB ✓ (peak 19GB) | express 47GB ✓ (peak 20GB) | normal 96GB ✓ (peak 61GB) | per-rank 12GB |
+| OM2-025 | express 47GB ✓ (peak 3GB) | express **96GB** (peak 47GB cap-hit at default; bumped 2026-05-08) | hugemem 192GB ✓ (peak 164GB) | hugemem 192-256GB |
+| OM2-01 | express 47GB ✓ (peak 12GB) | hugemem 512GB ✓ (peak 339GB) | megamem 2TB ✓ (peak 944GB) | megamem per-rank 350GB |
+
+Always run `prep` (Python preprocessing) before `vel` for a new TIME_WINDOW — it creates the monthly NetCDFs that `vel` reads. Use `JOB_CHAIN=prep-grid-vel-partition` (or the shortcut `preprocessing-partition`) for a fresh time window.
 
 ### Temporary Directory for nsys Finalization
 
