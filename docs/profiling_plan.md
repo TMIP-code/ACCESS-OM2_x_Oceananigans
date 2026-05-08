@@ -88,8 +88,8 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 | 1x2 | +TB nsys | 167891398 | ✓ | 9m 35s | |
 | 1x2 | +LB bench | 167891866 | ✗ | 4m 46s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
 | 1x2 | +LB nsys | 167891868 | ✗ | 4m 59s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
-| 1x2 | +LB bench (retry) | 167931014 | Q | — | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
-| 1x2 | +LB nsys (retry) | 167931019 | Q | — | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
+| 1x2 | +LB bench (retry) | 167931014 | ✓ | 10m 35s | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
+| 1x2 | +LB nsys (retry) | 167931019 | ✓ | 10m 41s | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
 | 1x4 | baseline bench | 167891869 | ✓ | 9m 12s | |
 | 1x4 | baseline nsys | 167891870 | ✓ | 10m 0s | |
 | 1x8 | baseline bench | 167891401 | ✓ | 9m 23s | |
