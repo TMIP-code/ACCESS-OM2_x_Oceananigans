@@ -75,22 +75,22 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 
 ### Simulation Results (fill in as jobs complete)
 
-| Partition | Config | Job ID | Wall time | Notes |
-|-----------|--------|--------|-----------|-------|
-| 1x1 | baseline bench | | | |
-| 1x1 | baseline nsys | | | |
-| 1x2 | baseline bench | | | |
-| 1x2 | baseline nsys | | | |
-| 1x2 | +GC bench | | | |
-| 1x2 | +GC nsys | | | |
-| 1x2 | +TB bench | | | |
-| 1x2 | +TB nsys | | | |
-| 1x2 | +LB bench | | | |
-| 1x2 | +LB nsys | | | |
-| 1x4 | baseline bench | | | |
-| 1x4 | baseline nsys | | | |
-| 1x8 | baseline bench | | | |
-| 1x8 | baseline nsys | | | |
+| Partition | Config | Job ID | Status | Wall time | Notes |
+|-----------|--------|--------|--------|-----------|-------|
+| 1x1 | baseline bench | 167891368 | ⧗ | — | |
+| 1x1 | baseline nsys | 167891388 | ⧗ | — | |
+| 1x2 | baseline bench | 167891390 | ⧗ | — | |
+| 1x2 | baseline nsys | 167891391 | ⧗ | — | |
+| 1x2 | +GC bench | 167891392 | ⧗ | — | |
+| 1x2 | +GC nsys | 167891393 | ⧗ | — | |
+| 1x2 | +TB bench | 167891394 | ⧗ | — | |
+| 1x2 | +TB nsys | 167891398 | ⧗ | — | |
+| 1x2 | +LB bench | 167891866 | ⧗ | — | |
+| 1x2 | +LB nsys | 167891868 | ⧗ | — | |
+| 1x4 | baseline bench | 167891869 | ⧗ | — | |
+| 1x4 | baseline nsys | 167891870 | ⧗ | — | |
+| 1x8 | baseline bench | 167891401 | ⧗ | — | |
+| 1x8 | baseline nsys | 167891402 | ⧗ | — | |
 
 ---
 
