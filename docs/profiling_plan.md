@@ -114,9 +114,12 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 | Step | Partition | Job ID | Status | Elapsed | Notes |
 |------|-----------|--------|--------|---------|-------|
-| 1 | grid | 167933157 | R | — | |
-| 1 | vel | 167933158 | H | — | afterok grid |
-| 1 | 1x2 | 167933159 | H | — | afterok grid+vel |
+| 1 | grid | 167933157 | ✓ | 12m 12s | |
+| 1 | vel | 167933158 | ✓ | 18m 25s | **44/47GB cap-hit** (default at time of submission); fixed in commit 18ac934 → VEL_MEM=96GB |
+| 1 | 1x2 | 167933159 | ✓ | 7m 46s | hugemem 192GB (peak 109GB) |
+| 2 | 1x4 | 167940054 | ✓ | 7m 55s | hugemem, peak 195GB / 192GB (cap-hit) |
+| 2 | 1x8 | 167940055 | ✓ | 8m 10s | hugemem, peak 268GB / 256GB (cap-hit) |
+| 3 | 1x2_LB | 167940056 | ✓ | 6m 37s | hugemem 192GB (peak 93GB) |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -161,7 +164,13 @@ Skip 1x1 (doesn't fit on H200).
 
 | Step | Partition | Job ID | Status | Elapsed | Notes |
 |------|-----------|--------|--------|---------|-------|
-| | | | Q | — | Pending |
+| 0 | grid (initial, redundant) | 167933708 | ✓ | 3m 30s | submitted before realizing prep was needed |
+| 0 | vel (initial) | 167933709 | ✗ | 5m 59s | exit 1 — missing monthly NCs (no prep step) |
+| 0 | partition (initial) | 167933710 | (cancelled) | — | would have OOM'd at express 8GB default |
+| 1 | prep | 167940352 | R | — | megamem 2TB |
+| 1 | grid | 167940353 | R | — | afterok prep |
+| 1 | vel | 167940354 | H | — | afterok prep+grid (hugemem 512GB) |
+| 1 | 1x2 | 167940409 | H | — | afterok grid+vel (megamem 1000GB / 15cpu, after queue-min fix in 0ae837a) |
 
 ### Simulation Results (fill in as jobs complete)
 
