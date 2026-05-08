@@ -112,9 +112,11 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 ### Build Results (OM2-025)
 
-| Step | Partition | GPU | Job ID | Status | Elapsed | Notes |
-|------|-----------|-----|--------|--------|---------|-------|
-| | | | | Q | — | Pending |
+| Step | Partition | Job ID | Status | Elapsed | Notes |
+|------|-----------|--------|--------|---------|-------|
+| 1 | grid | 167933157 | Q | — | |
+| 1 | vel | 167933158 | Q | — | afterok grid |
+| 1 | 1x2 | 167933159 | Q | — | afterok grid+vel |
 
 ### Simulation Results (fill in as jobs complete)
 
