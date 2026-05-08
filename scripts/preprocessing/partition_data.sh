@@ -23,9 +23,11 @@ log_dir=logs/julia/$PARENT_MODEL/$EXPERIMENT/$LOG_TW_TAG/preprocess
 mkdir -p "$log_dir"
 log_file="$log_dir/partition_data_${PARTITION}_${job_id}.log"
 
-NCPUS="${PBS_NCPUS:-$RANKS}"
+# Use RANKS (not PBS_NCPUS) for MPI: extra CPUs may be requested for memory
+# headroom on express/normal queues without spawning extra MPI ranks.
+NMPI="$RANKS"
 
-echo "Partitioning data for PARENT_MODEL=$PARENT_MODEL, PARTITION=$PARTITION (NCPUS=$NCPUS)"
+echo "Partitioning data for PARENT_MODEL=$PARENT_MODEL, PARTITION=$PARTITION (RANKS=$NMPI, PBS_NCPUS=${PBS_NCPUS:-?})"
 echo "logging output in $log_file"
-mpiexec -n $NCPUS julia $JULIA_BOUNDS_FLAG --project src/partition_data.jl &> "$log_file"
+mpiexec -n $NMPI julia $JULIA_BOUNDS_FLAG --project src/partition_data.jl &> "$log_file"
 echo "Done partitioning data"

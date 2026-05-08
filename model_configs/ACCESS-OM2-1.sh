@@ -13,6 +13,11 @@ PREP_MEM=96GB                     # 24 CPUs × 4GB
 WALLTIME_GRID=00:30:00
 WALLTIME_VEL=00:30:00
 
+# Partition build memory: each rank loads the full serial FTS into memory,
+# so memory scales linearly with RANKS. Observed peak ≈ 4-6 GB/rank
+# (1x8 used 30/32 GB for halos=13). 12 GB/rank gives ~2× headroom.
+PARTITION_MEM_PER_RANK=12
+
 # --- Standard runs ---
 WALLTIME_RUN_1YEAR=${WALLTIME_RUN_1YEAR:-00:30:00}       # actual ~8min
 WALLTIME_RUN_10YEARS=02:00:00     # estimated ~80min

@@ -359,7 +359,16 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     [ -n "$DIAGW_JOB" ] && deps="${deps:+$deps:}$DIAGW_JOB"
     [ -n "$CLO_JOB" ] && deps="${deps:+$deps:}$CLO_JOB"
     [ -n "$GRID_JOB" ] && deps="${deps:+$deps:}$GRID_JOB"
+    # If model config sets PARTITION_MEM_PER_RANK and PARTITION_MEM is unset,
+    # compute mem = RANKS × per-rank. Bump ncpus to satisfy queue's mem/cpu ratio.
+    if [ -z "${PARTITION_MEM:-}" ] && [ -n "${PARTITION_MEM_PER_RANK:-}" ]; then
+        PARTITION_MEM="$(( RANKS * PARTITION_MEM_PER_RANK ))GB"
+        # Express/normal need ≥ MEM_PER_CPU=4GB per cpu; ensure ncpus covers mem
+        min_ncpus_for_mem=$(( RANKS * PARTITION_MEM_PER_RANK / MEM_PER_CPU ))
+        PARTITION_NCPUS=${PARTITION_NCPUS:-$(( min_ncpus_for_mem > RANKS ? min_ncpus_for_mem : RANKS ))}
+    fi
     partition_flags=(--cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
+    [ -n "${PARTITION_NCPUS:-}" ] && partition_flags+=(--ncpus "${PARTITION_NCPUS}")
     [ -n "${PARTITION_MEM:-}" ] && partition_flags+=(--mem "${PARTITION_MEM}")
     PARTITION_JOB=$(submit_job partition "${PARTITION_WALLTIME:-00:30:00}" \
         scripts/preprocessing/partition_data.sh \
