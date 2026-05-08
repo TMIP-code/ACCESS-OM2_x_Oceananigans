@@ -364,15 +364,17 @@ if has_step partition && [[ "$PARTITION" != "1x1" ]]; then
     # PARTITION_QUEUE may differ from CPU_QUEUE (e.g., OM2-01 uses megamem just
     # for partition).
     if [ -z "${PARTITION_MEM:-}" ] && [ -n "${PARTITION_MEM_PER_RANK:-}" ]; then
-        PARTITION_MEM="$(( RANKS * PARTITION_MEM_PER_RANK ))GB"
-        # MEM_PER_CPU depends on PARTITION_QUEUE, falls back to CPU_QUEUE's MEM_PER_CPU
+        # MEM_PER_CPU and queue minimums depend on PARTITION_QUEUE (falls back to CPU_QUEUE)
         case "${PARTITION_QUEUE:-$CPU_QUEUE}" in
-            express|normal) part_mem_per_cpu=4 ;;
-            hugemem)        part_mem_per_cpu=32 ;;
-            megamem)        part_mem_per_cpu=64 ;;
-            *)              part_mem_per_cpu=$MEM_PER_CPU ;;
+            express|normal) part_mem_per_cpu=4;  part_mem_min=0 ;;
+            hugemem)        part_mem_per_cpu=32; part_mem_min=190 ;;
+            megamem)        part_mem_per_cpu=64; part_mem_min=1000 ;;
+            *)              part_mem_per_cpu=$MEM_PER_CPU; part_mem_min=0 ;;
         esac
-        min_ncpus_for_mem=$(( RANKS * PARTITION_MEM_PER_RANK / part_mem_per_cpu ))
+        part_mem_gb=$(( RANKS * PARTITION_MEM_PER_RANK ))
+        [ "$part_mem_gb" -lt "$part_mem_min" ] && part_mem_gb=$part_mem_min
+        PARTITION_MEM="${part_mem_gb}GB"
+        min_ncpus_for_mem=$(( part_mem_gb / part_mem_per_cpu ))
         PARTITION_NCPUS=${PARTITION_NCPUS:-$(( min_ncpus_for_mem > RANKS ? min_ncpus_for_mem : RANKS ))}
     fi
     partition_flags=(--cpu --deps "$deps" --vars "PARTITION=${PARTITION}")
