@@ -32,7 +32,7 @@ Tricks (GC sync, temporal blocking, load balancing) are only meaningful for dist
 |---|---|---|
 | **+GC** | `SYNC_GC_NSTEPS` | `5` |
 | **+TB** | `TBLOCKING` | `12` (requires halos ≥13; all partitions rebuilt with halos=13) |
-| **+LB** | `PARTITION` | `{NxM}_LB` (`LOAD_BALANCE=cell`, cell-balanced y-partition) |
+| **+LB** | `LOAD_BALANCE` | `cell` (cell-balanced y-partition; output dir gets `_LB` suffix automatically) |
 
 ---
 
@@ -88,8 +88,8 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 | 1x2 | +TB nsys | 167891398 | ✓ | 9m 35s | |
 | 1x2 | +LB bench | 167891866 | ✗ | 4m 46s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
 | 1x2 | +LB nsys | 167891868 | ✗ | 4m 59s | Failed: incomplete 1x2_LB partition (missing eta/w files) |
-| 1x2 | +LB bench (retry) | TBD | Q | — | After 1x2_LB rebuild |
-| 1x2 | +LB nsys (retry) | TBD | Q | — | After 1x2_LB rebuild |
+| 1x2 | +LB bench (retry) | 167931014 | Q | — | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
+| 1x2 | +LB nsys (retry) | 167931019 | Q | — | After 1x2_LB rebuild; uses `LOAD_BALANCE=cell` |
 | 1x4 | baseline bench | 167891869 | ✓ | 9m 12s | |
 | 1x4 | baseline nsys | 167891870 | ✓ | 10m 0s | |
 | 1x8 | baseline bench | 167891401 | ✓ | 9m 23s | |
@@ -276,8 +276,9 @@ GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2 TBLOCKING=12 JOB_CHAIN=ru
 GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2 TBLOCKING=12 PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
 
 # +LB bench + nsys 1x2
-GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2_LB JOB_CHAIN=run1yrfast bash scripts/driver.sh
-GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2_LB PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
+# (Use LOAD_BALANCE=cell — PARTITION=1x2_LB fails in arithmetic parsing)
+GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2 LOAD_BALANCE=cell JOB_CHAIN=run1yrfast bash scripts/driver.sh
+GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2 LOAD_BALANCE=cell PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
 
 # --- OM2-025 ---
 
@@ -286,6 +287,6 @@ PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1
 PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuvolta GRID_HX=13 GRID_HY=13 PARTITION=1x2 PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
 
 # +LB bench + nsys 1x2 H200
-PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuhopper GRID_HX=13 GRID_HY=13 PARTITION=1x2_LB JOB_CHAIN=run1yrfast bash scripts/driver.sh
-PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuhopper GRID_HX=13 GRID_HY=13 PARTITION=1x2_LB PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuhopper GRID_HX=13 GRID_HY=13 PARTITION=1x2 LOAD_BALANCE=cell JOB_CHAIN=run1yrfast bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-025 GPU_QUEUE=gpuhopper GRID_HX=13 GRID_HY=13 PARTITION=1x2 LOAD_BALANCE=cell PROFILE=yes BENCHMARK_STEPS=240 JOB_CHAIN=run1yrfast bash scripts/driver.sh
 ```

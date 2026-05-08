@@ -251,6 +251,30 @@ Look for:
 
 ## Gadi-Specific Considerations
 
+### Partition Build Prerequisites
+
+Distributed runs require pre-partitioned FTS files. Before submitting any distributed profiling jobs:
+
+```bash
+# Standard partition (e.g., 1x4)
+PARENT_MODEL=ACCESS-OM2-1 GRID_HX=13 GRID_HY=13 PARTITION=1x4 JOB_CHAIN=partition bash scripts/driver.sh
+
+# Load-balanced partition (use LOAD_BALANCE=cell, NOT PARTITION=1x4_LB)
+PARENT_MODEL=ACCESS-OM2-1 GRID_HX=13 GRID_HY=13 PARTITION=1x4 LOAD_BALANCE=cell JOB_CHAIN=partition bash scripts/driver.sh
+```
+
+The `_LB` suffix is added automatically to the output directory; passing `PARTITION=1x4_LB` directly fails because bash arithmetic can't parse the suffix.
+
+**Memory defaults:** Each partition build rank loads the full serial FTS into memory, so peak memory scales linearly with NRANKS. Model configs set `PARTITION_MEM_PER_RANK` (added 2026-05-08 for OM2-1):
+
+| Model | Per-rank | 1x2 | 1x4 | 1x8 |
+|-------|----------|-----|-----|-----|
+| OM2-1 | 12 GB | 24GB/6cpu | 48GB/12cpu | 96GB/24cpu |
+| OM2-025 | (uses hugemem queue minimum 192GB) | | | |
+| OM2-01 | (uses megamem queue, sized per-rank ~370GB) | | | |
+
+If a partition build dies with exit 137 (SIGKILL) and only some FTS rank files are written (e.g., u/v but no w/eta), it was OOM-killed. Bump `PARTITION_MEM_PER_RANK` in the model config.
+
 ### Temporary Directory for nsys Finalization
 
 On Gadi, nsys finalization can fail with file descriptor exhaustion. Set:
