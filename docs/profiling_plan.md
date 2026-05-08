@@ -62,7 +62,18 @@ Run these first. Goal is to confirm the pipeline works end-to-end — grid rebui
 
 **14 simulation jobs.**
 
-### Results (fill in as jobs complete)
+### Build Results (OM2-1)
+
+| Step | Partition | Job ID | Status | Elapsed | Notes |
+|------|-----------|--------|--------|---------|-------|
+| 1 | grid | 167855303 | ✓ | 3m 25s | |
+| 1 | vel | 167855304 | ✓ | 7m 17s | |
+| 1 | 1x2 | 167855305 | ✓ | 4m 13s | |
+| 2 | 1x4 | 167861041 | ✓ | 7m 11s | |
+| 2 | 1x8 | 167861043 | ✓ | 5m 17s | |
+| 3 | 1x2_LB | 167878729 | ✓ | 4m 25s | |
+
+### Simulation Results (fill in as jobs complete)
 
 | Partition | Config | Job ID | Wall time | Notes |
 |-----------|--------|--------|-----------|-------|
@@ -96,7 +107,13 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 **20 simulation jobs.**
 
-### Results (fill in as jobs complete)
+### Build Results (OM2-025)
+
+| Step | Partition | GPU | Job ID | Status | Elapsed | Notes |
+|------|-----------|-----|--------|--------|---------|-------|
+| | | | | ⧗ | — | Pending |
+
+### Simulation Results (fill in as jobs complete)
 
 | Partition | GPU | Config | Job ID | Wall time | Notes |
 |-----------|-----|--------|--------|-----------|-------|
@@ -135,7 +152,13 @@ Skip 1x1 (doesn't fit on H200).
 
 **12 simulation jobs.**
 
-### Results (fill in as jobs complete)
+### Build Results (OM2-01)
+
+| Step | Partition | Job ID | Status | Elapsed | Notes |
+|------|-----------|--------|--------|---------|-------|
+| | | | ⧗ | — | Pending |
+
+### Simulation Results (fill in as jobs complete)
 
 | Partition | Config | Job ID | Wall time | Notes |
 |-----------|--------|--------|-----------|-------|
@@ -180,10 +203,9 @@ GRID_HX=13 GRID_HY=13 PARTITION=1x2 JOB_CHAIN=grid-vel-partition bash scripts/dr
 GRID_HX=13 GRID_HY=13 PARTITION=1x4 JOB_CHAIN=partition bash scripts/driver.sh
 GRID_HX=13 GRID_HY=13 PARTITION=1x8 JOB_CHAIN=partition bash scripts/driver.sh
 
-# Step 3: load-balanced partitions (reuse rebuilt grid+vel from step 1)
+# Step 3: load-balanced partitions for Phase 1 (reuse rebuilt grid+vel from step 1)
+# Note: +LB trick only tested at 1x2; larger partitions run baseline-only
 GRID_HX=13 GRID_HY=13 PARTITION=1x2 LOAD_BALANCE=cell JOB_CHAIN=partition bash scripts/driver.sh
-GRID_HX=13 GRID_HY=13 PARTITION=1x4 LOAD_BALANCE=cell JOB_CHAIN=partition bash scripts/driver.sh
-GRID_HX=13 GRID_HY=13 PARTITION=1x8 LOAD_BALANCE=cell JOB_CHAIN=partition bash scripts/driver.sh
 ```
 
 Steps 2 and 3 can only run after step 1 completes (grid and vel must be ready).
