@@ -171,26 +171,26 @@ Skip 1x1 (doesn't fit on H200).
 | 1 | grid | 167940353 | ✓ | 3m 39s | afterok prep |
 | 1 | vel | 167940354 | ✓ | 1h 0m | afterok prep+grid (hugemem 512GB) |
 | 1 | 1x2 | 167940409 | ✓ | 43m | afterok grid+vel (megamem 1000GB / 15cpu) |
-| 2 | 1x4 | 167961038 | Q | — | megamem 1400GB / 21cpu |
-| 2 | 1x8 | 167961039 | Q | — | megamem 2800GB / 43cpu |
-| 3 | 1x2_LB | 167961040 | Q | — | megamem 1000GB / 15cpu |
+| 2 | 1x4 | 167961038 | ✓ | 41m 40s | megamem 1400GB / 21cpu, peak 1.34TB (96% — tight) |
+| 2 | 1x8 | 167961039 | ✓ | 1h 21m | megamem 2800GB / 43cpu, peak 1.79TB |
+| 3 | 1x2_LB | 167961040 | ✓ | 36m 39s | megamem 1000GB / 15cpu, peak 645GB |
 
 ### Simulation Results (fill in as jobs complete)
 
 | Partition | Config | Job ID | Wall time | Notes |
 |-----------|--------|--------|-----------|-------|
-| 1x2 | baseline bench | | | |
-| 1x2 | baseline nsys | | | |
-| 1x2 | +GC bench | | | |
-| 1x2 | +GC nsys | | | |
-| 1x2 | +TB bench | | | |
-| 1x2 | +TB nsys | | | |
-| 1x2 | +LB bench | | | |
-| 1x2 | +LB nsys | | | |
-| 1x4 | baseline bench | | | |
-| 1x4 | baseline nsys | | | |
-| 1x8 | baseline bench | | | |
-| 1x8 | baseline nsys | | | |
+| 1x2 | baseline bench | 167974036 | Q | |
+| 1x2 | baseline nsys | 167974037 | Q | |
+| 1x2 | +GC bench | 167974038 | Q | |
+| 1x2 | +GC nsys | 167974039 | Q | |
+| 1x2 | +TB bench | 167974040 | Q | |
+| 1x2 | +TB nsys | 167974041 | Q | |
+| 1x2 | +LB bench | 167974042 | Q | |
+| 1x2 | +LB nsys | 167974043 | Q | |
+| 1x4 | baseline bench | 167974044 | Q | |
+| 1x4 | baseline nsys | 167974045 | Q | |
+| 1x8 | baseline bench | 167974046 | Q | |
+| 1x8 | baseline nsys | 167974047 | Q | |
 
 ---
 
