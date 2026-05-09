@@ -179,18 +179,18 @@ Skip 1x1 (doesn't fit on H200).
 
 | Partition | Config | Job ID | Wall time | Notes |
 |-----------|--------|--------|-----------|-------|
-| 1x2 | baseline bench | 167974036 | Q | |
-| 1x2 | baseline nsys | 167974037 | Q | |
-| 1x2 | +GC bench | 167974038 | Q | |
-| 1x2 | +GC nsys | 167974039 | Q | |
-| 1x2 | +TB bench | 167974040 | Q | |
-| 1x2 | +TB nsys | 167974041 | Q | |
-| 1x2 | +LB bench | 167974042 | Q | |
-| 1x2 | +LB nsys | 167974043 | Q | |
-| 1x4 | baseline bench | 167974044 | Q | |
-| 1x4 | baseline nsys | 167974045 | Q | |
-| 1x8 | baseline bench | 167974046 | Q | |
-| 1x8 | baseline nsys | 167974047 | Q | |
+| 1x2 | baseline bench | 167976668 | Q | resubmitted with 4h walltime (was 16h, cancelled 167974036) |
+| 1x2 | baseline nsys | 167976669 | Q | resubmitted with 4h walltime (cancelled 167974037) |
+| 1x2 | +GC bench | 167976670 | Q | resubmitted (cancelled 167974038) |
+| 1x2 | +GC nsys | 167976671 | Q | resubmitted (cancelled 167974039) |
+| 1x2 | +TB bench | 167976672 | Q | resubmitted (cancelled 167974040) |
+| 1x2 | +TB nsys | 167976673 | Q | resubmitted (cancelled 167974041) |
+| 1x2 | +LB bench | 167976674 | Q | resubmitted (cancelled 167974042) |
+| 1x2 | +LB nsys | 167976675 | Q | resubmitted (cancelled 167974043) |
+| 1x4 | baseline bench | 167976676 | Q | resubmitted (cancelled 167974044) |
+| 1x4 | baseline nsys | 167976677 | Q | resubmitted (cancelled 167974045) |
+| 1x8 | baseline bench | 167976678 | Q | resubmitted (cancelled 167974046) |
+| 1x8 | baseline nsys | 167976679 | Q | resubmitted (cancelled 167974047) |
 
 ---
 
