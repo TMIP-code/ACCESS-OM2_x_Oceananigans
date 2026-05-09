@@ -125,26 +125,26 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 
 | Partition | GPU | Config | Job ID | Wall time | Notes |
 |-----------|-----|--------|--------|-----------|-------|
-| 1x2 | V100 | baseline bench | 167950637 | Q | |
-| 1x2 | V100 | baseline nsys | 167950638 | Q | |
-| 1x2 | V100 | +GC bench | 167950639 | Q | |
-| 1x2 | V100 | +GC nsys | 167950640 | Q | |
-| 1x2 | V100 | +TB bench | 167950641 | Q | |
-| 1x2 | V100 | +TB nsys | 167950642 | Q | |
-| 1x2 | V100 | +LB bench | 167950643 | Q | |
-| 1x2 | V100 | +LB nsys | 167950645 | Q | |
-| 1x2 | H200 | baseline bench | 167950650 | Q | |
-| 1x2 | H200 | baseline nsys | 167950651 | Q | |
-| 1x2 | H200 | +GC bench | 167950652 | Q | |
-| 1x2 | H200 | +GC nsys | 167950653 | Q | |
-| 1x2 | H200 | +TB bench | 167950654 | Q | |
-| 1x2 | H200 | +TB nsys | 167950655 | Q | |
-| 1x2 | H200 | +LB bench | 167950656 | Q | |
-| 1x2 | H200 | +LB nsys | 167950657 | Q | |
-| 1x4 | H200 | baseline bench | 167950658 | Q | |
-| 1x4 | H200 | baseline nsys | 167950659 | Q | |
-| 1x8 | H200 | baseline bench | 167950660 | Q | |
-| 1x8 | H200 | baseline nsys | 167950661 | Q | |
+| 1x2 | V100 | baseline bench | 167950637 | ✓ 25m 27s | |
+| 1x2 | V100 | baseline nsys | 167950638 | ✓ 11m 59s | |
+| 1x2 | V100 | +GC bench | 167950639 | ✓ 25m 11s | |
+| 1x2 | V100 | +GC nsys | 167950640 | ✓ 12m 14s | |
+| 1x2 | V100 | +TB bench | 167950641 | ✓ 24m 1s | |
+| 1x2 | V100 | +TB nsys | 167950642 | ✓ 11m 33s | |
+| 1x2 | V100 | +LB bench | 167950643 | ✓ 25m 12s | |
+| 1x2 | V100 | +LB nsys | 167950645 | ✓ 12m 22s | |
+| 1x2 | H200 | baseline bench | 167950650 | ✓ 13m 41s | |
+| 1x2 | H200 | baseline nsys | 167950651 | ✓ 10m 14s | |
+| 1x2 | H200 | +GC bench | 167950652 | ✓ 14m 7s | |
+| 1x2 | H200 | +GC nsys | 167950653 | ✓ 10m 14s | |
+| 1x2 | H200 | +TB bench | 167950654 | ✓ 12m 54s | |
+| 1x2 | H200 | +TB nsys | 167950655 | ✓ 10m 2s | |
+| 1x2 | H200 | +LB bench | 167950656 | ✓ 14m 14s | |
+| 1x2 | H200 | +LB nsys | 167950657 | ✓ 10m 41s | |
+| 1x4 | H200 | baseline bench | 167950658 | ✓ 11m 4s | |
+| 1x4 | H200 | baseline nsys | 167950659 | ✓ 8m 55s | |
+| 1x8 | H200 | baseline bench | 167950660 | ✓ 12m 4s | |
+| 1x8 | H200 | baseline nsys | 167950661 | ✓ 19m 3s | |
 
 ---
 
@@ -167,10 +167,13 @@ Skip 1x1 (doesn't fit on H200).
 | 0 | grid (initial, redundant) | 167933708 | ✓ | 3m 30s | submitted before realizing prep was needed |
 | 0 | vel (initial) | 167933709 | ✗ | 5m 59s | exit 1 — missing monthly NCs (no prep step) |
 | 0 | partition (initial) | 167933710 | (cancelled) | — | would have OOM'd at express 8GB default |
-| 1 | prep | 167940352 | R | — | megamem 2TB |
-| 1 | grid | 167940353 | R | — | afterok prep |
-| 1 | vel | 167940354 | H | — | afterok prep+grid (hugemem 512GB) |
-| 1 | 1x2 | 167940409 | H | — | afterok grid+vel (megamem 1000GB / 15cpu, after queue-min fix in 0ae837a) |
+| 1 | prep | 167940352 | ✓ | 3h 44m | megamem 2TB |
+| 1 | grid | 167940353 | ✓ | 3m 39s | afterok prep |
+| 1 | vel | 167940354 | ✓ | 1h 0m | afterok prep+grid (hugemem 512GB) |
+| 1 | 1x2 | 167940409 | ✓ | 43m | afterok grid+vel (megamem 1000GB / 15cpu) |
+| 2 | 1x4 | 167961038 | Q | — | megamem 1400GB / 21cpu |
+| 2 | 1x8 | 167961039 | Q | — | megamem 2800GB / 43cpu |
+| 3 | 1x2_LB | 167961040 | Q | — | megamem 1000GB / 15cpu |
 
 ### Simulation Results (fill in as jobs complete)
 
