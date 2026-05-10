@@ -179,18 +179,20 @@ Skip 1x1 (doesn't fit on H200).
 
 | Partition | Config | Job ID | Wall time | Notes |
 |-----------|--------|--------|-----------|-------|
-| 1x2 | baseline bench | 167976668 | Q | resubmitted with 4h walltime (was 16h, cancelled 167974036) |
-| 1x2 | baseline nsys | 167976669 | Q | resubmitted with 4h walltime (cancelled 167974037) |
-| 1x2 | +GC bench | 167976670 | Q | resubmitted (cancelled 167974038) |
-| 1x2 | +GC nsys | 167976671 | Q | resubmitted (cancelled 167974039) |
-| 1x2 | +TB bench | 167976672 | Q | resubmitted (cancelled 167974040) |
-| 1x2 | +TB nsys | 167976673 | Q | resubmitted (cancelled 167974041) |
-| 1x2 | +LB bench | 167976674 | Q | resubmitted (cancelled 167974042) |
-| 1x2 | +LB nsys | 167976675 | Q | resubmitted (cancelled 167974043) |
-| 1x4 | baseline bench | 167976676 | Q | resubmitted (cancelled 167974044) |
-| 1x4 | baseline nsys | 167976677 | Q | resubmitted (cancelled 167974045) |
-| 1x8 | baseline bench | 167976678 | Q | resubmitted (cancelled 167974046) |
-| 1x8 | baseline nsys | 167976679 | Q | resubmitted (cancelled 167974047) |
+| 1x2 | baseline bench | 167976668 | ✓ 3h 22m | halos=13 |
+| 1x2 | baseline nsys | 167976669 | ✓ 19m 0s | halos=13 |
+| 1x2 | +GC bench | 167976670 | ✓ 3h 24m | halos=13 |
+| 1x2 | +GC nsys | 167976671 | ✓ 19m 5s | halos=13 |
+| 1x2 | +TB bench | 167976672 | ✗ 17m 55s | failed: K=12 doesn't divide 78894 steps; redo with K=18 (halos=19) |
+| 1x2 | +TB nsys | 167976673 | (superseded) 20m 46s | K=12 succeeded but redoing with K=18 for consistency |
+| 1x2 | +LB bench | 167976674 | ✓ 3h 18m | halos=13 |
+| 1x2 | +LB nsys | 167976675 | ✓ 22m 28s | halos=13 |
+| 1x4 | baseline bench | 167976676 | ✓ 1h 53m | halos=13 |
+| 1x4 | baseline nsys | 167976677 | ✓ 17m 20s | halos=13 |
+| 1x8 | baseline bench | 167976678 | ✓ 2h 5m | halos=13 |
+| 1x8 | baseline nsys | 167976679 | ✓ 31m 28s | halos=13 |
+| 1x2 | +TB bench (retry) | TBD | Q | K=18, halos=19; pending grid rebuild |
+| 1x2 | +TB nsys (retry) | TBD | Q | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
 
 ---
 
