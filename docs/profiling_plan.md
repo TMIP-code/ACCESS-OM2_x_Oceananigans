@@ -194,8 +194,8 @@ Skip 1x1 (doesn't fit on H200).
 | 1x4 | baseline nsys | 167976677 | ✓ 17m 20s | halos=13 |
 | 1x8 | baseline bench | 167976678 | ✓ 2h 5m | halos=13 |
 | 1x8 | baseline nsys | 167976679 | ✓ 31m 28s | halos=13 |
-| 1x2 | +TB bench (retry) | 168021140 | Q | K=18, halos=19 |
-| 1x2 | +TB nsys (retry) | 168021141 | Q | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
+| 1x2 | +TB bench (retry) | 168021140 | ✓ 3h 7m 7s | K=18, halos=19 |
+| 1x2 | +TB nsys (retry) | 168021141 | ✓ 24m 23s | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
 
 ---
 
@@ -270,9 +270,9 @@ GADI_ROOT="gadi:/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/ju
 
 ```bash
 mkdir -p nsys_profiles && cd nsys_profiles
-scp -r "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-1/
-scp -r "$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-025/
-scp -r "$GADI_ROOT/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/*_profile_*.nsys-rep" om2-01/
+cpfromgadi "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-1/
+cpfromgadi "$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-025/
+cpfromgadi "$GADI_ROOT/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/*_profile_*.nsys-rep" om2-01/
 ```
 
 **Pull specific job (e.g. one row of the matrix):**
