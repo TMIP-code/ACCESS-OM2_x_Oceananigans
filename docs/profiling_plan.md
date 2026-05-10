@@ -200,6 +200,106 @@ Skip 1x1 (doesn't fit on H200).
 
 ---
 
+## nsys Profile Locations + scp Globs
+
+Profiles are saved per rank under `logs/julia/{MODEL}/{EXPERIMENT}/{TW}/standardrun/`:
+- Serial (1x1): `{MODEL_CONFIG}_1yearfast_{JOB_ID}.gadi-pbs_profile_syncGCyes_N5.nsys-rep`
+- Distributed: `{MODEL_CONFIG}_1yearfast_{JOB_ID}.gadi-pbs_profile_syncGCyes_N5_rank{0..N-1}.nsys-rep`
+
+`MODEL_CONFIG` defaults to `cgridtransports_wdiagnosed_centered2_AB2` and gets:
+- `_TB12` / `_TB18` suffix when `TBLOCKING` is set
+- `_LB` suffix when `LOAD_BALANCE=cell` is set
+
+### Phase 1 (OM2-1) — V100, 7 nsys runs
+
+Base: `logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/`
+
+| Job ID | Config | MODEL_CONFIG suffix | Rank files |
+|--------|--------|---------------------|------------|
+| 167891388 | 1x1 baseline | (none) | (serial, no rank) |
+| 167891391 | 1x2 baseline | (none) | rank0, rank1 |
+| 167891393 | 1x2 +GC | (none) | rank0, rank1 |
+| 167891398 | 1x2 +TB | `_TB12` | rank0, rank1 |
+| 167931019 | 1x2 +LB | `_LB` | rank0, rank1 |
+| 167891870 | 1x4 baseline | (none) | rank0..3 |
+| 167891402 | 1x8 baseline | (none) | rank0..7 |
+
+### Phase 2 (OM2-025) — V100 + H200, 10 nsys runs
+
+Base: `logs/julia/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/`
+
+| Job ID | Config | MODEL_CONFIG suffix | Rank files |
+|--------|--------|---------------------|------------|
+| 167950638 | V100 1x2 baseline | (none) | rank0, rank1 |
+| 167950640 | V100 1x2 +GC | (none) | rank0, rank1 |
+| 167950642 | V100 1x2 +TB | `_TB12` | rank0, rank1 |
+| 167950645 | V100 1x2 +LB | `_LB` | rank0, rank1 |
+| 167950651 | H200 1x2 baseline | (none) | rank0, rank1 |
+| 167950653 | H200 1x2 +GC | (none) | rank0, rank1 |
+| 167950655 | H200 1x2 +TB | `_TB12` | rank0, rank1 |
+| 167950657 | H200 1x2 +LB | `_LB` | rank0, rank1 |
+| 167950659 | H200 1x4 baseline | (none) | rank0..3 |
+| 167950661 | H200 1x8 baseline | (none) | rank0..7 |
+
+### Phase 3 (OM2-01) — H200, 6 nsys runs (+ 1 pending K=18 retry)
+
+Base: `logs/julia/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/`
+
+| Job ID | Config | MODEL_CONFIG suffix | Rank files |
+|--------|--------|---------------------|------------|
+| 167976669 | 1x2 baseline | (none) | rank0, rank1 |
+| 167976671 | 1x2 +GC | (none) | rank0, rank1 |
+| 167976673 | 1x2 +TB (K=12, superseded) | `_TB12` | rank0, rank1 |
+| 167976675 | 1x2 +LB | `_LB` | rank0, rank1 |
+| 167976677 | 1x4 baseline | (none) | rank0..3 |
+| 167976679 | 1x8 baseline | (none) | rank0..7 |
+| TBD | 1x2 +TB (K=18 retry) | `_TB18` | rank0, rank1 (halos=19) |
+
+### scp commands (run from local machine)
+
+Set the remote root once:
+
+```bash
+GADI_ROOT="gadi:/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia"
+```
+
+**Pull everything (all phases):**
+
+```bash
+mkdir -p nsys_profiles && cd nsys_profiles
+scp -r "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-1/
+scp -r "$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-025/
+scp -r "$GADI_ROOT/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/*_profile_*.nsys-rep" om2-01/
+```
+
+**Pull specific job (e.g. one row of the matrix):**
+
+```bash
+# Pattern: any rank for a given job ID
+JOB=167891398  # OM2-1 1x2 +TB nsys
+scp "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_${JOB}.gadi-pbs_profile_*.nsys-rep" .
+```
+
+**Pull just the V100 vs H200 1x2 baseline (Phase 2 hardware comparison):**
+
+```bash
+B="$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun"
+scp "$B/*_167950638.gadi-pbs_profile_*.nsys-rep" v100/    # V100 baseline
+scp "$B/*_167950651.gadi-pbs_profile_*.nsys-rep" h200/    # H200 baseline
+```
+
+**Pull all +TB profiles across phases (cross-resolution comparison):**
+
+```bash
+scp "$GADI_ROOT/ACCESS-OM2-1/*/1968-1977/standardrun/*_TB12_*_167891398.gadi-pbs_profile_*.nsys-rep" .
+scp "$GADI_ROOT/ACCESS-OM2-025/*/1968-1977/standardrun/*_TB12_*_{167950642,167950655}.gadi-pbs_profile_*.nsys-rep" .
+scp "$GADI_ROOT/ACCESS-OM2-01/*/1968-1977/standardrun/*_TB18_*_profile_*.nsys-rep" .   # job ID TBD
+```
+
+Total size estimate: each rank file ≈ 3 MB → 23 profile job IDs × ~4 ranks avg ≈ **~300 MB total** for everything.
+
+---
+
 ## Prerequisites: Grid, Velocity, and Partition Builds
 
 ### Build order matters
