@@ -175,8 +175,8 @@ Skip 1x1 (doesn't fit on H200).
 | 2 | 1x8 | 167961039 | ✓ | 1h 21m | megamem 2800GB / 43cpu, peak 1.79TB |
 | 3 | 1x2_LB | 167961040 | ✓ | 36m 39s | megamem 1000GB / 15cpu, peak 645GB |
 | 4 | grid (halos=19) | 167994958 | ✓ | 4m 53s | rebuild for K=18; overwrites halos=13 grid.jld2 |
-| 4 | vel (halos=19) | 167994959 | R | 56m+ | depends on new grid |
-| 4 | 1x2 (halos=19) | 167994960 | H | — | depends on grid+vel; will support TBLOCKING=18 |
+| 4 | vel (halos=19) | 167994959 | ✓ | 58m 56s | hugemem 512GB, peak 351GB |
+| 4 | 1x2 (halos=19) | 167994960 | ✓ | 42m 40s | megamem 1000GB, peak 909GB |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -194,8 +194,8 @@ Skip 1x1 (doesn't fit on H200).
 | 1x4 | baseline nsys | 167976677 | ✓ 17m 20s | halos=13 |
 | 1x8 | baseline bench | 167976678 | ✓ 2h 5m | halos=13 |
 | 1x8 | baseline nsys | 167976679 | ✓ 31m 28s | halos=13 |
-| 1x2 | +TB bench (retry) | TBD | Q | K=18, halos=19; pending grid rebuild |
-| 1x2 | +TB nsys (retry) | TBD | Q | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
+| 1x2 | +TB bench (retry) | 168021140 | Q | K=18, halos=19 |
+| 1x2 | +TB nsys (retry) | 168021141 | Q | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
 
 ---
 
@@ -256,7 +256,7 @@ Base: `logs/julia/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun
 | 167976675 | 1x2 +LB | `_LB` | rank0, rank1 |
 | 167976677 | 1x4 baseline | (none) | rank0..3 |
 | 167976679 | 1x8 baseline | (none) | rank0..7 |
-| TBD | 1x2 +TB (K=18 retry) | `_TB18` | rank0, rank1 (halos=19) |
+| 168021141 | 1x2 +TB (K=18 retry) | `_TB18` | rank0, rank1 (halos=19) |
 
 ### scp commands (run from local machine)
 
