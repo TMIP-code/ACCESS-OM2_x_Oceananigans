@@ -174,6 +174,9 @@ Skip 1x1 (doesn't fit on H200).
 | 2 | 1x4 | 167961038 | ✓ | 41m 40s | megamem 1400GB / 21cpu, peak 1.34TB (96% — tight) |
 | 2 | 1x8 | 167961039 | ✓ | 1h 21m | megamem 2800GB / 43cpu, peak 1.79TB |
 | 3 | 1x2_LB | 167961040 | ✓ | 36m 39s | megamem 1000GB / 15cpu, peak 645GB |
+| 4 | grid (halos=19) | 167994958 | ✓ | 4m 53s | rebuild for K=18; overwrites halos=13 grid.jld2 |
+| 4 | vel (halos=19) | 167994959 | R | 56m+ | depends on new grid |
+| 4 | 1x2 (halos=19) | 167994960 | H | — | depends on grid+vel; will support TBLOCKING=18 |
 
 ### Simulation Results (fill in as jobs complete)
 
