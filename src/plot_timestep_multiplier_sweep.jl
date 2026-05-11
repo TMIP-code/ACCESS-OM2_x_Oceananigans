@@ -214,7 +214,9 @@ if DIFF_PLOTS && length(runs) > 1
         Δmax > 0 || (Δmax = maximum(abs.(diff_wet)) + eps())
         levels = range(-Δmax, Δmax; length = 21)
         n_steps = length(levels) - 1
-        cmap = cgrad(:RdBu_r, n_steps, categorical = true)
+        # ColorSchemes.jl exposes :RdBu but not :RdBu_r; reverse explicitly so
+        # negative-Δ (M ages less than M=1) lands on blue and positive on red.
+        cmap = cgrad(:RdBu, n_steps; categorical = true, rev = true)
         diff_dir = joinpath(standardrun_dir, d, "diff_vs_DTx1")
         label = "DTx$(M)_vs_DTx1"
         title_prefix = @sprintf "M=%d − M=1 (Δmax≈%.3f yr at 99th pct)" M Δmax
