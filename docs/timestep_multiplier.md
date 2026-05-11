@@ -325,6 +325,23 @@ hotspot at (i=65, j=209, k=36) — interior, k=36 is mid-depth — appears
 at all three M values, suggesting the dynamics are consistent and the
 divergence is in the size of that overshoot rather than its location.
 
+#### OM2-1 benchmark wall times (no output writers)
+
+`run_1year_benchmark.jl` runs the same step loop with output writers
+disabled, isolating step time from I/O cost. Submitted via
+`JOB_CHAIN=run1yrfast`.
+
+| `M` | Δt | Steps/yr | Benchmark wall (s) | Speedup vs M=1 | Job ID |
+|---|---|---|---|---|---|
+| 1 | 1.5 h | 5844 | TBD | 1.00× | 168081163 |
+| 4 | 6 h   | 1461 | TBD | TBD  | 168081164 |
+
+The ratio of benchmark walltime to `run_1year` walltime tells us the
+output-writing overhead. At M=1 the difference between (108.1 s
+including I/O) and the benchmark wall time will quantify the fixed I/O
+cost; at M=4 it shows whether the I/O cost has come to dominate the
+~30% step-time savings.
+
 ### OM2-025 (Δt = 1800 s baseline)
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
