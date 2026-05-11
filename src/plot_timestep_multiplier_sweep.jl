@@ -30,7 +30,10 @@ overwrite each other:
   - nk_periodic     → `periodic/timestep_multiplier_summary_nk_periodic.tsv`
 
 Diff PNGs land under `diff_vs_DTx1/` for standardrun and
-`diff_vs_DTx1_periodic/` for both NK modes (see docs/timestep_multiplier_NK.md).
+`diff_vs_DTx1_periodic_{nk_steady,nk_periodic}/` for the two NK modes —
+the per-target suffix is required because both modes share `periodic/`
+as their discovery root, so a shared subdir would collide when the
+two sweep jobs run in parallel (see docs/timestep_multiplier_NK.md).
 
 CPU-only. Designed to be submitted via
 `scripts/plotting/plot_timestep_multiplier_sweep.sh`.
@@ -92,13 +95,13 @@ if COMPARE_TARGET == "standardrun"
 elseif COMPARE_TARGET == "nk_steady"
     sweep_dir = joinpath(outputdir, "periodic")
     age_file_for(d) = joinpath(sweep_dir, d, "NK", "age_$(solver_tag).jld2")
-    diff_subdir = "diff_vs_DTx1_periodic"
+    diff_subdir = "diff_vs_DTx1_periodic_nk_steady"
     tsv_path = joinpath(sweep_dir, "timestep_multiplier_summary_nk_steady.tsv")
     file_format = :nk_steady       # bare `age` 3D array, no halos, seconds
 else  # nk_periodic
     sweep_dir = joinpath(outputdir, "periodic")
     age_file_for(d) = joinpath(sweep_dir, d, "1year", solver_tag, "age_periodic_1year.jld2")
-    diff_subdir = "diff_vs_DTx1_periodic"
+    diff_subdir = "diff_vs_DTx1_periodic_nk_periodic"
     tsv_path = joinpath(sweep_dir, "timestep_multiplier_summary_nk_periodic.tsv")
     file_format = :timeseries_mean # JLD2OutputWriter w/ halos; mean over first n-1 iters
 end
