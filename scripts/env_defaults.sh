@@ -54,13 +54,14 @@ TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
 GRID_HZ=${GRID_HZ:-7}                                   # grid halo in z (2 sufficient; larger is harmless)
-LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | yes(=surface; back-compat) — only valid when PARTITION_X=1
+LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | mix | yes(=surface; back-compat) — only valid when PARTITION_X=1
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
 case "$LOAD_BALANCE" in
     no)             LB_TAG="" ;;
     surface|yes)    LB_TAG="_LBS" ; LOAD_BALANCE="surface" ;;
     cell)           LB_TAG="_LB" ;;
-    *) echo "ERROR: LOAD_BALANCE must be no | surface | cell (got: $LOAD_BALANCE)" >&2; exit 1 ;;
+    mix)            LB_TAG="_LBmix" ;;
+    *) echo "ERROR: LOAD_BALANCE must be no | surface | cell | mix (got: $LOAD_BALANCE)" >&2; exit 1 ;;
 esac
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 if [ "$W_FORMULATION" = "wprescribed" ]; then

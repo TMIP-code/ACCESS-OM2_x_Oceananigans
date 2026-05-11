@@ -49,7 +49,7 @@ plot_dir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel, experiment,
 mkpath(plot_dir)
 
 partitions_str = get(ENV, "PARTITIONS", "1x2,1x4,1x8")
-methods_str = get(ENV, "METHODS", "surface,cell,cell_obsolete")
+methods_str = get(ENV, "METHODS", "surface,cell,mix")
 
 py_list = [parse(Int, split(p, "x")[2]) for p in split(partitions_str, ",")]
 method_list = [Symbol(strip(m)) for m in split(methods_str, ",")]
@@ -169,16 +169,26 @@ function greedy_y_split(wet::Vector{Int}, nranks_y::Int; min_size::Int = 0)
 end
 
 # Per-y-row load arrays for every LB method (computed once, reused).
-# `:cell` is just `true_cells_per_row` (already computed via immersed_cell).
-# `:surface` uses bottom < 0, `:cell_obsolete` uses z_center > bottom.
+# `:cell` is just `true_cells_per_row` (via immersed_cell).
+# `:surface` uses bottom < 0 (same as production `:surface`).
+# `:mix` is the equal-weighted normalised mix of cells & columns
+# (both via immersed_cell — matches production `:mix`).
+# `:cell_obsolete` uses z_center > bottom (back-comparison only).
 bottom = load(grid_file, "bottom")
 z_faces = load(grid_file, "z_faces")
 z_centers = @. 0.5 * (z_faces[1:Nz] + z_faces[2:(Nz + 1)])
 surface_per_row = [count(<(0), view(bottom, :, j)) for j in 1:Ny]
 cellobs_per_row = [sum(count(>(bottom[i, j]), z_centers) for i in 1:Nx) for j in 1:Ny]
+let Tc = sum(true_cells_per_row), Tk = sum(true_columns_per_row)
+    global mix_per_row = Float64[
+        true_cells_per_row[j] / Tc + true_columns_per_row[j] / Tk
+            for j in 1:Ny
+    ]
+end
 load_per_row = Dict(
     :cell => true_cells_per_row,
     :surface => surface_per_row,
+    :mix => mix_per_row,
     :cell_obsolete => cellobs_per_row,
 )
 
@@ -311,7 +321,7 @@ for py in py_list
     )
     nschemes_p = length(plot_schemes)
     width = 0.85 / nschemes_p
-    scheme_fill = Dict("equal" => :gray60, "surface" => :steelblue, "cell" => :seagreen)
+    scheme_fill = Dict("equal" => :gray60, "surface" => :steelblue, "cell" => :seagreen, "mix" => :purple, "cell_obsolete" => :darkorange)
     for (k, s) in enumerate(plot_schemes)
         xs = (0:(py - 1)) .+ (k - (nschemes_p + 1) / 2) * width
         barplot!(

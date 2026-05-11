@@ -33,6 +33,12 @@ time) and forwards to the grid-arg method.
   ground-truth definition of "is this cell in the prognostic state":
   with `PartialCellBottom` it correctly counts partial bottom cells
   as wet (they ARE simulated). Corresponds to the `_LB` mode.
+- `:mix` — equal-weighted mix of `:cell` and `:surface`, each
+  normalised to its own total so both contribute the same total load
+  (`wet_cells[j]/Σ wet_cells + wet_cols[j]/Σ wet_cols`). Aimed at
+  workloads where some kernels are cell-bound and some are
+  column-bound: balancing in between is better than fully balancing
+  either. Corresponds to the `_LBmix` mode.
 - `:cell_obsolete` — previous `:cell` definition: counts cells with
   `z_center > bottom[i,j]`. Under-counts the true wet-cell load
   because it excludes partial bottom cells, biasing the greedy
@@ -45,10 +51,11 @@ the Oceananigans convention (z increases upward); a violation means the
 saved `bottom` was written under a different sign convention upstream.
 """
 function compute_wet_load_per_y_row(grid_file::AbstractString; method::Symbol)
-    # `:cell` needs the full ImmersedBoundaryGrid to call `immersed_cell`;
-    # `:surface` and `:cell_obsolete` only read raw arrays from grid.jld2,
-    # so avoid constructing the grid (slow on OM2-01) when we don't need to.
-    if method === :cell
+    # `:cell` and `:mix` need the full ImmersedBoundaryGrid to call
+    # `immersed_cell`; `:surface` and `:cell_obsolete` only read raw arrays
+    # from grid.jld2, so avoid constructing the grid (slow on OM2-01) when
+    # we don't need to.
+    if method === :cell || method === :mix
         grid = load_tripolar_grid(grid_file, CPU())
         return compute_wet_load_per_y_row(grid; method)
     end
@@ -64,7 +71,7 @@ function compute_wet_load_per_y_row(grid_file::AbstractString; method::Symbol)
         z_centers = @. 0.5 * (z_faces[1:Nz] + z_faces[2:(Nz + 1)])
         [sum(count(>(bottom[i, j]), z_centers) for i in 1:Nx) for j in 1:Ny]
     else
-        error("compute_wet_load_per_y_row: unknown method=$method (expected :surface, :cell, or :cell_obsolete)")
+        error("compute_wet_load_per_y_row: unknown method=$method (expected :surface, :cell, :mix, or :cell_obsolete)")
     end
 
     total = sum(wet)
@@ -73,15 +80,30 @@ function compute_wet_load_per_y_row(grid_file::AbstractString; method::Symbol)
 end
 
 function compute_wet_load_per_y_row(grid::ImmersedBoundaryGrid; method::Symbol)
-    method === :cell || error("compute_wet_load_per_y_row(grid; method): only :cell is supported on a grid object (got method=$method). Use the grid_file string overload for :surface and :cell_obsolete.")
     Nx, Ny, Nz = size(grid.underlying_grid)
-    wet = [
-        sum(!immersed_cell(i, j, k, grid) for i in 1:Nx, k in 1:Nz)
-            for j in 1:Ny
-    ]
-    total = sum(wet)
-    @assert total > 0 "no non-immersed cells found in grid — check immersed boundary construction"
-    return wet
+    if method === :cell
+        wet = [
+            sum(!immersed_cell(i, j, k, grid) for i in 1:Nx, k in 1:Nz)
+                for j in 1:Ny
+        ]
+        @assert sum(wet) > 0 "no non-immersed cells found in grid — check immersed boundary construction"
+        return wet
+    elseif method === :mix
+        # Equal-weighted normalised mix of 3D cells and surface columns.
+        cells_row = [
+            sum(!immersed_cell(i, j, k, grid) for i in 1:Nx, k in 1:Nz)
+                for j in 1:Ny
+        ]
+        cols_row = [
+            count(any(!immersed_cell(i, j, k, grid) for k in 1:Nz) for i in 1:Nx)
+                for j in 1:Ny
+        ]
+        Tc = sum(cells_row); Tk = sum(cols_row)
+        @assert Tc > 0 && Tk > 0 "no non-immersed cells found in grid — check immersed boundary construction"
+        return Float64[cells_row[j] / Tc + cols_row[j] / Tk for j in 1:Ny]
+    else
+        error("compute_wet_load_per_y_row(grid; method): only :cell and :mix are supported on a grid object (got method=$method). Use the grid_file string overload for :surface and :cell_obsolete.")
+    end
 end
 
 """
@@ -93,7 +115,8 @@ equalise `sum(wet[jstart:jend])` across ranks, where `wet[j]` is the
 per-y-row load from `compute_wet_load_per_y_row(grid_file; method)`.
 
 `method` is `:surface` (column count, `_LBS`), `:cell` (3D cell count
-via Oceananigans `immersed_cell`, `_LB`), or `:cell_obsolete` (old
+via Oceananigans `immersed_cell`, `_LB`), `:mix` (equal-weighted mix
+of `:cell` and `:surface`, `_LBmix`), or `:cell_obsolete` (old
 z_center > bottom formula — for back-comparison only).
 
 `min_size` (default 0) enforces a per-rank floor; pass `Hy + 2` to keep
@@ -147,13 +170,13 @@ end
 
 Parse the `LOAD_BALANCE` env var into a triple:
 - `active`: whether LB is on.
-- `method`: `:cell` for cell-based, `:surface` for surface-based,
-  `nothing` when off.
-- `tag`: partition/MODEL_CONFIG suffix: `""`, `"_LB"`, or `"_LBS"`.
+- `method`: `:cell`, `:surface`, `:mix`, or `nothing` when off.
+- `tag`: partition/MODEL_CONFIG suffix: `""`, `"_LB"`, `"_LBS"`, or
+  `"_LBmix"`.
 
 Accepted values (case-insensitive): `no` (default), `cell`, `surface`,
-`yes` (back-compat alias for `surface` — the original LB implementation
-was surface-based).
+`mix`, `yes` (back-compat alias for `surface` — the original LB
+implementation was surface-based).
 """
 function parse_load_balance_env(varname::AbstractString = "LOAD_BALANCE")
     v = lowercase(get(ENV, varname, "no"))
@@ -164,7 +187,9 @@ function parse_load_balance_env(varname::AbstractString = "LOAD_BALANCE")
         return (true, :cell, "_LB")
     elseif v == "surface"
         return (true, :surface, "_LBS")
+    elseif v == "mix"
+        return (true, :mix, "_LBmix")
     else
-        error("$varname must be one of: no | surface | cell (got: $v)")
+        error("$varname must be one of: no | surface | cell | mix (got: $v)")
     end
 end
