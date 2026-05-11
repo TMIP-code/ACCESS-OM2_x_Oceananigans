@@ -34,23 +34,24 @@ respectively, with the first valid jump landing at exactly 1 month per
 step) the simulation is uselessly coarse. The practical sweep range is
 `Δt ≤ 18 h`.
 
-Practical multipliers per model:
+Practical multipliers per model (rows aligned on `M`; cell shows the
+resulting Δt where `M` is a valid divisor for that model):
 
-| New Δt | OM2-1 `M` | OM2-025 `M` | OM2-01 `M` |
+| `M` | OM2-1 Δt | OM2-025 Δt | OM2-01 Δt |
 |---|---|---|---|
-| 6.67 min | — | — | 1 |
-| 13.3 min | — | — | 2 |
-| 20 min   | — | — | 3 |
-| 30 min   | — | 1 | — |
-| 40 min   | — | — | 6 |
-| 1 h      | — | 2 | 9 |
-| 1.5 h    | **1** | 3 | — |
-| 2 h      | — | 4 | 18 |
-| 3 h      | 2 | 6 | 27 |
-| 4.5 h    | 3 | 9 | — |
-| 6 h      | 4 | 12 | 54 |
-| 9 h      | 6 | 18 | 81 |
-| 18 h     | 12 | 36 | 162 |
+| 1   | **1.5 h** | **30 min** | **6.67 min** |
+| 2   | 3 h     | 1 h        | 13.3 min |
+| 3   | 4.5 h   | 1.5 h      | 20 min |
+| 4   | 6 h     | 2 h        | — |
+| 6   | 9 h     | 3 h        | 40 min |
+| 9   | —       | 4.5 h      | 1 h |
+| 12  | 18 h    | 6 h        | — |
+| 18  | —       | 9 h        | 2 h |
+| 27  | —       | —          | 3 h |
+| 36  | —       | 18 h       | — |
+| 54  | —       | —          | 6 h |
+| 81  | —       | —          | 9 h |
+| 162 | —       | —          | 18 h |
 
 Invalid `M` (those not dividing `N_base`) must error early — see
 [Workflow → Validation](#validation).
