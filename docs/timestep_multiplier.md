@@ -251,57 +251,79 @@ done
 to its full practical range from the multiplier table — OM2-1 up to
 `M=12`, OM2-025 up to `M=36`, OM2-01 up to `M=162`.
 
-### Comparison script (TBD)
+### Comparison script
 
-A small post-hoc Julia script that loads `age_*.jld2` from each
-`{MC}_DTx{M}/` directory and produces, for each `M > 1`:
+[src/plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
+is a CPU-only post-hoc script that discovers every `{MC}` and
+`{MC}_DTx{M}/` directory under `outputs/{PM}/{EXP}/{TW}/standardrun/`
+containing an `age_1year.jld2`, loads the final age snapshot from each,
+and for every `M` reports:
 
-1. **Scalar diagnostics**: volume-weighted RMS difference vs. `M = 1`,
-   max abs difference, mean difference, and where they live in
-   (lat, depth). These feed the "RMS Δ vs M=1 (yr)" column of the
-   Results tables.
-2. **Difference plots**: the same set of diagnostics that
-   `plot_age_diagnostics` ([analysis_and_plotting.jl:174](../src/shared_utils/analysis_and_plotting.jl#L174))
-   already produces for a single run, but applied to the diff field
-   `age_M − age_1`:
-   - Zonal averages × 4 basins (global / Atlantic / Pacific / Indian)
-     — lat × depth contourf with a symmetric diverging colormap
-     (e.g. `:RdBu_r`) centred at 0.
-   - Horizontal slices at 100 / 200 / 500 / 1000 / 2000 / 3000 m —
-     heatmap with the same diverging colormap.
-   - Colour range: probably auto-scaled per `M` to the 99th-percentile
-     of `|age_M − age_1|`; record the range in the figure title or
-     filename so figures across `M` are comparable.
+- volume-weighted mean / max / min age (years)
+- RMS Δ vs M=1 (whole-domain + surface-layer k=Nz)
+- max|Δ| and its `(i, j, k)` location
 
-Likely lives in `src/plot_timestep_multiplier_sweep.jl`. Strategy: load
-the `M=1` `age_3D` once, then loop over `M > 1` values present on disk,
-call `plot_age_diagnostics(age_M − age_1, grid, wet3D, vol_3D,
-diff_dir, "DTx$(M)_vs_DTx1"; colormap = cgrad(:RdBu_r, ...),
-colorrange = (-Δmax, Δmax), levels = …, colorbar_label = "Age diff
-(years)")`. The existing function takes generic `colormap` / `levels` /
-`colorrange` / `colorbar_label` keywords so the same machinery handles
-diff plots with no code change to `plot_age_diagnostics`.
+Output: a fixed-width table printed to stdout *plus* a TSV at
+`outputs/{PM}/{EXP}/{TW}/standardrun/timestep_multiplier_summary.tsv`
+that can be copied into the Results tables.
 
-Output directory: `outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/diff_vs_DTx1/`
-— each `M > 1` run's directory gains a `diff_vs_DTx1/` subdir
-alongside its own `plots/`, so the comparison artifacts live with the
-run they describe.
+Submit it with:
+
+```bash
+PARENT_MODEL=ACCESS-OM2-1 qsub scripts/plotting/plot_timestep_multiplier_sweep.sh
+```
+
+(or via `driver.sh` once the step is wired into the DAG).
+
+The scalar half is sufficient to fill the "Mean age" and "RMS Δ vs M=1"
+columns. Diff *plots* (zonal averages × 4 basins, horizontal slices at
+100 / 200 / 500 / 1000 / 2000 / 3000 m, on a symmetric `:RdBu_r`
+colormap auto-scaled to the 99th percentile of `|age_M − age_1|`) are a
+follow-up — they would call `plot_age_diagnostics` on the diff field
+and land in `outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/diff_vs_DTx1/`,
+one subdir per `M > 1` so the comparison artifacts live with the run
+they describe.
 
 ## Results
 
 Rows marked **(2a)** are part of the initial sweep; rows marked
 **(2b)** are added in the follow-up sweep only if Stage 2a passes.
 
+Wall time below is the Julia-internal simulation wall time
+(`Simulation is stopping after running for X` from the run log, extracted
+via [scripts/plotting/plot_simtime_vs_walltime.py](../scripts/plotting/plot_simtime_vs_walltime.py)).
+It excludes Julia startup, package loading, and model setup; the PBS-side
+`walltime_used` is larger by ~5–8 min of startup overhead.
+
+**Caveat: these are not benchmark runs.** `run_1year.jl` writes the full
+age field (and `u`, `v`, `w`, `η`, `dt_sigma`, `eta_n`, `sigma_cc` —
+~1.7 GB per run) at every output interval, so the reported wall time is
+(simulation step time) + (output writing). At `M = 4` the output cost
+becomes a larger fraction of the total because the simulation step time
+shrinks ~linearly with `M` while the per-snapshot I/O cost stays roughly
+constant. For a pure step-time speedup measurement use
+`run_1year_benchmark.jl` (no output writers).
+
+Mean age (yr) and RMS Δ vs M=1 (yr) come from
+[src/plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
+post-hoc (a CPU job — `qsub scripts/plotting/plot_timestep_multiplier_sweep.sh`);
+"—" means "not yet run".
+
 ### OM2-1 (Δt = 5400 s baseline)
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
-| 1  | 1.5 h | 5844 | 2a | — | — | — | — | 0 | — |
-| 2  | 3 h   | 2922 | 2a | — | — | — | — | — | — |
+| 1  | 1.5 h | 5844 | 2a | ✅ pass | 108.1 | 2.083 | — | 0 | 168060698 |
+| 2  | 3 h   | 2922 | 2a | ✅ pass |  88.0 | 1.978 | — | — | 168060700 |
 | 3  | 4.5 h | 1948 | 2b | — | — | — | — | — | — |
-| 4  | 6 h   | 1461 | 2a | — | — | — | — | — | — |
+| 4  | 6 h   | 1461 | 2a | ✅ pass |  78.1 | 1.855 | — | — | 168060703 |
 | 6  | 9 h   | 974  | 2b | — | — | — | — | — | — |
 | 12 | 18 h  | 487  | 2b | — | — | — | — | — | — |
+
+Julia-internal speedup so far: M=2 → 1.23×, M=4 → 1.38×. The same M=1
+hotspot at (i=65, j=209, k=36) — interior, k=36 is mid-depth — appears
+at all three M values, suggesting the dynamics are consistent and the
+divergence is in the size of that overshoot rather than its location.
 
 ### OM2-025 (Δt = 1800 s baseline)
 

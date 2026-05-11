@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """
-Plot simulated time (yr) vs wall time (s) for each rank during the 1-year
-benchmark phase of a `run_1year_benchmark.jl` log.
+Plot simulated time (yr) vs wall time (s) for each rank, and report the
+Julia-internal simulation wall time (excludes startup, package loading,
+model setup, and any benchmark warmup).
+
+Supports two log types:
+  - `run_1year_benchmark.jl`: counts only lines after the "Benchmark: 1-year
+    simulation" marker (skips warmup).
+  - `run_1year.jl` / `run_10years.jl` / `run_100years.jl` / `run_long.jl`:
+    no benchmark marker; the whole file is scanned.
 
 Parses progress callback lines of the form:
-    [ Info:   iter: 487, time: 0.083 yr, wall: 4.8 seconds
+    [ Info:   iter: 487, time: 0.083 yr, wall: 4.8 seconds        (benchmark)
+    [ Info:   sim iter: 0487, time: 0.083 yr, ..., wall: 56.9 seconds   (run_1year)
+And end-of-run markers:
+    Simulation is stopping after running for 1.801 minutes.
 
-Skips the warmup phase by starting after the "Benchmark: 1-year simulation"
-marker. Assumes ranks consistently print in the same order, so line i in the
-benchmark section is grouped to rank (i % N) where N is auto-detected from the
-number of `iter: 0, time: 0.000` lines at the start of the benchmark phase.
+Wall-time values in seconds / minutes / hours are all normalised to seconds.
 
-Also prints the max wall-time across ranks at sim-time=1.000 yr, which is the
-quantity to use as the "real" 1-year benchmark duration (excludes Julia
-startup, package loading, model setup, and warmup).
+Assumes ranks consistently print in the same order, so line i in the parsed
+section is grouped to rank (i % N) where N is auto-detected from the number
+of `Simulation is stopping…` lines (one per rank, non-TB) or `iter: 0` lines.
 
 Usage:
     python scripts/plotting/plot_simtime_vs_walltime.py LOG_FILE [LOG_FILE ...]
@@ -32,50 +39,64 @@ import re
 import sys
 from pathlib import Path
 
-# Progress callback lines. Two flavours:
-#   non-TB: "iter: 487, time: 0.083 yr, wall: 4.8 seconds"
-#   TB:     "batch: 40/487, time: 0.082 yr, wall: 84.2 seconds"
+# Progress callback lines. Three flavours:
+#   benchmark non-TB: "iter: 487, time: 0.083 yr, wall: 4.8 seconds"
+#   benchmark TB:     "batch: 40/487, time: 0.082 yr, wall: 84.2 seconds"
+#   run_1year.jl:     "sim iter: 0487, time: 0.083 yr, ..., wall: 56.928 seconds"
+# Units in the run_1year log promote to minutes/hours when wall ≥ 60s, so accept all three.
 PROGRESS_RE = re.compile(
-    r"(?:iter:|batch:)\s*(?P<iter>\d+)(?:/\d+)?,\s*time:\s*(?P<time>[\d.]+)\s*yr,\s*wall:\s*(?P<wall>[\d.]+)\s*seconds"
+    r"(?:iter:|batch:)\s*(?P<iter>\d+)(?:/\d+)?,\s*time:\s*(?P<time>[\d.]+)\s*yr,"
+    r"(?:[^,]*,)*?\s*wall:\s*(?P<wall>[\d.]+)\s*(?P<unit>seconds|minutes|hours)"
 )
-# "Simulation is stopping after running for 29.593 seconds." — printed once per rank at end-of-run (non-TB).
+# "Simulation is stopping after running for 29.593 seconds." (benchmark) or
+# "... for 1.801 minutes." (run_1year). One per rank at end-of-run (non-TB).
 STOP_RE = re.compile(
-    r"Simulation is stopping after running for\s+(?P<wall>[\d.]+)\s*seconds"
+    r"Simulation is stopping after running for\s+(?P<wall>[\d.]+)\s*(?P<unit>seconds|minutes|hours)"
 )
 # "elapsed_seconds = 105.0" — printed by every rank in the "Benchmark complete" block.
 ELAPSED_RE = re.compile(r"elapsed_seconds\s*=\s*(?P<wall>[\d.]+)")
 BENCHMARK_START_MARKER = "Benchmark: 1-year simulation"
+UNIT_TO_SECONDS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0}
 
 
 def parse_log(path):
-    """Return (progress_records, stop_wall_seconds) for the benchmark phase.
+    """Return (progress_records, stop_wall_seconds, elapsed_walls) for the run.
 
-    progress_records is a list of (iter, sim_time_yr, wall_seconds), one entry
-    per progress callback line in the order they appear.
+    For `run_1year_benchmark.jl` logs the parser only counts lines after the
+    "Benchmark: 1-year simulation" marker (skips the warmup phase). For regular
+    `run_1year.jl` logs the marker is absent, in which case the parser scans
+    the whole file.
 
-    stop_wall_seconds is a list of wall-time values from "Simulation is stopping
-    after running for X seconds" lines in the benchmark phase, one per rank.
+    progress_records is a list of (iter, sim_time_yr, wall_seconds), normalised
+    to seconds regardless of the unit printed in the log.
     """
-    records = []
-    stop_walls = []
-    elapsed_walls = []
-    in_benchmark = False
+    # Decide upfront whether this is a benchmark log; if not, parse the whole file.
+    has_benchmark_marker = False
     with path.open() as f:
         for line in f:
             if BENCHMARK_START_MARKER in line:
-                in_benchmark = True
+                has_benchmark_marker = True
+                break
+
+    records = []
+    stop_walls = []
+    elapsed_walls = []
+    in_section = not has_benchmark_marker  # if no marker, count from start
+    with path.open() as f:
+        for line in f:
+            if has_benchmark_marker and BENCHMARK_START_MARKER in line:
+                in_section = True
                 continue
-            if not in_benchmark:
+            if not in_section:
                 continue
             m = PROGRESS_RE.search(line)
             if m:
-                records.append(
-                    (int(m["iter"]), float(m["time"]), float(m["wall"]))
-                )
+                wall_s = float(m["wall"]) * UNIT_TO_SECONDS[m["unit"]]
+                records.append((int(m["iter"]), float(m["time"]), wall_s))
                 continue
             m = STOP_RE.search(line)
             if m:
-                stop_walls.append(float(m["wall"]))
+                stop_walls.append(float(m["wall"]) * UNIT_TO_SECONDS[m["unit"]])
                 continue
             m = ELAPSED_RE.search(line)
             if m:
