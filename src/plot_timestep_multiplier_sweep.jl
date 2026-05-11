@@ -2,18 +2,35 @@
 Post-hoc comparison of `TIMESTEP_MULT` sweep results.
 
 For the current `{PM, EXP, TW, MC}` tuple, discovers every `{MC}` and
-`{MC}_DTx{M}/` directory under `outputs/{PM}/{EXP}/{TW}/standardrun/` that
-contains an `age_1year.jld2` file. For each `M` it loads the final age
-snapshot and reports:
+`{MC}_DTx{M}/` directory containing the target age field, then per `M`
+reports:
 
   - volume-weighted mean / max / min age
   - n_wet (sanity)
   - RMS Δ vs M=1 (whole-domain + surface layer)
   - max|Δ| and its (i, j, k) location
 
-The summary is printed to stdout *and* written as a TSV to
-`outputs/{PM}/{EXP}/{TW}/standardrun/timestep_multiplier_summary.tsv` so
-the results can be pasted directly into `docs/timestep_multiplier.md`.
+`COMPARE_TARGET` selects which age field to compare (default `standardrun`
+for back-compat with the stability sweep):
+
+  - `standardrun`   → `outputs/.../standardrun/{MC}_DTx{M}/age_1year.jld2`
+                      (1-year forward map, last snapshot, `timeseries/age/{iter}`)
+  - `nk_steady`     → `outputs/.../periodic/{MC}_DTx{M}/NK/age_{LINEAR_SOLVER}_{precond_tag}.jld2`
+                      (final NK fixed point, bare `age` 3D array)
+  - `nk_periodic`   → `outputs/.../periodic/{MC}_DTx{M}/1year/{LINEAR_SOLVER}_{precond_tag}/age_periodic_1year.jld2`
+                      (1-year integration from NK solution, year-mean over the
+                      first `n_times − 1` half-monthly snapshots)
+
+The summary is printed to stdout *and* written as a TSV to a
+target-dependent path under the discovery root so the three modes don't
+overwrite each other:
+
+  - standardrun     → `standardrun/timestep_multiplier_summary.tsv`
+  - nk_steady       → `periodic/timestep_multiplier_summary_nk_steady.tsv`
+  - nk_periodic     → `periodic/timestep_multiplier_summary_nk_periodic.tsv`
+
+Diff PNGs land under `diff_vs_DTx1/` for standardrun and
+`diff_vs_DTx1_periodic/` for both NK modes (see docs/timestep_multiplier_NK.md).
 
 CPU-only. Designed to be submitted via
 `scripts/plotting/plot_timestep_multiplier_sweep.sh`.
@@ -21,6 +38,9 @@ CPU-only. Designed to be submitted via
 Environment variables (inherited from env_defaults.sh):
   PARENT_MODEL, EXPERIMENT, TIME_WINDOW
   VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER, GM_REDI, MONTHLY_KAPPAV
+  COMPARE_TARGET     (standardrun | nk_steady | nk_periodic; default standardrun)
+  LINEAR_SOLVER      (only used when COMPARE_TARGET startswith "nk_"; default Pardiso)
+  LUMP_AND_SPRAY     (only used when COMPARE_TARGET startswith "nk_"; default no)
 """
 
 @info "Loading packages for timestep-multiplier sweep comparison"
@@ -52,16 +72,57 @@ mc_base = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME,
 # TIMESTEP_MULT — we want the bare `{MC}` so we can scan all sibling _DTx dirs.
 mc_base = replace(mc_base, r"_DTx\d+$" => "")
 
-standardrun_dir = joinpath(outputdir, "standardrun")
-isdir(standardrun_dir) || error("standardrun directory not found: $standardrun_dir")
+COMPARE_TARGET = lowercase(get(ENV, "COMPARE_TARGET", "standardrun"))
+COMPARE_TARGET in ("standardrun", "nk_steady", "nk_periodic") ||
+    error("COMPARE_TARGET must be standardrun | nk_steady | nk_periodic (got: \"$COMPARE_TARGET\")")
 
-# Discover M values: scan for {MC_base}{suffix}/age_1year.jld2 where suffix is "" or "_DTxN".
-function discover_runs(standardrun_dir, mc_base)
+LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
+LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
+lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+solver_tag = "$(LINEAR_SOLVER)_$(lumpspray_tag)"
+
+# Target-dependent discovery root, per-`M` file resolver, diff-plot subdir,
+# TSV filename, and load-format kind.
+if COMPARE_TARGET == "standardrun"
+    sweep_dir = joinpath(outputdir, "standardrun")
+    age_file_for(d) = joinpath(sweep_dir, d, "age_1year.jld2")
+    diff_subdir = "diff_vs_DTx1"
+    tsv_path = joinpath(sweep_dir, "timestep_multiplier_summary.tsv")
+    file_format = :timeseries_last  # JLD2OutputWriter w/ halos; take last iter
+elseif COMPARE_TARGET == "nk_steady"
+    sweep_dir = joinpath(outputdir, "periodic")
+    age_file_for(d) = joinpath(sweep_dir, d, "NK", "age_$(solver_tag).jld2")
+    diff_subdir = "diff_vs_DTx1_periodic"
+    tsv_path = joinpath(sweep_dir, "timestep_multiplier_summary_nk_steady.tsv")
+    file_format = :nk_steady       # bare `age` 3D array, no halos, seconds
+else  # nk_periodic
+    sweep_dir = joinpath(outputdir, "periodic")
+    age_file_for(d) = joinpath(sweep_dir, d, "1year", solver_tag, "age_periodic_1year.jld2")
+    diff_subdir = "diff_vs_DTx1_periodic"
+    tsv_path = joinpath(sweep_dir, "timestep_multiplier_summary_nk_periodic.tsv")
+    file_format = :timeseries_mean # JLD2OutputWriter w/ halos; mean over first n-1 iters
+end
+
+isdir(sweep_dir) || error("Discovery root not found: $sweep_dir (COMPARE_TARGET=$COMPARE_TARGET)")
+
+@info "Sweep configuration"
+@info "- COMPARE_TARGET = $COMPARE_TARGET"
+@info "- sweep_dir      = $sweep_dir"
+@info "- mc_base        = $mc_base"
+if COMPARE_TARGET != "standardrun"
+    @info "- solver_tag     = $solver_tag  (LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP_AND_SPRAY)"
+end
+@info "- diff_subdir    = $diff_subdir"
+@info "- tsv_path       = $tsv_path"
+
+# Discover M values: scan for {MC_base}{suffix}/ where suffix is "" or "_DTxN"
+# and the target age file actually exists under it.
+function discover_runs(sweep_dir, mc_base, age_file_for)
     runs = Tuple{Int, String, String}[]  # (M, dirname, age_file)
-    for d in readdir(standardrun_dir)
-        full = joinpath(standardrun_dir, d)
+    for d in readdir(sweep_dir)
+        full = joinpath(sweep_dir, d)
         isdir(full) || continue
-        age_file = joinpath(full, "age_1year.jld2")
+        age_file = age_file_for(d)
         isfile(age_file) || continue
         if d == mc_base
             push!(runs, (1, d, age_file))
@@ -74,11 +135,11 @@ function discover_runs(standardrun_dir, mc_base)
     return sort!(runs; by = r -> r[1])
 end
 
-runs = discover_runs(standardrun_dir, mc_base)
-isempty(runs) && error("No {MC}_DTx{M}/age_1year.jld2 found under $standardrun_dir for MC_base=$mc_base")
+runs = discover_runs(sweep_dir, mc_base, age_file_for)
+isempty(runs) && error("No {MC}_DTx{M}/<age file> found under $sweep_dir for MC_base=$mc_base (COMPARE_TARGET=$COMPARE_TARGET)")
 @info "Discovered $(length(runs)) runs to compare"
-for (M, d, _) in runs
-    @info "  M=$M → $d"
+for (M, d, f) in runs
+    @info "  M=$M → $d ($(basename(f)))"
 end
 
 ################################################################################
@@ -102,23 +163,65 @@ total_vol = sum(vol_3D[wet3D])
 # Load each run's final age snapshot (interior, in years)
 ################################################################################
 
-function load_final_age(age_file, Hx, Hy, Hz, Nx, Ny, Nz, year_seconds)
+_strip_halos(arr, Hx, Hy, Hz, Nx, Ny, Nz) =
+    arr[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)]
+
+# JLD2OutputWriter layout: keys under "timeseries/age/" are stringified iter
+# numbers; pick the largest (= last snapshot).
+function _load_jld2_last_iter(age_file)
     return jldopen(age_file, "r") do f
         ages = f["timeseries/age"]
         iters = filter(k -> tryparse(Int, k) !== nothing, keys(ages))
         last_key = string(maximum(parse.(Int, iters)))
-        arr = Float64.(ages[last_key])
-        interior_view = arr[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)]
-        return interior_view ./ year_seconds  # → years
+        return Float64.(ages[last_key])
     end
 end
 
-@info "Loading age fields"
+# JLD2OutputWriter layout, but mean over the first `n-1` snapshots (year-mean
+# of the 25 half-monthly snapshots from run1yrNK — same convention as
+# plot_periodic_1year_age.jl, which excludes snapshot 25 = repeat of t=0).
+function _load_jld2_mean_first_n_minus_one(age_file)
+    return jldopen(age_file, "r") do f
+        ages = f["timeseries/age"]
+        iters = sort!(parse.(Int, filter(k -> tryparse(Int, k) !== nothing, keys(ages))))
+        n_avg = length(iters) - 1
+        n_avg ≥ 1 || error("Expected ≥ 2 snapshots in $age_file (got $(length(iters)))")
+        acc = Float64.(ages[string(iters[1])])
+        for k in iters[2:n_avg]
+            acc .+= Float64.(ages[string(k)])
+        end
+        acc ./= n_avg
+        return acc
+    end
+end
+
+function load_age_years(age_file, file_format, Hx, Hy, Hz, Nx, Ny, Nz, year_seconds)
+    if file_format == :timeseries_last
+        arr = _load_jld2_last_iter(age_file)
+        return _strip_halos(arr, Hx, Hy, Hz, Nx, Ny, Nz) ./ year_seconds
+    elseif file_format == :timeseries_mean
+        arr = _load_jld2_mean_first_n_minus_one(age_file)
+        return _strip_halos(arr, Hx, Hy, Hz, Nx, Ny, Nz) ./ year_seconds
+    elseif file_format == :nk_steady
+        # solve_periodic_NK.jl writes `age = age_steady_3D` (Nx, Ny, Nz, no halos)
+        # in seconds, with dry cells = 0.
+        arr = jldopen(age_file, "r") do f
+            Float64.(f["age"])
+        end
+        size(arr) == (Nx, Ny, Nz) ||
+            error("NK steady age in $age_file has size $(size(arr)), expected ($Nx, $Ny, $Nz)")
+        return arr ./ year_seconds
+    else
+        error("Unknown file_format: $file_format")
+    end
+end
+
+@info "Loading age fields (file_format=$file_format)"
 flush(stdout); flush(stderr)
 age_by_M = Dict{Int, Array{Float64, 3}}()
 for (M, d, age_file) in runs
     @info "  M=$M loading $age_file"
-    age_by_M[M] = load_final_age(age_file, Hx, Hy, Hz, Nx, Ny, Nz, year_seconds)
+    age_by_M[M] = load_age_years(age_file, file_format, Hx, Hy, Hz, Nx, Ny, Nz, year_seconds)
 end
 
 ################################################################################
@@ -166,7 +269,7 @@ end
 
 println()
 println("="^88)
-println("TIMESTEP_MULT sweep summary — $parentmodel / MC_base = $mc_base")
+println("TIMESTEP_MULT sweep summary — $parentmodel / MC_base = $mc_base / target = $COMPARE_TARGET")
 println("="^88)
 @printf "%4s  %12s  %12s  %12s  %12s  %12s  %12s\n" "M" "mean (yr)" "max (yr)" "min (yr)" "RMS_all (yr)" "RMS_surf (yr)" "max|Δ| (yr)"
 println("-"^88)
@@ -185,7 +288,6 @@ println("="^88)
 # TSV dump
 ################################################################################
 
-tsv_path = joinpath(standardrun_dir, "timestep_multiplier_summary.tsv")
 @info "Writing TSV summary to $tsv_path"
 open(tsv_path, "w") do io
     println(io, "M\tmean_age_yr\tmax_age_yr\tmin_age_yr\trms_whole_yr\trms_surf_yr\tmax_abs_diff_yr\tmax_diff_i\tmax_diff_j\tmax_diff_k")
@@ -221,7 +323,7 @@ if DIFF_PLOTS && length(runs) > 1
         # ColorSchemes.jl exposes :RdBu but not :RdBu_r; reverse explicitly so
         # negative-Δ (M ages less than M=1) lands on blue and positive on red.
         cmap = cgrad(:RdBu, n_steps; categorical = true, rev = true)
-        diff_dir = joinpath(standardrun_dir, d, "diff_vs_DTx1")
+        diff_dir = joinpath(sweep_dir, d, diff_subdir)
         label = "DTx$(M)_vs_DTx1"
         title_prefix = @sprintf "M=%d − M=1 (Δmax≈%.3f yr at 99th pct)" M Δmax
         @info "  M=$M  Δmax=$Δmax yr → $diff_dir"
