@@ -38,13 +38,14 @@ include("shared_functions.jl")
 # Configuration
 ################################################################################
 
-(; parentmodel, experiment_dir, outputdir) = load_project_config()
+(; parentmodel, experiment, experiment_dir) = load_project_config()
 grid_file = joinpath(experiment_dir, "grid.jld2")
 isfile(grid_file) || error("grid.jld2 not found at $grid_file")
 
-# Plots are TW-independent (depend only on the grid), so write them under
-# outputs/{PM}/{EXP}/partition_balance — outside the time-window subtree.
-plot_dir = joinpath(dirname(outputdir), "partition_balance")
+# Plots are TW-independent (depend only on the grid), so write them at
+# outputs/{PM}/{EXP}/partition_balance — not under outputdir, which gets
+# routed under test/TR..._MLD... when MLD_TIME_WINDOW is set in env.
+plot_dir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel, experiment, "partition_balance"))
 mkpath(plot_dir)
 
 partitions_str = get(ENV, "PARTITIONS", "1x2,1x4,1x8")
