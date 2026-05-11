@@ -348,14 +348,24 @@ disabled, isolating step time from I/O cost. Submitted via
 
 | `M` | Δt | Steps/yr | Benchmark wall (s) | Speedup vs M=1 | Job ID |
 |---|---|---|---|---|---|
-| 1 | 1.5 h | 5844 | TBD | 1.00× | 168081163 |
-| 4 | 6 h   | 1461 | TBD | TBD  | 168081164 |
+| 1 | 1.5 h | 5844 | 38.6 | 1.00× | 168081163 |
+| 4 | 6 h   | 1461 |  9.5 | 4.06× | 168081164 |
 
-The ratio of benchmark walltime to `run_1year` walltime tells us the
-output-writing overhead. At M=1 the difference between (108.1 s
-including I/O) and the benchmark wall time will quantify the fixed I/O
-cost; at M=4 it shows whether the I/O cost has come to dominate the
-~30% step-time savings.
+The pure step-time speedup is **4.06×** at M=4 — essentially perfectly
+linear with M (a 4× larger Δt gives a 4× shorter simulation). The fact
+that `run_1year` (which writes outputs) showed only 1.38× speedup is
+explained by the I/O cost being constant:
+
+|       | run_1year wall (s) | benchmark wall (s) | I/O overhead (s) |
+|-------|-------------------:|-------------------:|-----------------:|
+| M = 1 | 108.1 | 38.6 | 69.5 |
+| M = 4 |  78.1 |  9.5 | 68.6 |
+
+I/O is ~69 s regardless of M (same number of output snapshots, same
+per-snapshot cost). At M=4 the I/O is already 88% of total `run_1year`
+wall time. For longer runs, the periodic-solver inner loop (no per-step
+I/O) gets the full 4× speedup — which is the speedup that matters for
+the Newton-Krylov use case.
 
 ### OM2-025 (Δt = 1800 s baseline)
 
