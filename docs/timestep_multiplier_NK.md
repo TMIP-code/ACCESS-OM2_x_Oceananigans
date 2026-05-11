@@ -18,6 +18,11 @@ This doc covers the **sufficient** test: run the full NK pipeline at
 - **Periodic age field**: volume-weighted RMS difference vs `M = 1`
   on the steady periodic solution (whole-domain + surface-layer), and
   divergence concentration.
+- **Diff plots vs M=1**: same `age_M − age_1` zonal-average × 4 basins
+  and horizontal-slice × 6 depths plots as the stability sweep
+  produced — embedded in this doc as 2×2 / 2×3 image tables so the
+  spatial structure of the divergence is directly visible. This is a
+  required deliverable, not a follow-up.
 - **Wall time**: TMbuild + TMsolve + NK end-to-end. This is the
   speedup that motivates the whole exercise — the NK inner loop has
   no per-step output I/O, so a ~`M`× speedup on the JVP should pass
@@ -30,7 +35,6 @@ warm-start `steady_age_full_*.jld2`. The driver DAG resolves these:
 
 ```
 TMbuild → TMsolve → NK → run1yrNK → plotNK
-                  ↘   plotNKtrace
 ```
 
 - **TMbuild** (CPU, `scripts/preprocessing/build_TMconst.sh`): builds
@@ -47,7 +51,8 @@ TMbuild → TMsolve → NK → run1yrNK → plotNK
   `outputs/{PM}/{EXP}/{TW}/periodic/{MC}_DTx{M}/NK/age_{LINEAR_SOLVER}_{precond_tag}.jld2`.
 - **run1yrNK** (GPU): forward-integrates one year from the periodic
   solution to produce `age_periodic_1year.jld2` for plotting.
-- **plotNK** / **plotNKtrace**: diagnostic plots (see [Helper scripts](#helper-scripts)).
+- **plotNK**: diagnostic plots of the periodic 1-year run (see
+  [Helper scripts](#helper-scripts)).
 
 ## Running it
 
@@ -61,7 +66,7 @@ for M in 1 2 4; do
   TIMESTEP_MULT=$M \
   TM_SOURCE=const \
   INITIAL_AGE=TMage \
-  JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK-plotNK-plotNKtrace \
+  JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK-plotNK \
     bash scripts/driver.sh
 done
 ```
@@ -76,10 +81,6 @@ Notes:
   which we don't need here.
 - The driver propagates `TIMESTEP_MULT` to every PBS job through
   [scripts/driver.sh:245](../scripts/driver.sh#L245) (`COMMON_VARS`).
-- If you want the per-Newton-iteration residual trace plotted by
-  `plotNKtrace`, also set `TRACE_SOLVER_HISTORY=yes` — without it the
-  NK solver still converges but doesn't write the iter-level JLD2 files
-  that `plot_trace_history.jl` reads.
 - Optional: `LUMP_AND_SPRAY=yes` enables the coarse-grid preconditioner
   (filename tag changes to `_LSprec` from `_prec`). The existing M=1
   precedent in
@@ -166,24 +167,30 @@ depths 100 / 200 / 500 / 1000 / 2000 / 3000 m:
 Output lands in
 `outputs/.../periodic/{MC}_DTx{M}/1year/{LINEAR_SOLVER}_{precond}/plots/`.
 
-### Newton/GMRES residual history — `src/plot_trace_history.jl`
-
-Submitted as `plotNKtrace`
-([scripts/plotting/plot_trace_history_job.sh](../scripts/plotting/plot_trace_history_job.sh)).
-Reads the per-iteration JLD2 trace files written by the NK solver when
-`TRACE_SOLVER_HISTORY=yes` and produces residual-vs-iteration plots
-(Newton outer-loop, GMRES inner-loop). Without the trace env flag the
-NK solver still converges but writes no iter-level files, so this step
-has nothing to plot.
-
 ### Sweep comparison — `src/plot_timestep_multiplier_sweep.jl`
 
 Currently coded against the standard-run age files in
-`{MC}_DTx{M}/standardrun/age_1year.jld2`. To reuse it for the NK
-**steady periodic** comparison you would point it at
-`{MC}_DTx{M}/periodic/.../age_periodic_1year.jld2` (year-mean) or the
-final NK fixed-point `age_{LINEAR_SOLVER}_{precond}.jld2`. That's a
-small follow-up — not wired up yet.
+`{MC}_DTx{M}/standardrun/age_1year.jld2`. **Extend it (or fork a sibling
+script)** to also read the NK outputs — point at either
+`{MC}_DTx{M}/periodic/{precond_tag}/NK/age_{LINEAR_SOLVER}_{precond}.jld2`
+(the final NK fixed-point) or the year-mean of
+`{MC}_DTx{M}/periodic/.../1year/.../age_periodic_1year.jld2`, and route
+the diff plots into a parallel `diff_vs_DTx1_periodic/` subdir so they
+don't collide with the standardrun ones. The plot routine
+([plot_age_diagnostics](../src/shared_utils/analysis_and_plotting.jl#L174))
+is already generic over the input field — only the loader needs to
+change.
+
+A natural switch: `COMPARE_TARGET=standardrun|nk_steady|nk_periodic`
+in the script, defaulting to `standardrun` for back-compat. The
+ColorSchemes / OceanBasins imports (added in commit 4d1cd63) already
+match the production pattern; no new imports needed.
+
+The same 2×2 (zonal × 4 basins) + 2×3 (slices × 6 depths) Markdown
+table layout used in
+[docs/timestep_multiplier.md](timestep_multiplier.md#diff-plots-vs-m1)
+should be reproduced under [Diff plots vs M=1](#diff-plots-vs-m1)
+below once the PNGs land.
 
 ### Simulation wall time — `scripts/plotting/plot_simtime_vs_walltime.py`
 
@@ -241,10 +248,23 @@ Stage 2a there are run here.
 
 #### Diff plots vs M=1
 
-Same pattern as the stability sweep — once the periodic comparison
-script is wired up, embed the PNGs from
-`outputs/.../periodic/{MC}_DTx{M}/diff_vs_DTx1_periodic/` in 2×2 (zonal
-× 4 basins) and 2×3 (slices × 6 depths) tables here.
+Required deliverable — same pattern as the
+[stability sweep diff plots](timestep_multiplier.md#diff-plots-vs-m1).
+Per `M > 1`, embed the `age_M − age_1` PNGs from
+`outputs/.../periodic/{MC}_DTx{M}/diff_vs_DTx1_periodic/` in:
+
+- **2×2 zonal-average table** — global / Atlantic, then Pacific / Indian
+- **2×3 horizontal-slice table** — 100 / 200 / 500 m row, then 1000 /
+  2000 / 3000 m row
+
+Symmetric `:RdBu` colormap with `rev = true`, colour range capped at
+the 99th percentile of `|age_M − age_1|`, same Δmax across all plots of
+a given M (recorded in the figure title). This mirrors the layout and
+plotting choices already proven in the stability doc — copy that
+section's Markdown structure verbatim and replace the URLs once
+[plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
+has been extended to read NK periodic output (see
+[Helper scripts → Sweep comparison](#sweep-comparison--srcplot_timestep_multiplier_sweepjl)).
 
 ### Conclusions
 
