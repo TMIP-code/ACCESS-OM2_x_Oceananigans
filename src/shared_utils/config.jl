@@ -31,7 +31,24 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
     gm == "adv" && (mc = "$(mc)_GMREDIadv")
     lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
+    M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
+    M !== nothing && M > 1 && (mc = "$(mc)_DTx$(M)")
     return mc
+end
+
+"""Return the sorted list of positive divisors of `n`."""
+function _divisors(n::Integer)
+    n ≥ 1 || error("_divisors requires n ≥ 1 (got: $n)")
+    ds = Int[]
+    i = 1
+    while i * i ≤ n
+        if mod(n, i) == 0
+            push!(ds, i)
+            i * i == n || push!(ds, n ÷ i)
+        end
+        i += 1
+    end
+    return sort!(ds)
 end
 
 """Convert ADVECTION_SCHEME string to Oceananigans advection object."""
@@ -92,6 +109,31 @@ function load_project_config(; parentmodel_arg_index = 1)
     else
         Δt = Float64(profile["dt_seconds"])
     end
+    Δt_base = Δt
+
+    # TIMESTEP_MULT: scale Δt for the tracer-advection stability sweep.
+    # The dynamical-core Δt_base from the parent model is the wrong constraint
+    # for a passive-tracer offline simulation (see docs/timestep_multiplier.md).
+    M_str = get(ENV, "TIMESTEP_MULT", "1")
+    M = tryparse(Int, M_str)
+    M === nothing && error("TIMESTEP_MULT must be a positive integer (got: \"$M_str\")")
+    M ≥ 1 || error("TIMESTEP_MULT must be ≥ 1 (got: $M)")
+    year_seconds = 365.25 * 86400
+    N_base = round(Int, year_seconds / Δt_base)
+    if mod(N_base, M) != 0
+        all_divisors = _divisors(N_base)
+        practical_M_max = floor(Int, 18 * 3600 / Δt_base)
+        valid_practical = filter(≤(practical_M_max), all_divisors)
+        next_idx = findfirst(>(practical_M_max), all_divisors)
+        next_hint = next_idx === nothing ? "" :
+            " Next valid value is $(all_divisors[next_idx]) (= 1 month per step)."
+        error(
+            "TIMESTEP_MULT=$M is not a divisor of N_base=$N_base (= year/Δt_base " *
+                "for $parentmodel). Valid multipliers ≤ $practical_M_max " *
+                "(Δt ≤ 18 h): {$(join(valid_practical, ", "))}." * next_hint
+        )
+    end
+    Δt = M * Δt_base
 
     # Experiment and time window
     default_experiments = Dict(
@@ -129,6 +171,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     end
 
     @info "GIT_COMMIT       = $(get(ENV, "GIT_COMMIT", "unknown"))"
+    @info "TIMESTEP_MULT    = $M  (Δt_base = $Δt_base s → Δt = $Δt s)"
     @info "EXPERIMENT       = $experiment"
     @info "TIME_WINDOW      = $time_window"
     @info "MLD_TIME_WINDOW  = $mld_time_window$(mld_explicit ? "" : "  (default = TIME_WINDOW; not set)")"
