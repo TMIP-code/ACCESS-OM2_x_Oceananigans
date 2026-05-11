@@ -29,7 +29,11 @@ if [ "$MLD_EXPLICIT" = "yes" ]; then
 else
     LOG_TW_TAG="$TIME_WINDOW"
 fi
-export EXPERIMENT TIME_WINDOW MLD_TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG
+# Julia's load_project_config uses haskey(ENV, "MLD_TIME_WINDOW") as the
+# "explicit" signal. Only export MLD_TIME_WINDOW when explicitly set, so the
+# default code path doesn't masquerade as explicit and reroute to test/.
+export EXPERIMENT TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG
+[ "$MLD_EXPLICIT" = "yes" ] && export MLD_TIME_WINDOW
 
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}     # cgridtransports | totaltransport
 W_FORMULATION=${W_FORMULATION:-wdiagnosed}              # wdiagnosed | wprescribed
@@ -37,6 +41,7 @@ PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (on
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5
 TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
 TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base (see docs/timestep_multiplier.md)
+PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # yes | no
@@ -79,7 +84,7 @@ MODEL_CONFIG="${MODEL_CONFIG}${LB_TAG}"
 if [ "$TIMESTEP_MULT" != "1" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_DTx${TIMESTEP_MULT}"
 fi
-export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT TRACE_SOLVER_HISTORY
+export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
 export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE
@@ -95,6 +100,7 @@ echo "PRESCRIBED_W_SOURCE=$PRESCRIBED_W_SOURCE"
 echo "ADVECTION_SCHEME=$ADVECTION_SCHEME"
 echo "TIMESTEPPER=$TIMESTEPPER"
 echo "TIMESTEP_MULT=$TIMESTEP_MULT"
+echo "PLOT_TS=$PLOT_TS"
 echo "TRACE_SOLVER_HISTORY=$TRACE_SOLVER_HISTORY"
 # echo "AA_M=$AA_M"
 # echo "NLSAA_BETA=$NLSAA_BETA"

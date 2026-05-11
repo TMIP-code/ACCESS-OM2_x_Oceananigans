@@ -194,15 +194,24 @@ field_specs = Tuple{String, Any, Union{Nothing, Int}}[
     ("eta", η_ts, nothing),
 ]
 
-# Optionally add T, S if GM-Redi FTS exist
+# Optionally add T, S surface animations — opt-in via PLOT_TS=yes.
+# T/S monthly FTS files may have been preprocessed with smaller halos than the
+# current grid; loading them with a mismatched halo throws DimensionMismatch.
+# Most runs don't need T/S surface plots, so we gate the load behind an
+# explicit flag and skip-with-hint otherwise.
 T_file = joinpath(monthly_dir, "temp_monthly.jld2")
 S_file = joinpath(monthly_dir, "salt_monthly.jld2")
+PLOT_TS = lowercase(get(ENV, "PLOT_TS", "no")) == "yes"
 if isfile(T_file) && isfile(S_file)
-    @info "Loading T and S FTS for surface animations"
-    T_ts = FieldTimeSeries(T_file, "T"; grid, backend = InMemory(), time_indexing)
-    S_ts = FieldTimeSeries(S_file, "S"; grid, backend = InMemory(), time_indexing)
-    push!(field_specs, ("T", T_ts, k_surface_ccc))
-    push!(field_specs, ("S", S_ts, k_surface_ccc))
+    if PLOT_TS
+        @info "Loading T and S FTS for surface animations (PLOT_TS=yes)"
+        T_ts = FieldTimeSeries(T_file, "T"; grid, backend = InMemory(), time_indexing)
+        S_ts = FieldTimeSeries(S_file, "S"; grid, backend = InMemory(), time_indexing)
+        push!(field_specs, ("T", T_ts, k_surface_ccc))
+        push!(field_specs, ("S", S_ts, k_surface_ccc))
+    else
+        @info "Skipping T/S surface animations — set PLOT_TS=yes to enable (T/S monthly FTS present at $T_file)"
+    end
 end
 
 # Optionally add MLD if monthly FTS exists
