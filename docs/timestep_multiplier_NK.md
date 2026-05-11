@@ -44,7 +44,14 @@ TMbuild → TMsolve → NK → run1yrNK → plotNK
   independent of `M`.
 - **TMsolve** (CPU, `scripts/solvers/solve_TM_age_CPU.sh`): direct-
   solves `M · age = source` to produce `steady_age_full_*.jld2`, the
-  warm start the NK solver loads when `INITIAL_AGE=TMage`.
+  warm start the NK solver loads when `INITIAL_AGE=TMage`. Per-`M`
+  because the M=1 steady age is *not* equivalent to the M=4 steady
+  age in the surface layer — the relaxation BC scales with Δt — and
+  the design choice in
+  [docs/timestep_multiplier.md](timestep_multiplier.md#design-choice-surface-relaxation-scales-with-δt)
+  means we're solving a slightly different continuum operator at
+  `M = M_max`. The TMsolve at each `M` produces the warm start that
+  is consistent with that `M`'s NK problem.
 - **NK** (GPU, `scripts/solvers/solve_periodic_NK.sh`): Newton-GMRES
   on the periodic problem `Φ(age) − age = 0` where `Φ` is the 1-year
   forward map. Writes
@@ -55,6 +62,10 @@ TMbuild → TMsolve → NK → run1yrNK → plotNK
   [Helper scripts](#helper-scripts)).
 
 ## Running it
+
+One `driver.sh` invocation per `M`. The pipeline runs on `TM_SOURCE=const`
+(yearly-averaged matrix, no `run1yr` dependency) — the path that the
+stability doc already validated.
 
 One `driver.sh` invocation per `M`. The pipeline runs on `TM_SOURCE=const`
 (yearly-averaged matrix, no `run1yr` dependency) — the path that the
@@ -74,8 +85,11 @@ done
 Notes:
 
 - `INITIAL_AGE=TMage` is the default; spelled out here so the warm-
-  start path is explicit. Setting `INITIAL_AGE=0` would force a cold
-  start and probably blow up the Newton iteration count.
+  start path is explicit. The NK solver looks under
+  `outputs/.../TM/{MC}_DTx{M}/{TM_SOURCE}/steady_age_full_*.jld2`, so
+  TMsolve must run at each `M` to produce a warm start consistent
+  with that `M`'s relaxation rescaling. Setting `INITIAL_AGE=0` would
+  force a cold start and probably blow up the Newton iteration count.
 - `TM_SOURCE=const` selects the yearly-averaged matrix branch. The
   `avg` branch would chain after a `run1yr` and a `TMsnapshot` step,
   which we don't need here.
