@@ -346,18 +346,53 @@ Comparison job: 168081165 — raw output at
 [src/plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
 emits `age_M − age_1` zonal averages (4 basins) and horizontal slices
 (6 depths) on a symmetric diverging colormap auto-scaled to the 99th
-percentile of `|Δ|`. One `diff_vs_DTx1/` subdir per `M > 1`:
+percentile of `|Δ|` (recorded in each figure title as Δmax). Same Δmax
+across all plots of a given M so they're directly comparable. PNGs land
+in `outputs/.../{MC}_DTx{M}/diff_vs_DTx1/`.
 
-| M | Diff plot directory | Zonal averages | Horizontal slices |
-|---|---|---|---|
-| 2 | [outputs/.../DTx2/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/) | [global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_global.png), [atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_atlantic.png), [pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_pacific.png), [indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_indian.png) | [100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_100m.png), [200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_200m.png), [500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_500m.png), [1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_1000m.png), [2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_2000m.png), [3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_3000m.png) |
-| 4 | [outputs/.../DTx4/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/) | [global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_global.png), [atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_atlantic.png), [pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_pacific.png), [indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_indian.png) | [100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_100m.png), [200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_200m.png), [500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_500m.png), [1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_1000m.png), [2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_2000m.png), [3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_3000m.png) |
+Note: `outputs/` is on scratch and gitignored, so the embeds below
+render in a local Markdown previewer (VS Code, etc.) but not on GitHub.
+Open the doc locally to view.
 
-Filename pattern produced by
-[plot_age_diagnostics](../src/shared_utils/analysis_and_plotting.jl#L174):
-`{label}_zonal_avg_{basin}.png` and `{label}_slice_{depth}m.png` where
-`label = DTx{M}_vs_DTx1`. Δmax (the 99th-percentile of `|age_M − age_1|`
-used as the colour-range cap) is recorded in the figure title.
+###### M = 2 vs M = 1
+
+Zonal averages:
+
+![M=2 zonal avg global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_global.png)
+![M=2 zonal avg atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_atlantic.png)
+![M=2 zonal avg pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_pacific.png)
+![M=2 zonal avg indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_indian.png)
+
+Horizontal slices:
+
+![M=2 slice 100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_100m.png)
+![M=2 slice 200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_200m.png)
+![M=2 slice 500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_500m.png)
+![M=2 slice 1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_1000m.png)
+![M=2 slice 2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_2000m.png)
+![M=2 slice 3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_3000m.png)
+
+Directory: [outputs/.../DTx2/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/)
+
+###### M = 4 vs M = 1
+
+Zonal averages:
+
+![M=4 zonal avg global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_global.png)
+![M=4 zonal avg atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_atlantic.png)
+![M=4 zonal avg pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_pacific.png)
+![M=4 zonal avg indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_indian.png)
+
+Horizontal slices:
+
+![M=4 slice 100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_100m.png)
+![M=4 slice 200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_200m.png)
+![M=4 slice 500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_500m.png)
+![M=4 slice 1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_1000m.png)
+![M=4 slice 2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_2000m.png)
+![M=4 slice 3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_3000m.png)
+
+Directory: [outputs/.../DTx4/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/)
 
 #### OM2-1 benchmark wall times (no output writers)
 
