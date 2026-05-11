@@ -67,10 +67,6 @@ One `driver.sh` invocation per `M`. The pipeline runs on `TM_SOURCE=const`
 (yearly-averaged matrix, no `run1yr` dependency) — the path that the
 stability doc already validated.
 
-One `driver.sh` invocation per `M`. The pipeline runs on `TM_SOURCE=const`
-(yearly-averaged matrix, no `run1yr` dependency) — the path that the
-stability doc already validated.
-
 ```bash
 for M in 1 2 4; do
   PARENT_MODEL=ACCESS-OM2-1 \
@@ -227,70 +223,225 @@ total NK time use the PBS-side `resources_used.walltime`
 
 | Metric | Source | Notes |
 |---|---|---|
-| TMbuild wall (s) | PBS `walltime_used` | Should be ≈ constant across `M` (sparsity unchanged) |
-| TMsolve wall (s) | PBS `walltime_used` | Linear-solve cost; should be ≈ constant across `M` |
-| NK wall (s) | PBS `walltime_used` | Where the speedup lives (no per-step I/O) |
-| run1yrNK wall (s) | `plot_simtime_vs_walltime.py` | Same script as stability sweep |
-| End-to-end wall (s) | sum of the above | The speedup that motivates the exercise |
-| Newton iterations | NK log | Count of `Newton iter` markers |
-| Cumulative GMRES iters | NK log | Sum of per-Newton inner-loop counts |
-| Final ‖Φ(age) − age‖ | NK log | At Newton convergence |
-| Periodic age: mean / max / min (yr) | `plot_timestep_multiplier_sweep.jl`-style | After pointing at periodic outputs |
-| RMS Δ vs M=1, whole / surface (yr) | same | Periodic-field comparison |
-| Job IDs | `scripts/runs/submissions.tsv` | TMbuild + TMsolve + NK + run1yrNK |
+| TMbuild wall | PBS `walltime_used` | Should be ≈ constant across `M` (sparsity unchanged) |
+| TMsolve wall | PBS `walltime_used` (CPU job) | Linear-solve cost; should be ≈ constant across `M` |
+| NK wall | PBS `walltime_used` | Where the speedup lives (no per-step I/O) |
+| run1yrNK wall | PBS `walltime_used` | Same step as stability sweep |
+| End-to-end wall | sum of the above | The speedup that motivates the exercise |
+| Φ! calls (total) | NK log | Count of `Φ! call # … starting` markers. Mirrors PROGRESS.md's `(N Φ)` convention — one number covering Newton G-evaluations + GMRES JVP-via-`linΦ` calls. |
+| Final ‖G‖_∞ | NK log (`Final` line of NewtonRaphson trace) | Inf-norm of `G(x) = Φ(x) − x` at convergence (years). Solver `abstol = 0.0001 yr` is on the volume-weighted RMS norm, not on this inf-norm — so a large inf-norm with a Success retcode is expected. |
+| Periodic age: mean / max / min (yr) | `plot_timestep_multiplier_sweep.jl` with `COMPARE_TARGET=nk_periodic` | Year-mean of the 25 half-monthly snapshots from run1yrNK. |
+| RMS Δ vs M=1, whole / surface (yr) | same | Periodic-field comparison. |
+| Job IDs | `scripts/runs/submissions.tsv` | TMbuild + TMsolve_c + NK + run1yrNK + plotNK |
 
 ## Results
 
 ### OM2-1 NK at `M ∈ {1, 2, 4}`
 
 Stage labels match the stability sweep — only the M values that passed
-Stage 2a there are run here.
+Stage 2a there are run here. All three runs used
+`LINEAR_SOLVER=Pardiso`, `LUMP_AND_SPRAY=yes` (filename tag `Pardiso_LSprec`),
+`JVP_METHOD=exact` (linear-tracer JVP), `INITIAL_AGE=TMage` (warm start
+from the per-`M` TMsolve), and `TM_SOURCE=const`.
 
-| `M` | Δt | Status | TMbuild (s) | TMsolve (s) | NK wall (s) | Newton iters | GMRES iters | Final ‖res‖ | Job IDs (TMbuild / TMsolve / NK / run1yrNK) |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | 1.5 h | — | — | — | — | — | — | — | — |
-| 2 | 3 h   | — | — | — | — | — | — | — | — |
-| 4 | 6 h   | — | — | — | — | — | — | — | — |
+Wall times below are PBS `resources_used.walltime`. **Φ! calls** is the
+total count of `Φ! call # … starting` markers in the NK log — the same
+convention PROGRESS.md uses (`(N Φ)`). **Final ‖G‖_∞** is the
+NewtonRaphson trace's `Final` line (inf-norm of `G = Φ(x) − x` in years);
+all three runs returned `retcode = Success`.
+
+| `M` | Δt | Status | TMbuild | TMsolve_c | NK wall | run1yrNK | plotNK | End-to-end | Φ! calls | Final ‖G‖_∞ (yr) | Job IDs (TMbuild / TMsolve_c / NK / run1yrNK / plotNK) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1.5 h | ✓ | 08:25 | 03:29 | **51:59** | 06:16 | 08:32 | 78:41 | 62 | 4.06e+02 | 168091718 / 168091719 / 168091721 / 168091722 / 168091723 |
+| 2 | 3 h   | ✓ | 06:38 | 02:52 | **30:12** | 05:43 | 07:54 | 53:19 | 62 | 4.18e+02 | 168093148 / 168093149 / 168093151 / 168093152 / 168093153 |
+| 4 | 6 h   | ✓ | 06:16 | 03:15 | **19:52** | 05:51 | 09:16 | 44:30 | 62 | 1.10e+03 | 168093162 / 168093163 / 168093165 / 168093166 / 168093167 |
+
+**NK speedup**: M=2 → 1.72× vs M=1; M=4 → 2.61× vs M=1.
+**Per-Φ-call speedup** (NK inner Julia time `2714 / 1465 / 894` s): 1.85× and 3.04× — close to the ideal `M×` at M=2, sub-linear at M=4 because fixed per-call overhead (init + first-step warmup + I/O) doesn't shrink with `M`.
+**End-to-end speedup** (TMbuild → plotNK): M=4 / M=1 = 1.77× — diluted because TMbuild / TMsolve / run1yrNK / plotNK are roughly constant across `M`.
+**Φ! calls flat at 62 across all `M`** — the JVP spectrum of the surface relaxation operator is not sensitive enough to Δt to change the Krylov inner-iteration count in this regime. Headline question 1 (does Newton count grow with `M`?) answers cleanly: **no**.
 
 #### Periodic age comparison (after run1yrNK + post-hoc)
 
-| `M` | Mean age (yr) | Max age (yr) | Min age (yr) | RMS Δ whole (yr) | RMS Δ surf (yr) | max\|Δ\| (yr) |
-|---|---|---|---|---|---|---|
-| 1 | — | — | — | 0 | 0 | — |
-| 2 | — | — | — | — | — | — |
-| 4 | — | — | — | — | — | — |
+Two comparison targets are reported, both produced by
+[plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
+via the new `COMPARE_TARGET` switch:
+
+- **nk_steady** — the NK fixed point, `Φ(x*) = x*`, loaded directly
+  from `periodic/{MC}_DTx{M}/NK/age_Pardiso_LSprec.jld2`. This is the
+  state *at the start of the periodic year*.
+- **nk_periodic** — the volume-weighted year-mean of the 25 half-
+  monthly snapshots of `run1yrNK`, from
+  `periodic/{MC}_DTx{M}/1year/Pardiso_LSprec/age_periodic_1year.jld2`.
+  Same convention as
+  [plot_periodic_1year_age.jl:159-165](../src/plot_periodic_1year_age.jl#L159-L165).
+
+The two targets should be physically very close — and they are: RMS-Δ
+values agree to ≤ 1% across both `M` values, and `max|Δ|` is at the same
+`(i, j, k) = (224, 40, 50)` (surface tropical Pacific, model level 50 =
+ocean surface) in both. The differences in `min` age come from the
+surface-relaxation boundary cells, which sit very close to zero and
+fluctuate in sign during the year — so the *minimum* is a snapshot
+artefact, not a property of the fixed point.
+
+**nk_steady** (final NK fixed point) — TSV: [timestep_multiplier_summary_nk_steady.tsv](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/timestep_multiplier_summary_nk_steady.tsv)
+
+| `M` | Mean age (yr) | Max age (yr) | Min age (yr) | RMS Δ whole (yr) | RMS Δ surf (yr) | max\|Δ\| (yr) | max\|Δ\| (i,j,k) |
+|---|---|---|---|---|---|---|---|
+| 1 | 911.423 | 2443.003 | −116.443 | 0 | 0 | — | — |
+| 2 | 915.299 | 2443.250 | −116.594 | 4.699 | 2.519 | 55.665 | (224, 40, 50) |
+| 4 | 922.535 | 2443.785 | −116.758 | 13.385 | 6.918 | 118.109 | (224, 40, 50) |
+
+**nk_periodic** (year-mean of run1yrNK) — TSV: [timestep_multiplier_summary_nk_periodic.tsv](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/timestep_multiplier_summary_nk_periodic.tsv)
+
+| `M` | Mean age (yr) | Max age (yr) | Min age (yr) | RMS Δ whole (yr) | RMS Δ surf (yr) | max\|Δ\| (yr) | max\|Δ\| (i,j,k) |
+|---|---|---|---|---|---|---|---|
+| 1 | 911.429 | 2443.007 | −127.982 | 0 | 0 | — | — |
+| 2 | 915.306 | 2443.254 | −128.169 | 4.698 | 2.494 | 54.373 | (224, 40, 50) |
+| 4 | 922.541 | 2443.788 | −128.387 | 13.383 | 6.851 | 116.379 | (224, 40, 50) |
+
+The stability-sweep tolerances (on the *1-year forward map*) were
+~23 ms RMS whole-domain and ~88 ms surface at `M=4`. The periodic NK
+state is ~580× worse at `M=4` (13.4 yr whole-domain, 6.9 yr surface) —
+**expected**, because the equilibrium amplifies per-step truncation
+error over the ventilation timescale, not over a single year. Whether
+~13 yr (≈ 1.5% of the mean ventilation age of ~900 yr) is acceptable
+depends on the downstream use of the NK output. See *Conclusions*.
+
+To regenerate either table (e.g. after a re-run):
+
+```bash
+# both modes run cleanly in parallel — outputs land in separate subdirs
+qsub -v COMPARE_TARGET=nk_steady,LUMP_AND_SPRAY=yes   scripts/plotting/plot_timestep_multiplier_sweep.sh
+qsub -v COMPARE_TARGET=nk_periodic,LUMP_AND_SPRAY=yes scripts/plotting/plot_timestep_multiplier_sweep.sh
+```
 
 #### Diff plots vs M=1
 
-Required deliverable — same pattern as the
-[stability sweep diff plots](timestep_multiplier.md#diff-plots-vs-m1).
-Per `M > 1`, embed the `age_M − age_1` PNGs from
-`outputs/.../periodic/{MC}_DTx{M}/diff_vs_DTx1_periodic/` in:
+Same pattern as the
+[stability sweep diff plots](timestep_multiplier.md#diff-plots-vs-m1):
+symmetric `:RdBu` (reversed) colormap, colour range capped at the 99th
+percentile of `|age_M − age_1|` (= per-M `Δmax`, listed below), same
+Δmax across all plots of a given M. PNGs land under
+`periodic/{MC}_DTx{M}/diff_vs_DTx1_periodic_{nk_steady,nk_periodic}/`
+— per-target subdirs are required because both NK modes share
+`periodic/` as their discovery root, so a shared subdir would race when
+the two sweep jobs run in parallel.
 
-- **2×2 zonal-average table** — global / Atlantic, then Pacific / Indian
-- **2×3 horizontal-slice table** — 100 / 200 / 500 m row, then 1000 /
-  2000 / 3000 m row
+| Target | M=2 Δmax (yr) | M=4 Δmax (yr) |
+|---|---|---|
+| nk_steady | 17.05 | 48.66 |
+| nk_periodic | 16.96 | 48.37 |
 
-Symmetric `:RdBu` colormap with `rev = true`, colour range capped at
-the 99th percentile of `|age_M − age_1|`, same Δmax across all plots of
-a given M (recorded in the figure title). This mirrors the layout and
-plotting choices already proven in the stability doc — copy that
-section's Markdown structure verbatim and replace the URLs once
-[plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
-has been extended to read NK periodic output (see
-[Helper scripts → Sweep comparison](#sweep-comparison--srcplot_timestep_multiplier_sweepjl)).
+The two targets give *visually* indistinguishable diff fields (Δmax
+agrees to ~1%), so the patterns described below apply equally to both;
+they're shown side-by-side primarily as a sanity check that the NK
+fixed point and the integrated periodic state really do agree.
+
+##### nk_periodic (year-mean of run1yrNK — primary comparison)
+
+###### M=2 vs M=1 — zonal averages (Δmax ≈ 16.96 yr)
+
+| Global | Atlantic |
+|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_zonal_avg_global.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_zonal_avg_atlantic.png) |
+| **Pacific** | **Indian** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_zonal_avg_pacific.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_zonal_avg_indian.png) |
+
+###### M=2 vs M=1 — horizontal slices (Δmax ≈ 16.96 yr)
+
+| 100 m | 200 m | 500 m |
+|---|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_100m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_200m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_500m.png) |
+| **1000 m** | **2000 m** | **3000 m** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_1000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_2000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_periodic/DTx2_vs_DTx1_slice_3000m.png) |
+
+###### M=4 vs M=1 — zonal averages (Δmax ≈ 48.37 yr)
+
+| Global | Atlantic |
+|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_zonal_avg_global.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_zonal_avg_atlantic.png) |
+| **Pacific** | **Indian** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_zonal_avg_pacific.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_zonal_avg_indian.png) |
+
+###### M=4 vs M=1 — horizontal slices (Δmax ≈ 48.37 yr)
+
+| 100 m | 200 m | 500 m |
+|---|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_100m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_200m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_500m.png) |
+| **1000 m** | **2000 m** | **3000 m** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_1000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_2000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_periodic/DTx4_vs_DTx1_slice_3000m.png) |
+
+##### nk_steady (NK fixed point — cross-check)
+
+###### M=2 vs M=1 — zonal averages (Δmax ≈ 17.05 yr)
+
+| Global | Atlantic |
+|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_zonal_avg_global.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_zonal_avg_atlantic.png) |
+| **Pacific** | **Indian** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_zonal_avg_pacific.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_zonal_avg_indian.png) |
+
+###### M=2 vs M=1 — horizontal slices (Δmax ≈ 17.05 yr)
+
+| 100 m | 200 m | 500 m |
+|---|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_100m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_200m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_500m.png) |
+| **1000 m** | **2000 m** | **3000 m** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_1000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_2000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1_periodic_nk_steady/DTx2_vs_DTx1_slice_3000m.png) |
+
+###### M=4 vs M=1 — zonal averages (Δmax ≈ 48.66 yr)
+
+| Global | Atlantic |
+|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_zonal_avg_global.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_zonal_avg_atlantic.png) |
+| **Pacific** | **Indian** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_zonal_avg_pacific.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_zonal_avg_indian.png) |
+
+###### M=4 vs M=1 — horizontal slices (Δmax ≈ 48.66 yr)
+
+| 100 m | 200 m | 500 m |
+|---|---|---|
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_100m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_200m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_500m.png) |
+| **1000 m** | **2000 m** | **3000 m** |
+| ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_1000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_2000m.png) | ![](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1_periodic_nk_steady/DTx4_vs_DTx1_slice_3000m.png) |
 
 ### Conclusions
 
-TBD after the three NK runs complete and the comparison metrics are
-filled in. The headline questions:
+1. **Does the Newton iteration count grow with `M`?** No. The total
+   `Φ!` call count was identical (`62`) at all three `M ∈ {1, 2, 4}`,
+   so the NK wall time scales purely with the per-Φ-call cost. The
+   surface-relaxation eigenvalues that change with Δt don't shift the
+   Krylov spectrum enough to alter the inner iteration count in this
+   regime.
+2. **Does `M=4` agree with `M=1` to within the stability-sweep
+   tolerances?** No. The 1-year-forward map tolerances were ~23 ms RMS
+   whole-domain and ~88 ms surface; at `M=4` the periodic state shows
+   **13.4 yr** RMS whole-domain and **6.9 yr** surface — three orders
+   of magnitude larger. This is the expected behaviour of an
+   equilibrium amplifying per-step truncation error over the
+   ventilation timescale (~900 yr mean age), not a single year. As a
+   *fraction* of the mean age, the discrepancy is ~1.5 %, with `max|Δ|`
+   = 118 yr concentrated at the surface tropical Pacific at `(i, j, k)
+   = (224, 40, 50)` — i.e., the surface-relaxation cell where the BC
+   itself scales with Δt by design.
+3. **End-to-end speedup at `M=4`?** NK alone: **2.61×** (52 min → 20
+   min wall). Whole pipeline TMbuild → plotNK: **1.77×** (79 min → 45
+   min). The NK speedup is short of the `4×` ideal because per-Φ-call
+   fixed cost (init + warmup + I/O) doesn't shrink with `M` — per-Φ
+   timing alone is **3.04×** at `M=4`. The end-to-end ratio is further
+   diluted by `M`-independent stages (TMbuild, TMsolve, run1yrNK,
+   plotNK).
 
-1. Does the Newton iteration count grow with `M`? If it grows
-   sub-linearly, the cumulative GMRES iters are likely to stay flat
-   enough that the NK wall time speeds up close to `M×`.
-2. Does the periodic age field at `M = 4` agree with `M = 1` to
-   within the stability-sweep tolerances (~25 ms RMS whole-domain,
-   ~90 ms surface)? If yes, `M = 4` is the new default for the NK
-   workflow.
-3. End-to-end TMbuild → NK → run1yrNK wall time at `M = 4` vs
-   `M = 1`. If the speedup is ≥ 3× the exercise paid for itself.
+**Verdict.** `M=4` cuts NK wall by a factor of 2.6 without changing
+convergence, at the cost of a ~1.5 % shift in the periodic age field
+(localised at the surface). Whether to adopt it as the OM2-1 NK default
+is a downstream-use call: acceptable for parameter studies and
+benchmarking where relative comparisons dominate; **probably not**
+acceptable for products comparing against observations at single-cell
+precision. A middle ground — `M=2` for **1.72×** NK speedup at **4.70 yr**
+RMS — may be the right operating point in practice.
+
+For further reduction, the remaining levers are not Δt-side:
+preconditioner quality (e.g. LSprec coarsening factor), better warm
+start than TMage, or moving GMRES inner iters off-GPU.
