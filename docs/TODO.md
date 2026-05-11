@@ -1,0 +1,8 @@
+- [ ] get load balancing correct
+- [ ] Find largest M time steop multiplier for OM2-01
+- [ ] Implement a multi GPU NK solve
+- [ ] Try to figure out why 1x8 still no scaling?
+- [ ] Combine best M + best LB + precomputed w + multiGPU for final NK solve OM2-01.
+- [ ] apply adjoint tricks to get water mass fractions and ventilation fractions.
+- [ ] Try to solve the slow restoring relaxation issue. Maybe AB3 helps? What about RK3?
+- [ ] Apply xGPU NK solve OM2-01 to meltwater experiments -> paper
