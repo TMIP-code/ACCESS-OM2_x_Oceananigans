@@ -313,17 +313,32 @@ post-hoc (a CPU job — `qsub scripts/plotting/plot_timestep_multiplier_sweep.sh
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
-| 1  | 1.5 h | 5844 | 2a | ✅ pass | 108.1 | 2.083 | — | 0 | 168060698 |
-| 2  | 3 h   | 2922 | 2a | ✅ pass |  88.0 | 1.978 | — | — | 168060700 |
+| 1  | 1.5 h | 5844 | 2a | ✅ pass | 108.1 | 2.083 | 0.9730 | 0 | 168060698 |
+| 2  | 3 h   | 2922 | 2a | ✅ pass |  88.0 | 1.978 | 0.9743 | 0.0096 | 168060700 |
 | 3  | 4.5 h | 1948 | 2b | — | — | — | — | — | — |
-| 4  | 6 h   | 1461 | 2a | ✅ pass |  78.1 | 1.855 | — | — | 168060703 |
+| 4  | 6 h   | 1461 | 2a | ✅ pass |  78.1 | 1.855 | 0.9765 | 0.0229 | 168060703 |
 | 6  | 9 h   | 974  | 2b | — | — | — | — | — | — |
 | 12 | 18 h  | 487  | 2b | — | — | — | — | — | — |
 
-Julia-internal speedup so far: M=2 → 1.23×, M=4 → 1.38×. The same M=1
-hotspot at (i=65, j=209, k=36) — interior, k=36 is mid-depth — appears
-at all three M values, suggesting the dynamics are consistent and the
-divergence is in the size of that overshoot rather than its location.
+Julia-internal speedup so far: M=2 → 1.23×, M=4 → 1.38×.
+
+The age-field hotspot at (i=65, j=209, k=36) — interior, mid-depth —
+is the *raw* maximum and is the same at all three M values, so the
+dynamics are consistent and the divergence is in the size of that
+overshoot rather than its location.
+
+The divergence introduced by larger Δt lives almost entirely in the
+surface layer (k=50): the maximum |Δ| for both M=2 and M=4 is at
+k=50, and the surface-layer RMS Δ vs M=1 is 3–4× the whole-domain
+RMS (M=2: 0.033 surface vs 0.010 whole; M=4: 0.088 surface vs 0.023
+whole). This is the expected behaviour of the design choice — the
+relaxation timescale `3·Δt` scales with M, weakening the surface
+age=0 BC; the off-surface dynamics see only truncation error from
+larger Δt. Whole-domain mean age drifts by ≤ 4 ms (0.973 → 0.976 yr)
+across the M=1→4 range, far below ocean-ventilation timescales.
+
+Comparison job: 168081165 — raw output at
+[outputs/.../1968-1977/standardrun/timestep_multiplier_summary.tsv](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/timestep_multiplier_summary.tsv).
 
 #### OM2-1 benchmark wall times (no output writers)
 
