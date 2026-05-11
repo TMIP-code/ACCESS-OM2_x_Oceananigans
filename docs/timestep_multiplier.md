@@ -97,28 +97,64 @@ max / mean / min and detects NaN. The cross-`M` comparison is
 post-hoc and reads the saved age field from
 `outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/`.
 
-### Phase 3 — long-run / periodic stability
+### Phase 3 — Newton-Krylov periodic solve
 
-If Phase 2 identifies a "safe" `M_max`, repeat with the 10-year and
-100-year scripts ([run_10years.jl](../src/run_10years.jl),
-[run_100years.jl](../src/run_100years.jl)) at `M = 1` and `M = M_max`
-(and maybe an intermediate point) to confirm errors don't accumulate
-over many years.
+If Phase 2 identifies a "safe" `M_max`, go straight to the
+Newton-Krylov periodic solver ([solve_periodic_NK.jl](../src/solve_periodic_NK.jl))
+at `M = 1` (baseline) and `M = M_max`. The 1-year Φ map is the inner
+operation of the periodic solve, so a stable 1-year run is the only
+prerequisite — no need to run intermediate `run_10years` /
+`run_100years` checks.
 
-If we plan to use `M > 1` in the Newton-Krylov periodic solver
-([solve_periodic_NK.jl](../src/solve_periodic_NK.jl)), verify that the
-exact-JVP machinery still gives a clean linear residual — the JVP is
-defined as `Φ(v; source_rate=0) - v` ([periodic_solver_common.jl:239-243](../src/periodic_solver_common.jl#L239-L243))
+Sanity-check the exact-JVP machinery on the `M = M_max` solve: the
+JVP is defined as `Φ(v; source_rate=0) - v` ([periodic_solver_common.jl:239-243](../src/periodic_solver_common.jl#L239-L243))
 and is independent of `Δt` mathematically, but a too-large Δt could
-amplify roundoff. Worth one sanity check.
+amplify roundoff and slow GMRES convergence.
 
-### Phase 4 — transport matrix (optional)
+### Phase 4 — transport matrix (mostly Δt-independent)
 
 The matrix build in [src/create_matrix.jl](../src/create_matrix.jl)
-also uses `Δt` (via `matrix_setup.jl`). Two questions:
-(a) does the Jacobian sparsity coloring still work at large `Δt`?
-(b) does the resulting steady-state age solve agree with the M=1
-matrix solve? Defer until Phases 1–2 are clean.
+(via [src/matrix_setup.jl](../src/matrix_setup.jl)) takes the Jacobian
+of the **instantaneous** tendency `∂c/∂t` — no simulation, no
+timestepper invoked. The only place `Δt` enters is the surface-cell
+relaxation forcing:
+
+```julia
+age_parameters = (; relaxation_timescale = 3Δt, source_rate = 1.0)
+@inline linear_source_sink(i, j, k, grid, clock, fields, params) =
+    ifelse(k ≥ grid.Nz, -fields.ADc[i, j, k] / params.relaxation_timescale, 0.0)
+```
+([matrix_setup.jl:250-257](../src/matrix_setup.jl#L250-L257))
+
+Consequences:
+
+- **Sparsity pattern, coloring, autodiff prep, build cost**: bitwise
+  identical across `M`. No re-validation needed.
+- **Off-surface rows of M**: bitwise identical across `M`.
+- **Surface rows of M**: diagonal entry is `-1/(3·Δt)`, so scales as
+  `1/M`. The surface "Dirichlet-like" age=0 BC weakens at larger `M`.
+  At `M=1` (OM2-1) the timescale is 4.5 h; at `M=12` it's 54 h —
+  still much shorter than any ocean ventilation timescale, so the
+  surface age should remain near zero in the steady solve, but
+  worth verifying.
+
+Two ways forward:
+
+(a) **Keep `relaxation_timescale = 3·Δt`** and verify that the
+steady-state age solve agrees across `M` (small differences expected
+in the top layer only). Cheap: matrix builds are unchanged in cost,
+only the solve needs re-running.
+
+(b) **Decouple `relaxation_timescale` from `Δt`** in the matrix build
+— use a fixed physical value (e.g. `3 × Δt_base` for that parent
+model, or a stated absolute scale like `1 hour`). Then M is literally
+Δt-independent and Phase 4 collapses to "no change needed; reuse the
+existing M.jld2 at any `M`". This is also the cleaner stance for the
+matrix-based steady solver, where `Δt` is conceptually meaningless.
+
+Decision pending: skip Phase 4 entirely if (b) is chosen; otherwise
+run the steady age solve with `M = 1` and `M = M_max` matrices and
+compare.
 
 ## Workflow
 
