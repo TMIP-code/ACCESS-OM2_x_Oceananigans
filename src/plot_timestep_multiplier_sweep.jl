@@ -32,8 +32,12 @@ using Oceananigans.OutputReaders: InMemory
 using JLD2
 using Statistics
 using Printf
+using CairoMakie
 
 include("shared_functions.jl")
+
+# Opt-out: DIFF_PLOTS=no skips the plot generation (scalar metrics still run).
+DIFF_PLOTS = lowercase(get(ENV, "DIFF_PLOTS", "yes")) == "yes"
 
 year_seconds = 365.25 * 86400
 
@@ -190,6 +194,44 @@ open(tsv_path, "w") do io
             @printf io "%d\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%d\t%d\n" M s.mean_age s.max_age s.min_age d.rms_whole d.rms_surf d.max_abs d.max_loc[1] d.max_loc[2] d.max_loc[3]
         end
     end
+end
+
+################################################################################
+# Diff plots (per M > 1)
+################################################################################
+
+if DIFF_PLOTS && length(runs) > 1
+    @info "Generating diff plots for each M > 1"
+    flush(stdout); flush(stderr)
+    for (M, d, _) in runs
+        M == 1 && continue
+        diff_field = age_by_M[M] .- age_ref
+        diff_wet = diff_field[wet3D]
+        # Auto-scale colour range to the 99th percentile of |diff| so a single
+        # outlier doesn't compress the colour scale. Use the same Δmax for all
+        # zonal/horizontal plots of this M so they're directly comparable.
+        Δmax = quantile(abs.(diff_wet), 0.99)
+        Δmax > 0 || (Δmax = maximum(abs.(diff_wet)) + eps())
+        levels = range(-Δmax, Δmax; length = 21)
+        n_steps = length(levels) - 1
+        cmap = cgrad(:RdBu_r, n_steps, categorical = true)
+        diff_dir = joinpath(standardrun_dir, d, "diff_vs_DTx1")
+        label = "DTx$(M)_vs_DTx1"
+        title_prefix = @sprintf "M=%d − M=1 (Δmax≈%.3f yr at 99th pct)" M Δmax
+        @info "  M=$M  Δmax=$Δmax yr → $diff_dir"
+        plot_age_diagnostics(
+            diff_field, grid, wet3D, vol_3D, diff_dir, label;
+            colorrange = (-Δmax, Δmax),
+            levels,
+            colormap = cmap,
+            lowclip = cmap[1],
+            highclip = cmap[end],
+            colorbar_label = "Age diff (years)",
+            title_prefix,
+        )
+    end
+else
+    @info "Skipping diff plots (DIFF_PLOTS=$(get(ENV, "DIFF_PLOTS", "yes")), $(length(runs)) runs)"
 end
 
 @info "plot_timestep_multiplier_sweep.jl complete"

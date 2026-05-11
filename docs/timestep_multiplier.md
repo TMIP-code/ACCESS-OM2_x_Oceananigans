@@ -275,14 +275,15 @@ PARENT_MODEL=ACCESS-OM2-1 qsub scripts/plotting/plot_timestep_multiplier_sweep.s
 
 (or via `driver.sh` once the step is wired into the DAG).
 
-The scalar half is sufficient to fill the "Mean age" and "RMS Δ vs M=1"
-columns. Diff *plots* (zonal averages × 4 basins, horizontal slices at
-100 / 200 / 500 / 1000 / 2000 / 3000 m, on a symmetric `:RdBu_r`
-colormap auto-scaled to the 99th percentile of `|age_M − age_1|`) are a
-follow-up — they would call `plot_age_diagnostics` on the diff field
-and land in `outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/diff_vs_DTx1/`,
-one subdir per `M > 1` so the comparison artifacts live with the run
-they describe.
+It also produces **diff plots** for each `M > 1` (skip with
+`DIFF_PLOTS=no`): zonal averages × 4 basins (global / Atlantic /
+Pacific / Indian) and horizontal slices at 100 / 200 / 500 / 1000 /
+2000 / 3000 m, on a symmetric `:RdBu_r` colormap auto-scaled to the
+99th percentile of `|age_M − age_1|` (same Δmax across all plots of a
+given M so they're directly comparable). Plots land in
+`outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/diff_vs_DTx1/`, one
+subdir per `M > 1` so the comparison artifacts live with the run they
+describe.
 
 ## Results
 
@@ -339,6 +340,24 @@ across the M=1→4 range, far below ocean-ventilation timescales.
 
 Comparison job: 168081165 — raw output at
 [outputs/.../1968-1977/standardrun/timestep_multiplier_summary.tsv](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/timestep_multiplier_summary.tsv).
+
+##### Diff plots vs M=1
+
+[src/plot_timestep_multiplier_sweep.jl](../src/plot_timestep_multiplier_sweep.jl)
+emits `age_M − age_1` zonal averages (4 basins) and horizontal slices
+(6 depths) on a symmetric diverging colormap auto-scaled to the 99th
+percentile of `|Δ|`. One `diff_vs_DTx1/` subdir per `M > 1`:
+
+| M | Diff plot directory | Zonal averages | Horizontal slices |
+|---|---|---|---|
+| 2 | [outputs/.../DTx2/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/) | [global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_global.png), [atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_atlantic.png), [pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_pacific.png), [indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_zonal_avg_indian.png) | [100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_100m.png), [200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_200m.png), [500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_500m.png), [1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_1000m.png), [2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_2000m.png), [3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx2/diff_vs_DTx1/DTx2_vs_DTx1_slice_3000m.png) |
+| 4 | [outputs/.../DTx4/diff_vs_DTx1/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/) | [global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_global.png), [atlantic](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_atlantic.png), [pacific](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_pacific.png), [indian](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_zonal_avg_indian.png) | [100m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_100m.png), [200m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_200m.png), [500m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_500m.png), [1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_1000m.png), [2000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_2000m.png), [3000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2_DTx4/diff_vs_DTx1/DTx4_vs_DTx1_slice_3000m.png) |
+
+Filename pattern produced by
+[plot_age_diagnostics](../src/shared_utils/analysis_and_plotting.jl#L174):
+`{label}_zonal_avg_{basin}.png` and `{label}_slice_{depth}m.png` where
+`label = DTx{M}_vs_DTx1`. Δmax (the 99th-percentile of `|age_M − age_1|`
+used as the colour-range cap) is recorded in the figure title.
 
 #### OM2-1 benchmark wall times (no output writers)
 
