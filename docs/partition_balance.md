@@ -17,6 +17,13 @@ each load-balance scheme:
 "True wet cells" / "true wet columns" in every table use `immersed_cell`
 on the actual `ImmersedBoundaryGrid + PartialCellBottom`.
 
+**Imbalance metric.** `imb%(cells) = (max - mean) / mean × 100` —
+how much more 3D wet-cell work the heaviest rank has compared to the
+ideal equal share. `imb%(surface)` is the same for wet columns
+(per-column work, e.g. implicit vertical diffusion). `×ratio` is
+`max / min` for cells (a different metric, more sensitive near
+balance). Lower is better; 0 = perfectly balanced.
+
 Numbers and plots are reproduced by
 [`src/test_partition_balance.jl`](../src/test_partition_balance.jl), run
 via [`scripts/test_driver.sh`](../scripts/test_driver.sh) (express
@@ -78,34 +85,34 @@ Total wet cells = **2,707,869**, total wet columns = **69,809**.
 
 ![OM2-1 1×2 partition balance](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-1_1x2.png)
 
-| scheme        | imb%(cells) | ×ratio | rank 0 (south) cells % | rank 1 (north) cells % | rank 0 cols % | rank 1 cols % | slab Ny (rank 0, 1) |
-|---------------|------------:|-------:|-----------------------:|-----------------------:|--------------:|--------------:|--------------------:|
-| equal         |     +24.2%  | ×1.638 |                    62% |                    38% |           58% |           42% |             150, 150 |
-| surface       |      +8.4%  | ×1.182 |                    54% |                    46% |           50% |           50% |             132, 168 |
-| **cell**      |      +0.8%  | ×1.015 |                    50% |                    50% |           47% |           53% |             123, 177 |
-| cell_obsolete |      +0.8%  | ×1.015 |                    50% |                    50% |           47% |           53% |             123, 177 |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny (rank 0, 1) |
+|---------------|------------:|-------:|--------------:|--------------------:|
+| equal         |         24  |    1.6 |           15  |            150, 150 |
+| surface       |        8.4  |    1.2 |          0.57 |            132, 168 |
+| **cell**      |        0.8  |    1.0 |           6.3 |            123, 177 |
+| cell_obsolete |        0.8  |    1.0 |           6.3 |            123, 177 |
 
 ### 1×4
 
 ![OM2-1 1×4 partition balance](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-1_1x4.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%)   | per-rank wet cols (%)    | slab Ny           |
-|---------------|------------:|-------:|--------------------------|--------------------------|-------------------|
-| equal         |     +31.0%  | ×2.889 | 29  33  27  11           | 28  30  25  18           | 75  75  75  75    |
-| surface       |      +9.4%  | ×1.457 | 27  27  27  19           | 25  25  25  25           | 70  62  65 103    |
-| **cell**      |      +0.8%  | ×1.020 | 25  25  25  25           | 24  23  23  30           | 67  56  58 119    |
-| cell_obsolete |      +0.8%  | ×1.020 | 25  25  25  25           | 24  23  23  30           | 67  56  58 119    |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny           |
+|---------------|------------:|-------:|--------------:|-------------------|
+| equal         |         31  |    2.9 |           20  | 75  75  75  75    |
+| surface       |        9.4  |    1.5 |          0.86 | 70  62  65 103    |
+| **cell**      |        0.8  |    1.0 |           20  | 67  56  58 119    |
+| cell_obsolete |        0.8  |    1.0 |           20  | 67  56  58 119    |
 
 ### 1×8
 
 ![OM2-1 1×8 partition balance](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-1_1x8.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%)         | per-rank wet cols (%)          | slab Ny                          |
-|---------------|------------:|-------:|--------------------------------|--------------------------------|----------------------------------|
-| equal         |     +69.2%  | ×5.774 |  9  21  17  17  16  10   4   7 |  9  19  15  15  14  10   6  11 | 38  38  38  38  37  37  37  37   |
-| surface       |     +12.2%  | ×1.735 | 13  14  14  14  13  14  11   8 | 13  13  12  13  12  12  12  12 | 45  25  30  32  31  34  60  43   |
-| **cell**      |      +2.5%  | ×1.055 | 13  12  13  13  12  13  12  13 | 13  11  11  12  11  12  11  19 | 45  22  27  29  28  30  38  81   |
-| cell_obsolete |      +2.5%  | ×1.055 | 13  12  13  13  12  13  12  13 | 13  11  11  12  11  12  11  19 | 45  22  27  29  28  30  38  81   |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny                          |
+|---------------|------------:|-------:|--------------:|----------------------------------|
+| equal         |         69  |    5.8 |           51  | 38  38  38  38  37  37  37  37   |
+| surface       |         12  |    1.7 |           2.2 | 45  25  30  32  31  34  60  43   |
+| **cell**      |        2.5  |    1.1 |           51  | 45  22  27  29  28  30  38  81   |
+| cell_obsolete |        2.5  |    1.1 |           51  | 45  22  27  29  28  30  38  81   |
 
 ---
 
@@ -117,36 +124,36 @@ Total wet cells = **36,952,668**, total wet columns = **970,921**.
 
 ![OM2-025 1×2 partition balance](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-025_1x2.png)
 
-| scheme        | imb%(cells) | ×ratio | rank 0 (south) cells % | rank 1 (north) cells % | rank 0 cols % | rank 1 cols % | slab Ny (rank 0, 1) |
-|---------------|------------:|-------:|-----------------------:|-----------------------:|--------------:|--------------:|--------------------:|
-| equal         |     +31.7%  | ×1.930 |                    66% |                    34% |           60% |           40% |            540, 540 |
-| surface       |      +9.9%  | ×1.220 |                    55% |                    45% |           50% |           50% |            453, 627 |
-| **cell**      |      +0.2%  | ×1.004 |                    50% |                    50% |           46% |           54% |            415, 665 |
-| cell_obsolete |      +0.0%  | ×1.001 |                    50% |                    50% |           46% |           54% |            414, 666 |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny (rank 0, 1) |
+|---------------|------------:|-------:|--------------:|--------------------:|
+| equal         |         32  |    1.9 |           20  |            540, 540 |
+| surface       |        9.9  |    1.2 |          0.01 |            453, 627 |
+| **cell**      |        0.2  |    1.0 |           8.8 |            415, 665 |
+| cell_obsolete |        0.0  |    1.0 |           9.0 |            414, 666 |
 
-**Note the 2D vs 3D split at 1×2 cell:** 3D wet cells are balanced (50%/50%) but rank 1 ends up with 54% of the wet columns (vs rank 0's 46%) — ~19% more. Per-column work in this simulation (notably **implicit vertical diffusion**) scales with the wet-column count, so this rank-1 surplus is exactly the imbalance the wall-clock data shows.
+**Note the 2D vs 3D split at 1×2 cell:** `:cell` drives 3D wet-cell imbalance down to 0.2%, but the corresponding wet-column (surface) imbalance is 8.8% — same direction as `equal` (rank 1 over-loaded), just smaller magnitude. Per-column work in this simulation (notably **implicit vertical diffusion**) scales with the wet-column count, so this rank-1 surplus is exactly the imbalance the wall-clock data shows.
 
 ### 1×4
 
 ![OM2-025 1×4 partition balance](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-025_1x4.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%) | per-rank wet cols (%) | slab Ny           |
-|---------------|------------:|-------:|------------------------|-----------------------|-------------------|
-| equal         |     +48.8%  | ×3.126 | 29  37  22  12         | 27  33  22  18        | 270 270 270 270   |
-| surface       |     +11.5%  | ×1.591 | 27  28  28  18         | 25  25  25  25        | 260 193 251 376   |
-| **cell**      |      +0.4%  | ×1.007 | 25  25  25  25         | 23  22  23  32        | 247 168 206 459   |
-| cell_obsolete |      +0.2%  | ×1.003 | 25  25  25  25         | 23  22  23  32        | 247 167 207 459   |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny           |
+|---------------|------------:|-------:|--------------:|-------------------|
+| equal         |         49  |    3.1 |           34  | 270 270 270 270   |
+| surface       |         12  |    1.6 |          0.53 | 260 193 251 376   |
+| **cell**      |        0.4  |    1.0 |           27  | 247 168 206 459   |
+| cell_obsolete |        0.2  |    1.0 |           27  | 247 167 207 459   |
 
 ### 1×8
 
 ![OM2-025 1×8 partition balance](../outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/partition_balance/ACCESS-OM2-025_1x8.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%)         | per-rank wet cols (%)          | slab Ny                              |
-|---------------|------------:|-------:|--------------------------------|--------------------------------|--------------------------------------|
-| equal         |     +78.8%  | ×6.368 |  6  22  20  17  14   8   4   8 |  7  20  18  16  13   9   6  12 | 135 135 135 135 135 135 135 135      |
-| surface       |     +15.5%  | ×1.657 | 13  14  14  14  14  14   9   9 | 13  13  12  12  13  13  13  12 | 175  85  87 106 109 142 232 144      |
-| **cell**      |      +1.2%  | ×1.023 | 13  12  13  13  12  12  13  12 | 13  11  11  11  11  11  13  19 | 175  72  78  90  98 108 173 286      |
-| cell_obsolete |      +1.2%  | ×1.023 | 13  12  13  12  13  12  12  13 | 13  11  11  11  11  11  12  19 | 175  72  78  89  99 108 171 288      |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny                              |
+|---------------|------------:|-------:|--------------:|--------------------------------------|
+| equal         |         79  |    6.4 |           58  | 135 135 135 135 135 135 135 135      |
+| surface       |         16  |    1.7 |          0.69 | 175  85  87 106 109 142 232 144      |
+| **cell**      |        1.2  |    1.0 |           53  | 175  72  78  90  98 108 173 286      |
+| cell_obsolete |        1.2  |    1.0 |           54  | 175  72  78  89  99 108 171 288      |
 
 ---
 
@@ -158,34 +165,34 @@ Total wet cells = **351,532,308**, total wet columns = **6,075,239**.
 
 ![OM2-01 1×2 partition balance](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/partition_balance/ACCESS-OM2-01_1x2.png)
 
-| scheme        | imb%(cells) | ×ratio | rank 0 (south) cells % | rank 1 (north) cells % | rank 0 cols % | rank 1 cols % | slab Ny (rank 0, 1) |
-|---------------|------------:|-------:|-----------------------:|-----------------------:|--------------:|--------------:|--------------------:|
-| equal         |     +30.4%  | ×1.873 |                    65% |                    35% |           60% |           40% |          1350, 1350 |
-| surface       |      +9.5%  | ×1.209 |                    55% |                    45% |           50% |           50% |          1138, 1562 |
-| **cell**      |      +0.1%  | ×1.001 |                    50% |                    50% |           46% |           54% |          1045, 1655 |
-| cell_obsolete |      +0.0%  | ×1.000 |                    50% |                    50% |           46% |           54% |          1044, 1656 |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny (rank 0, 1) |
+|---------------|------------:|-------:|--------------:|--------------------:|
+| equal         |         30  |    1.9 |           19  |          1350, 1350 |
+| surface       |        9.5  |    1.2 |          0.03 |          1138, 1562 |
+| **cell**      |        0.1  |    1.0 |           8.5 |          1045, 1655 |
+| cell_obsolete |        0.0  |    1.0 |           8.6 |          1044, 1656 |
 
 ### 1×4
 
 ![OM2-01 1×4 partition balance](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/partition_balance/ACCESS-OM2-01_1x4.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%) | per-rank wet cols (%) | slab Ny                |
-|---------------|------------:|-------:|------------------------|-----------------------|------------------------|
-| equal         |     +46.7%  | ×2.867 | 29  37  22  13         | 26  33  21  19        | 675 675 675 675        |
-| surface       |     +10.9%  | ×1.544 | 27  28  27  18         | 25  25  25  25        | 651 487 641 921        |
-| **cell**      |      +0.2%  | ×1.003 | 25  25  25  25         | 23  22  23  31        | 620 425 530 1125       |
-| cell_obsolete |      +0.2%  | ×1.005 | 25  25  25  25         | 23  22  23  32        | 620 424 530 1126       |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny                |
+|---------------|------------:|-------:|--------------:|------------------------|
+| equal         |         47  |    2.9 |           33  | 675 675 675 675        |
+| surface       |         11  |    1.5 |          0.22 | 651 487 641 921        |
+| **cell**      |        0.2  |    1.0 |           26  | 620 425 530 1125       |
+| cell_obsolete |        0.2  |    1.0 |           26  | 620 424 530 1126       |
 
 ### 1×8
 
 ![OM2-01 1×8 partition balance](../outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/partition_balance/ACCESS-OM2-01_1x8.png)
 
-| scheme        | imb%(cells) | ×ratio | per-rank wet cells (%)         | per-rank wet cols (%)          | slab Ny                            |
-|---------------|------------:|-------:|--------------------------------|--------------------------------|------------------------------------|
-| equal         |     +76.8%  | ×5.770 |  6  22  20  17  14   8   4   9 |  7  20  18  15  13   9   7  12 | 338 338 338 338 337 337 337 337    |
-| surface       |     +14.0%  | ×1.609 | 13  14  14  14  14  14   9   9 | 13  13  12  13  13  12  13  12 | 438 213 219 268 276 365 577 344    |
-| **cell**      |      +0.5%  | ×1.009 | 13  13  12  13  13  12  12  12 | 12  11  11  11  11  11  13  18 | 435 185 195 230 250 280 475 650    |
-| cell_obsolete |      +0.5%  | ×1.009 | 13  13  12  12  13  12  12  13 | 12  11  11  11  11  11  13  19 | 435 185 195 229 250 280 472 654    |
+| scheme        | imb%(cells) | ×ratio | imb%(surface) | slab Ny                            |
+|---------------|------------:|-------:|--------------:|------------------------------------|
+| equal         |         77  |    5.8 |           58  | 338 338 338 338 337 337 337 337    |
+| surface       |         14  |    1.6 |          0.33 | 438 213 219 268 276 365 577 344    |
+| **cell**      |        0.5  |    1.0 |           47  | 435 185 195 230 250 280 475 650    |
+| cell_obsolete |        0.5  |    1.0 |           48  | 435 185 195 229 250 280 472 654    |
 
 ---
 
