@@ -33,8 +33,12 @@ using JLD2
 using Statistics
 using Printf
 using CairoMakie
+using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 
 include("shared_functions.jl")
+
+# OCEANS const used by compute_ocean_basin_masks (mirrors plot_standardrun_age.jl).
+const OCEANS = oceanpolygons()
 
 # Opt-out: DIFF_PLOTS=no skips the plot generation (scalar metrics still run).
 DIFF_PLOTS = lowercase(get(ENV, "DIFF_PLOTS", "yes")) == "yes"
