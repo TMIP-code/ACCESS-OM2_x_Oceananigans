@@ -56,6 +56,38 @@ resulting Δt where `M` is a valid divisor for that model):
 Invalid `M` (those not dividing `N_base`) must error early — see
 [Workflow → Validation](#validation).
 
+## Design choice: surface relaxation scales with Δt
+
+Both the simulation ([setup_model.jl:275-280](../src/setup_model.jl#L275-L280))
+and the transport matrix build ([matrix_setup.jl:250-257](../src/matrix_setup.jl#L250-L257))
+use `relaxation_timescale = 3·Δt` for the surface-layer age=0
+restoring forcing. We deliberately keep this Δt-coupled when
+`TIMESTEP_MULT > 1`, rather than pinning it to a fixed physical
+timescale, because:
+
+- The "3 timesteps" rule keeps the surface forcing safely resolvable
+  by the integrator at every `M`, regardless of resolution or scheme.
+- The relaxation only affects the top layer (`k ≥ Nz`); off-surface
+  dynamics are Δt-coupled only through truncation error.
+- At `M = 12` (OM2-1) the relaxation timescale grows from 4.5 h to
+  54 h — still far below ocean ventilation timescales — so the
+  surface age should remain near zero in the steady solve.
+
+Consequences to keep in mind when reading results:
+
+- **Transport matrix M**: off-surface rows are bitwise identical
+  across `M`; only the surface diagonal entry (`-1/(3·Δt)`) scales as
+  `1/M`. Sparsity, coloring, and build cost are unaffected, so
+  rebuilding M at the new Δt is cheap.
+- **1-year Φ map** (used by `run_1year.jl` and as the inner
+  operation of the NK exact JVP): not Δt-invariant — scaling Δt by
+  `M` weakens the surface age=0 BC, so we are solving a slightly
+  different continuum operator at `M = M_max`, not just a different
+  discretization.
+- **Diff plots and RMS metrics**: treat the surface layer as the
+  most sensitive region; report whole-domain and surface-layer
+  metrics separately.
+
 ## Plan
 
 ### Phase 1 — wire up `TIMESTEP_MULT`
@@ -106,92 +138,50 @@ max / mean / min and detects NaN. The cross-`M` comparison is
 post-hoc and reads the saved age field from
 `outputs/{PM}/{EXP}/{TW}/standardrun/{MC}_DTx{M}/`.
 
-### Phase 3 — Newton-Krylov periodic solve
+### Phase 3 — Full periodic pipeline at `M_max`
 
-If Phase 2 identifies a "safe" `M_max`, go straight to the
-Newton-Krylov periodic solver ([solve_periodic_NK.jl](../src/solve_periodic_NK.jl))
-at `M = 1` (baseline) and `M = M_max`. The 1-year Φ map is the inner
-operation of the periodic solve, so a stable 1-year run is the only
-prerequisite — no need to run intermediate `run_10years` /
-`run_100years` checks.
+If Stage 2b identifies a "safe" `M_max`, run the full periodic
+pipeline at `M = 1` (baseline) and `M = M_max`. The NK solver
+consumes the matrix-based steady age as its warm start
+(`INITIAL_AGE=TMage` in
+[periodic_solver_common.jl:82-110](../src/periodic_solver_common.jl#L82-L110)),
+so the transport matrix is a hard prerequisite — not a parallel
+exercise. Three sequential steps per `M`:
 
-Note on Δt-dependence of the JVP. The exact JVP is
-`Φ(v; source_rate=0) - v` ([periodic_solver_common.jl:239-243](../src/periodic_solver_common.jl#L239-L243)),
-which runs the simulation for 1 year. It is **not** Δt-invariant,
-for the same reason the transport matrix is not (Phase 4): the surface
-relaxation `relaxation_timescale = 3·Δt` in
-[setup_model.jl:275-280](../src/setup_model.jl#L275-L280) is tied to
-the timestep, so scaling `Δt` by `M` weakens the surface age=0 BC by
-the same factor. So at `M = M_max` we're solving a slightly different
-fixed-point problem (weaker surface restoring) — not a numerical
-discretization error but a different continuum operator. Two
-implications:
+1. **Transport matrix** ([create_matrix.jl](../src/create_matrix.jl)):
+   rebuild M at the new Δt. Off-surface rows and sparsity/coloring
+   are bitwise identical to `M = 1` (see [Design choice](#design-choice-surface-relaxation-scales-with-δt));
+   only the surface diagonal scales as `1/M`. Build cost is
+   unchanged.
+2. **Steady-state age solve** ([solve_matrix_age.jl](../src/solve_matrix_age.jl)):
+   produces `steady_age_full_*.jld2`, which the NK solver loads as
+   `INITIAL_AGE=TMage`.
+3. **Newton-Krylov solve** ([solve_periodic_NK.jl](../src/solve_periodic_NK.jl)):
+   run with the `M = M_max` warm start. The 1-year Φ map is the
+   inner operation; Stage 2's stability check is the prerequisite.
 
-- The solved periodic age field at `M = M_max` should be compared
-  against `M = 1` with the surface layer treated as the most
-  sensitive region.
-- GMRES convergence rate may differ between `M` (different
-  preconditioning effectiveness, different eigenvalue distribution
-  near the surface).
+Driver invocation (one chain per `M`):
 
-If we choose option (b) in Phase 4 (decouple `relaxation_timescale`
-from `Δt`), this Δt-dependence disappears from the JVP too, and the
-`M = M_max` solve becomes a pure speedup test.
-
-### Phase 4 — transport matrix (mostly Δt-independent)
-
-The matrix build in [src/create_matrix.jl](../src/create_matrix.jl)
-(via [src/matrix_setup.jl](../src/matrix_setup.jl)) takes the Jacobian
-of the **instantaneous** tendency `∂c/∂t` — no simulation, no
-timestepper invoked. The only place `Δt` enters is the surface-cell
-relaxation forcing:
-
-```julia
-age_parameters = (; relaxation_timescale = 3Δt, source_rate = 1.0)
-@inline linear_source_sink(i, j, k, grid, clock, fields, params) =
-    ifelse(k ≥ grid.Nz, -fields.ADc[i, j, k] / params.relaxation_timescale, 0.0)
+```bash
+for M in 1 M_max; do
+  PARENT_MODEL=ACCESS-OM2-1 TIMESTEP_MULT=$M \
+    JOB_CHAIN=TMbuild..NK bash scripts/driver.sh
+done
 ```
-([matrix_setup.jl:250-257](../src/matrix_setup.jl#L250-L257))
 
-Consequences:
+Comparison metrics at `M = M_max` vs `M = 1`:
 
-- **Sparsity pattern, coloring, autodiff prep, build cost**: bitwise
-  identical across `M`. No re-validation needed.
-- **Off-surface rows of M**: bitwise identical across `M`.
-- **Surface rows of M**: diagonal entry is `-1/(3·Δt)`, so scales as
-  `1/M`. The surface "Dirichlet-like" age=0 BC weakens at larger `M`.
-  At `M=1` (OM2-1) the timescale is 4.5 h; at `M=12` it's 54 h —
-  still much shorter than any ocean ventilation timescale, so the
-  surface age should remain near zero in the steady solve, but
-  worth verifying.
-
-Two ways forward:
-
-(a) **Keep `relaxation_timescale = 3·Δt`** and verify that the
-steady-state age solve agrees across `M` (small differences expected
-in the top layer only). Cheap: matrix builds are unchanged in cost,
-only the solve needs re-running.
-
-(b) **Decouple `relaxation_timescale` from `Δt`** in *both*
-[matrix_setup.jl:250-257](../src/matrix_setup.jl#L250-L257) and
-[setup_model.jl:275-280](../src/setup_model.jl#L275-L280) — use a
-fixed physical value (e.g. `3 × Δt_base` for that parent model, or a
-stated absolute scale like `1 hour`). Then:
-- the transport matrix is literally Δt-independent and Phase 4
-  collapses to "no change needed; reuse the existing M.jld2 at any
-  `M`",
-- the 1-year Φ map (and therefore the JVP used in Phase 3) is also
-  Δt-independent up to discretization error, so the NK solve at
-  `M = M_max` becomes a pure speedup test rather than a "weaker
-  surface BC" experiment.
-
-This is also the cleaner stance for the matrix-based steady solver,
-where `Δt` is conceptually meaningless.
-
-**Decision pending** (do this before kicking off Stage 2b): commit to
-(a) or (b). If (b), apply the decoupling change *before* the
-follow-up sweep so all `M > 1` runs share the same surface BC and the
-diff plots isolate the discretization effect.
+- **Periodic age field**: volume-weighted RMS difference both
+  whole-domain and surface-only (the surface layer is the sensitive
+  region per the design note above). Reuse the diff-plot machinery
+  from [Comparison script](#comparison-script-tbd) on the periodic
+  age field.
+- **NK convergence rate**: number of Newton iterations and total
+  GMRES iterations to a fixed residual tolerance. May differ across
+  `M` even with the warm start, because the surface eigenvalue
+  distribution of the JVP changes.
+- **End-to-end wall time**: TMbuild + TMsolve + NK across `M`. This
+  is the speedup that motivates the whole exercise.
 
 ## Workflow
 
@@ -208,11 +198,6 @@ diff plots isolate the discretization effect.
       to the unmodified pipeline (same output path, same wall time).
 - [ ] Smoke test: `TIMESTEP_MULT=0` and `TIMESTEP_MULT=5` (for OM2-1)
       both error early with a clear message listing valid divisors.
-- [ ] After Stage 2a results land: decide Phase 4 option (a) keep
-      `relaxation_timescale = 3·Δt` everywhere, or (b) decouple from
-      `Δt` in [src/setup_model.jl:275-280](../src/setup_model.jl#L275-L280)
-      *and* [src/matrix_setup.jl:250-257](../src/matrix_setup.jl#L250-L257).
-      If (b), apply the change before Stage 2b.
 
 ### Validation
 
