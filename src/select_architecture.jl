@@ -29,8 +29,10 @@ nranks = px * py
 
 # Pull in just what we need here. shared_functions.jl is normally
 # included AFTER this file (in setup_model.jl), so we eagerly include the
-# two small helpers; downstream re-includes are no-ops.
+# helpers; downstream re-includes are no-ops. grid.jl is required because
+# `compute_wet_load_per_y_row` calls `load_tripolar_grid` for `:cell`.
 include("shared_utils/config.jl")
+include("shared_utils/grid.jl")
 include("shared_utils/load_balance.jl")
 
 (LB_ACTIVE, LB_METHOD, LB_TAG) = parse_load_balance_env()
