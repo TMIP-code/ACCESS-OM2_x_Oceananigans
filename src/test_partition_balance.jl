@@ -137,15 +137,15 @@ imbalance_pct(xs) = 100 * (maximum(xs) - mean(xs)) / mean(xs)
 # Inlined greedy splitter — same algorithm as `compute_lb_y_sizes` but
 # operates on a pre-computed `wet[j]` instead of re-constructing the IBG.
 # Avoids redundant grid loads when comparing methods.
-function greedy_y_split(wet::Vector{Int}, nranks_y::Int; min_size::Int = 0)
+function greedy_y_split(wet::AbstractVector{<:Real}, nranks_y::Int; min_size::Int = 0)
     Ny_local = length(wet)
     total_wet = sum(wet)
     target = total_wet / nranks_y
     local_Ny = zeros(Int, nranks_y)
-    cum = 0
+    cum = zero(eltype(wet))
     j = 1
     for r in 1:(nranks_y - 1)
-        slab = 0
+        slab = zero(eltype(wet))
         while j ≤ Ny_local && cum + slab < target * r
             slab += wet[j]
             local_Ny[r] += 1
