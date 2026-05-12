@@ -69,6 +69,37 @@ Speedup = (baseline − trick) / baseline. Negative = slower than baseline.
 
 ---
 
+## Load balancing variants at 1x2
+
+Three LB modes were tested. Each requires its own partition rebuild because the y-axis cuts differ.
+
+| Mode | LOAD_BALANCE | Partition dir suffix | Algorithm |
+|------|--------------|---------------------|-----------|
+| (none) | `no` (default) | (none) | uniform y-cut |
+| **+LB** | `cell` | `_LB` | balance total wet cells across ranks |
+| **+LBS** | `surface` | `_LBS` | balance wet *surface* cells (top layer) across ranks |
+| **+LBmix** | `mix` | `_LBmix` | hybrid of cell + surface (recent addition) |
+
+### Bench walltime by LB mode (1x2)
+
+| Model | Hardware | baseline | +LB (cell) | +LBS (surface) | +LBmix |
+|-------|----------|----------|------------|----------------|--------|
+| OM2-025 | V100 | 15m 26.4s<br><img src="profiling_plots/OM2-025_V100_1x2_baseline_167950637.png" width="240"> | 15m 28.7s<br><img src="profiling_plots/OM2-025_V100_1x2_LB_167950643.png" width="240"> | **13m 0.2s**<br><img src="profiling_plots/OM2-025_V100_1x2_LBS_168108560.png" width="240"> | _pending (168147661)_ |
+| OM2-025 | H200 | 5m 34.6s<br><img src="profiling_plots/OM2-025_H200_1x2_baseline_167950650.png" width="240"> | 5m 40.1s<br><img src="profiling_plots/OM2-025_H200_1x2_LB_167950656.png" width="240"> | **4m 21.1s**<br><img src="profiling_plots/OM2-025_H200_1x2_LBS_168108562.png" width="240"> | _pending (168147663)_ |
+| OM2-01 | H200 | 3h 1m 47s<br><img src="profiling_plots/OM2-01_1x2_baseline_167976668.png" width="240"> | 2h 55m 52s<br><img src="profiling_plots/OM2-01_1x2_LB_167976674.png" width="240"> | **2h 43m 8s**<br><img src="profiling_plots/OM2-01_1x2_LBS_168108564.png" width="240"> | _pending (168147665)_ |
+
+### Speedup vs baseline
+
+| Model | Hardware | +LB (cell) | +LBS (surface) | +LBmix |
+|-------|----------|------------|----------------|--------|
+| OM2-025 | V100 | −0.2% | **+15.7%** | _pending_ |
+| OM2-025 | H200 | −1.6% | **+22.0%** | _pending_ |
+| OM2-01 | H200 | +3.3% | **+10.3%** | _pending_ |
+
+**Surface LB is markedly better than cell LB across all configs tested.** Cell LB barely moves the needle (or even slightly regresses) on OM2-025; surface LB delivers double-digit percent improvements. The hypothesis is that wet surface cells correlate better with per-step work than total wet cells, because the dominant cost is in the upper ocean and surface boundary updates rather than uniform bulk-cell work.
+
+---
+
 ## Derived: V100 vs H200 (OM2-025 1x2)
 
 Speedup = V100 time / H200 time.
