@@ -123,7 +123,7 @@ available, so no scaling table — only the LB-at-1×2 view.
 | cell | 15m 28.7s | −0.2% | (regression) |
 | **surface** | **13m 0.2s** | **+15.7%** | _no 1×4 V100 data_ |
 | mix | 13m 29.4s | +12.6% | _no 1×4 V100 data_ |
-| minmax | _pending (168157798)_ | — | — |
+| minmax | _killed at 0.75 yr (611s) — resubmit w/ longer walltime_ | — | — |
 
 ### OM2-025 — H200
 
@@ -145,7 +145,7 @@ Reference: 1×2 baseline (5m 34.6s). 1×2→1×4 baseline gain: 105.8 s.
 | cell | 5m 40.1s | −1.6% | (regression) |
 | **surface** | **4m 21.1s** | **+22.0%** | **70%** |
 | mix | 4m 26.0s | +20.5% | 65% |
-| minmax | _pending (168157803)_ | — | — |
+| minmax | 4m 38.7s | +16.7% | 53% |
 
 ### OM2-01 — H200
 
@@ -186,9 +186,21 @@ Reference: 1×2 baseline (3h 1m 47s = 10907s). 1×2→1×4 baseline gain: 5028s.
 - **Cross-resolution surface LB recovery ranking**: OM2-025 H200 (70%) >
   OM2-1 V100 cell (41%) > OM2-01 H200 (22%). Less efficient baseline → more
   room for LB to close the gap.
-- **Pending**: OM2-01 +LBmix and all three +LBminmax runs to confirm whether
-  minmax's static-imbalance optimum (proposed in
-  [partition_balance.md](partition_balance.md)) translates to wall-time wins.
+- **Minmax does NOT beat surface on H200** (where the comparison is real).
+  OM2-025 H200 1×2: +LBS +22.0% > +LBmix +20.5% > **+LBminmax +16.7%** > +LB
+  −1.6%. This is the opposite of what the static-imbalance analysis in
+  [partition_balance.md](partition_balance.md) predicted. Interpretation: the
+  static `max%` metric weights cells and surface equally, but the actual
+  wall-time bottleneck is per-column work (implicit vertical diffusion +
+  halo + column-major bookkeeping). `:surface` drives that imbalance to
+  ~0, which matters more than the 8.8% 3D-cell imbalance it accepts. The
+  bisected mixed metric trades column balance for cell balance, but the
+  cell-side gains don't pay off.
+- **Pending**:
+  - OM2-025 V100 +LBminmax was killed at the PBS 30 min walltime cap
+    (reached 0.75 yr) — resubmit with 45 min budget.
+  - OM2-01 +LBmix and +LBminmax (jobs 168147665, 168157808 — both
+    queued on gpuhopper).
 
 ---
 
