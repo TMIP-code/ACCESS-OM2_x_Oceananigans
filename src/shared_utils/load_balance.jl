@@ -9,6 +9,7 @@
 ################################################################################
 
 using JLD2: load
+using Statistics: mean
 using Oceananigans.Architectures: CPU
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, immersed_cell
 
@@ -114,10 +115,15 @@ Greedy wet-load balanced y-partition. Returns per-rank y-slab sizes that
 equalise `sum(wet[jstart:jend])` across ranks, where `wet[j]` is the
 per-y-row load from `compute_wet_load_per_y_row(grid_file; method)`.
 
-`method` is `:surface` (column count, `_LBS`), `:cell` (3D cell count
-via Oceananigans `immersed_cell`, `_LB`), `:mix` (equal-weighted mix
-of `:cell` and `:surface`, `_LBmix`), or `:cell_obsolete` (old
-z_center > bottom formula — for back-comparison only).
+`method` is one of:
+- `:surface` — column count (`_LBS`).
+- `:cell` — 3D cell count via Oceananigans `immersed_cell` (`_LB`).
+- `:mix` — equal-weighted mix of `:cell` and `:surface` (`_LBmix`).
+- `:minmax` — α-weighted mix where α is chosen by bisection to
+  minimise `max(imb%(cells), imb%(surface))` (`_LBminmax`). Lands on
+  the Pareto crossover where the cell- and surface-imbalances are
+  approximately equal — both kernel classes see the same overload.
+- `:cell_obsolete` — old z_center > bottom formula, back-comparison only.
 
 `min_size` (default 0) enforces a per-rank floor; pass `Hy + 2` to keep
 the top-rank fold-halo warning at `build_underlying_grid` line ~479
@@ -127,16 +133,28 @@ function compute_lb_y_sizes(
         grid_file::AbstractString, nranks_y::Int;
         method::Symbol, min_size::Int = 0,
     )
+    method === :minmax && return _compute_minmax_y_sizes(grid_file, nranks_y; min_size)
     wet = compute_wet_load_per_y_row(grid_file; method)
+    return _greedy_split(wet, nranks_y; min_size)
+end
+
+"""
+    _greedy_split(wet, nranks_y; min_size=0) -> NTuple{nranks_y, Int}
+
+Core greedy y-slab splitter shared by all LB methods. Accepts any
+`AbstractVector{<:Real}` so that `:mix` and `:minmax` (Float-valued
+loads) work alongside the integer-count methods.
+"""
+function _greedy_split(wet::AbstractVector{<:Real}, nranks_y::Int; min_size::Int = 0)
     Ny = length(wet)
     total_wet = sum(wet)
 
     target = total_wet / nranks_y
     local_Ny = zeros(Int, nranks_y)
-    cum = 0
+    cum = zero(eltype(wet))
     j = 1
     for r in 1:(nranks_y - 1)
-        slab = 0
+        slab = zero(eltype(wet))
         while j ≤ Ny && cum + slab < target * r
             slab += wet[j]
             local_Ny[r] += 1
@@ -153,15 +171,73 @@ function compute_lb_y_sizes(
         for r in 1:nranks_y
             while local_Ny[r] < min_size
                 donor = argmax(local_Ny)
-                donor == r && error("compute_lb_y_sizes: cannot satisfy min_size=$min_size with Ny=$Ny across $nranks_y ranks")
+                donor == r && error("_greedy_split: cannot satisfy min_size=$min_size with Ny=$Ny across $nranks_y ranks")
                 local_Ny[donor] -= 1
                 local_Ny[r] += 1
             end
         end
     end
 
-    @assert sum(local_Ny) == Ny "compute_lb_y_sizes: sum(local_Ny)=$(sum(local_Ny)) != Ny=$Ny"
+    @assert sum(local_Ny) == Ny "_greedy_split: sum(local_Ny)=$(sum(local_Ny)) != Ny=$Ny"
     return Tuple(local_Ny)
+end
+
+"""
+    _compute_minmax_y_sizes(grid_file, nranks_y; min_size=0)
+
+Minmax LB: pick α ∈ [0,1] that minimises `max(imb%(cells),
+imb%(surface))` for the α-weighted load
+`wet_α[j] = α·cells[j]/Σcells + (1-α)·cols[j]/Σcols`. Bisection on
+the sign of `imb%(cells) - imb%(surface)` (monotone in α modulo
+integer-greedy stair-stepping); tracks best `max%` seen.
+"""
+function _compute_minmax_y_sizes(grid_file::AbstractString, nranks_y::Int; min_size::Int = 0)
+    grid = load_tripolar_grid(grid_file, CPU())
+    Nx, Ny, Nz = size(grid.underlying_grid)
+
+    cells_row = [
+        sum(!immersed_cell(i, j, k, grid) for i in 1:Nx, k in 1:Nz)
+            for j in 1:Ny
+    ]
+    cols_row = [
+        count(any(!immersed_cell(i, j, k, grid) for k in 1:Nz) for i in 1:Nx)
+            for j in 1:Ny
+    ]
+    Tc = sum(cells_row); Tk = sum(cols_row)
+    @assert Tc > 0 && Tk > 0 "no non-immersed cells found in grid — check immersed boundary construction"
+
+    eval_α = function (α)
+        wet = Float64[α * cells_row[j] / Tc + (1 - α) * cols_row[j] / Tk for j in 1:Ny]
+        sizes = _greedy_split(wet, nranks_y; min_size)
+        bounds = vcat(0, cumsum(collect(sizes)))
+        per_cells = [sum(view(cells_row, (bounds[r] + 1):bounds[r + 1])) for r in 1:nranks_y]
+        per_cols = [sum(view(cols_row, (bounds[r] + 1):bounds[r + 1])) for r in 1:nranks_y]
+        ic = 100 * (maximum(per_cells) - mean(per_cells)) / mean(per_cells)
+        is = 100 * (maximum(per_cols) - mean(per_cols)) / mean(per_cols)
+        return sizes, ic, is
+    end
+
+    lo, hi = 0.0, 1.0
+    best_sizes = first(eval_α(0.5))
+    best_max = Inf
+    for _ in 1:30
+        α = (lo + hi) / 2
+        sizes, ic, is = eval_α(α)
+        m = max(ic, is)
+        if m < best_max
+            best_max = m
+            best_sizes = sizes
+        end
+        # `ic - is` is monotone decreasing in α: higher α → more cell
+        # weight → cells better balanced → ic smaller. Bisect toward
+        # the crossover where ic ≈ is.
+        if ic > is
+            lo = α
+        else
+            hi = α
+        end
+    end
+    return best_sizes
 end
 
 """
@@ -170,13 +246,13 @@ end
 
 Parse the `LOAD_BALANCE` env var into a triple:
 - `active`: whether LB is on.
-- `method`: `:cell`, `:surface`, `:mix`, or `nothing` when off.
-- `tag`: partition/MODEL_CONFIG suffix: `""`, `"_LB"`, `"_LBS"`, or
-  `"_LBmix"`.
+- `method`: `:cell`, `:surface`, `:mix`, `:minmax`, or `nothing` when off.
+- `tag`: partition/MODEL_CONFIG suffix: `""`, `"_LB"`, `"_LBS"`,
+  `"_LBmix"`, or `"_LBminmax"`.
 
 Accepted values (case-insensitive): `no` (default), `cell`, `surface`,
-`mix`, `yes` (back-compat alias for `surface` — the original LB
-implementation was surface-based).
+`mix`, `minmax`, `yes` (back-compat alias for `surface` — the original
+LB implementation was surface-based).
 """
 function parse_load_balance_env(varname::AbstractString = "LOAD_BALANCE")
     v = lowercase(get(ENV, varname, "no"))
@@ -189,7 +265,9 @@ function parse_load_balance_env(varname::AbstractString = "LOAD_BALANCE")
         return (true, :surface, "_LBS")
     elseif v == "mix"
         return (true, :mix, "_LBmix")
+    elseif v == "minmax"
+        return (true, :minmax, "_LBminmax")
     else
-        error("$varname must be one of: no | surface | cell | mix (got: $v)")
+        error("$varname must be one of: no | surface | cell | mix | minmax (got: $v)")
     end
 end

@@ -18,7 +18,7 @@ Usage:
     PARENT_MODEL=ACCESS-OM2-025 julia --project src/test_partition_balance.jl
     PARENT_MODEL=ACCESS-OM2-01  julia --project src/test_partition_balance.jl
 
-Optional: PARTITIONS=1x2,1x4,1x8 (default), METHODS=surface,cell,cell_obsolete (default).
+Optional: PARTITIONS=1x2,1x4,1x8 (default), METHODS=surface,cell,mix,minmax (default).
 """
 
 @info "Loading packages"
@@ -49,7 +49,7 @@ plot_dir = normpath(joinpath(@__DIR__, "..", "outputs", parentmodel, experiment,
 mkpath(plot_dir)
 
 partitions_str = get(ENV, "PARTITIONS", "1x2,1x4,1x8")
-methods_str = get(ENV, "METHODS", "surface,cell,mix")
+methods_str = get(ENV, "METHODS", "surface,cell,mix,minmax")
 
 py_list = [parse(Int, split(p, "x")[2]) for p in split(partitions_str, ",")]
 method_list = [Symbol(strip(m)) for m in split(methods_str, ",")]
@@ -219,7 +219,36 @@ for py in py_list
     schemes = NamedTuple[]
     push!(schemes, (name = "equal", sizes = equal_y_sizes(Ny, py)))
     for m in method_list
-        sz = greedy_y_split(load_per_row[m], py; min_size = Hy + 2)
+        sz = if m === :minmax
+            # Inline bisection on α to minimise max(imb_cells, imb_surface).
+            # Mirrors `_compute_minmax_y_sizes` in load_balance.jl, but uses
+            # the cached `true_cells_per_row` / `true_columns_per_row` arrays.
+            Tc = sum(true_cells_per_row); Tk = sum(true_columns_per_row)
+            eval_α = function (α)
+                wet = Float64[α * true_cells_per_row[j] / Tc + (1 - α) * true_columns_per_row[j] / Tk for j in 1:Ny]
+                sizes = greedy_y_split(wet, py; min_size = Hy + 2)
+                ranges = slab_ranges(sizes)
+                ic = imbalance_pct([sum(true_cells_per_row[rng]) for rng in ranges])
+                is = imbalance_pct([sum(true_columns_per_row[rng]) for rng in ranges])
+                return sizes, ic, is
+            end
+            lo, hi = 0.0, 1.0
+            best_sizes = first(eval_α(0.5))
+            best_max = Inf
+            for _ in 1:30
+                α = (lo + hi) / 2
+                sizes, ic, is = eval_α(α)
+                m_imb = max(ic, is)
+                if m_imb < best_max
+                    best_max = m_imb
+                    best_sizes = sizes
+                end
+                ic > is ? (lo = α) : (hi = α)
+            end
+            best_sizes
+        else
+            greedy_y_split(load_per_row[m], py; min_size = Hy + 2)
+        end
         push!(schemes, (name = String(m), sizes = sz))
     end
 
@@ -342,7 +371,7 @@ for py in py_list
     )
     nschemes_p = length(plot_schemes)
     width = 0.85 / nschemes_p
-    scheme_fill = Dict("equal" => :gray60, "surface" => :steelblue, "cell" => :seagreen, "mix" => :purple, "cell_obsolete" => :darkorange)
+    scheme_fill = Dict("equal" => :gray60, "surface" => :steelblue, "cell" => :seagreen, "mix" => :purple, "minmax" => :goldenrod, "cell_obsolete" => :darkorange)
     for (k, s) in enumerate(plot_schemes)
         xs = (0:(py - 1)) .+ (k - (nschemes_p + 1) / 2) * width
         barplot!(
