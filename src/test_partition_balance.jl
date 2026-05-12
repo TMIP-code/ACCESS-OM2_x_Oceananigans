@@ -281,12 +281,14 @@ for py in py_list
         xlabel = "j (south → north)",
         ylabel = "wet cells per row", ylabelcolor = cells_color,
         yticklabelcolor = cells_color,
+        limits = (nothing, nothing, 0, nothing),
     )
     ax1_twin = Axis(
         fig[1, 1:2];
         ylabel = "wet columns per row", ylabelcolor = cols_color,
         yticklabelcolor = cols_color,
         yaxisposition = :right,
+        limits = (nothing, nothing, 0, nothing),
     )
     hidespines!(ax1_twin)
     hidexdecorations!(ax1_twin)
