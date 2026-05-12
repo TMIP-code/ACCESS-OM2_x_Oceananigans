@@ -326,7 +326,7 @@ for py in py_list
             for r in 1:py
     ]
     Legend(
-        fig[1:2, 3], rank_leg, ["rank $(r - 1)" for r in 1:py];
+        fig[2, 3], rank_leg, ["rank $(r - 1)" for r in 1:py];
         title = "rank (0 = south)", framevisible = false, tellwidth = true,
     )
 
