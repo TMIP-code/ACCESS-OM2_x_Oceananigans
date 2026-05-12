@@ -269,13 +269,30 @@ for py in py_list
         fontsize = 16, font = :bold,
     )
 
-    # Row 1: wet cells per y-row (trace)
+    # Row 1: per-y-row trace — wet cells (left axis) + wet columns
+    # (right axis, twin). Different scales (2D vs 3D), so we use two
+    # axes sharing the same panel — see
+    # https://docs.makie.org/stable/reference/blocks/axis#Creating-a-twin-axis
+    cells_color = :black
+    cols_color = :crimson
     ax1 = Axis(
         fig[1, 1:2];
-        title = "True wet cells per y-row",
-        xlabel = "j (south → north)", ylabel = "wet cells per row",
+        title = "Per y-row: wet 3D cells (black) and wet surface columns (red)",
+        xlabel = "j (south → north)",
+        ylabel = "wet cells per row", ylabelcolor = cells_color,
+        yticklabelcolor = cells_color,
     )
-    lines!(ax1, 1:Ny, true_cells_per_row; color = :black, linewidth = 1)
+    ax1_twin = Axis(
+        fig[1, 1:2];
+        ylabel = "wet columns per row", ylabelcolor = cols_color,
+        yticklabelcolor = cols_color,
+        yaxisposition = :right,
+    )
+    hidespines!(ax1_twin)
+    hidexdecorations!(ax1_twin)
+    linkxaxes!(ax1, ax1_twin)
+    lines!(ax1, 1:Ny, true_cells_per_row; color = cells_color, linewidth = 1)
+    lines!(ax1_twin, 1:Ny, true_columns_per_row; color = cols_color, linewidth = 1)
 
     # Row 2: rank coverage ribbons — one row per scheme, each y-row's slab
     # drawn as a thick colored segment along x. Colors index ranks.
