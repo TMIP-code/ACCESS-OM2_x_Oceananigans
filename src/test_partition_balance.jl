@@ -287,6 +287,8 @@ for py in py_list
         fig[1, 1:2];
         ylabel = "wet columns per row", ylabelcolor = cols_color,
         yticklabelcolor = cols_color,
+        ytickcolor = cols_color,
+        ygridcolor = (cols_color, 0.3),
         yaxisposition = :right,
         limits = (nothing, nothing, 0, nothing),
     )
