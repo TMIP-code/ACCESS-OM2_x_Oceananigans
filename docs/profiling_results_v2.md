@@ -69,38 +69,126 @@ Speedup = (baseline − trick) / baseline. Negative = slower than baseline.
 
 ---
 
-## Load balancing variants at 1x2
+## Load balancing — scaling effect per GPU
 
-Four LB modes were tested. Each requires its own partition rebuild because the y-axis cuts differ.
+LB modes (each requires its own partition rebuild):
 
-| Mode | LOAD_BALANCE | Partition dir suffix | Algorithm |
-|------|--------------|---------------------|-----------|
-| (none) | `no` (default) | (none) | uniform y-cut |
-| **+LB** | `cell` | `_LB` | balance total wet cells across ranks |
-| **+LBS** | `surface` | `_LBS` | balance wet *surface* cells (top layer) across ranks |
-| **+LBmix** | `mix` | `_LBmix` | hybrid of cell + surface |
-| **+LBminmax** | `minmax` | `_LBminmax` | α-weighted mix; α chosen by bisection to minimise max(imb%(cells), imb%(surface)) |
+| Mode | `LOAD_BALANCE` | Suffix | Algorithm |
+|---|---|---|---|
+| (none) | `no` (default) | — | uniform y-cut |
+| +LB | `cell` | `_LB` | balance total wet 3D cells across ranks |
+| +LBS | `surface` | `_LBS` | balance wet *surface* columns (top layer) across ranks |
+| +LBmix | `mix` | `_LBmix` | equal-weighted normalised mix of cells & surface |
+| +LBminmax | `minmax` | `_LBminmax` | α-weighted mix; α bisected to minimise max(imb%(cells), imb%(surface)) |
 
-### Bench walltime by LB mode (1x2)
+For each (model, GPU) the **scaling** table reports baseline strong-scaling
+(reference = smallest distributed partition with a measurement). The **LB at 1×2**
+table reports per-LB walltime, speedup vs that GPU's 1×2 baseline, and
+*recovery* = (1×2 baseline − 1×2+LB) / (1×2 baseline − 1×4 baseline) × 100 —
+the fraction of the next-doubling speedup that LB captured without adding GPUs.
+Recovery = 100% means LB at 1×2 matches 1×4 baseline; > 0% means LB closed
+the strong-scaling gap somewhat.
 
-| Model | Hardware | baseline | +LB (cell) | +LBS (surface) | +LBmix | +LBminmax |
-|-------|----------|----------|------------|----------------|--------|-----------|
-| OM2-025 | V100 | 15m 26.4s<br><img src="profiling_plots/OM2-025_V100_1x2_baseline_167950637.png" width="240"> | 15m 28.7s<br><img src="profiling_plots/OM2-025_V100_1x2_LB_167950643.png" width="240"> | **13m 0.2s**<br><img src="profiling_plots/OM2-025_V100_1x2_LBS_168108560.png" width="240"> | 13m 29.4s<br><img src="profiling_plots/OM2-025_V100_1x2_LBmix_168147661.png" width="240"> | _pending (168157798)_ |
-| OM2-025 | H200 | 5m 34.6s<br><img src="profiling_plots/OM2-025_H200_1x2_baseline_167950650.png" width="240"> | 5m 40.1s<br><img src="profiling_plots/OM2-025_H200_1x2_LB_167950656.png" width="240"> | **4m 21.1s**<br><img src="profiling_plots/OM2-025_H200_1x2_LBS_168108562.png" width="240"> | 4m 26.0s<br><img src="profiling_plots/OM2-025_H200_1x2_LBmix_168147663.png" width="240"> | _pending (168157803)_ |
-| OM2-01 | H200 | 3h 1m 47s<br><img src="profiling_plots/OM2-01_1x2_baseline_167976668.png" width="240"> | 2h 55m 52s<br><img src="profiling_plots/OM2-01_1x2_LB_167976674.png" width="240"> | **2h 43m 8s**<br><img src="profiling_plots/OM2-01_1x2_LBS_168108564.png" width="240"> | _pending (168147665)_ | _pending (168157808)_ |
+### OM2-1 — V100
 
-### Speedup vs baseline
+Reference: 1×1 baseline (38.6s). Only `cell` LB has been measured here.
 
-| Model | Hardware | +LB (cell) | +LBS (surface) | +LBmix | +LBminmax |
-|-------|----------|------------|----------------|--------|-----------|
-| OM2-025 | V100 | −0.2% | **+15.7%** | +12.6% | _pending_ |
-| OM2-025 | H200 | −1.6% | **+22.0%** | +20.5% | _pending_ |
-| OM2-01 | H200 | +3.3% | **+10.3%** | _pending_ | _pending_ |
+**Baseline scaling**
 
-**Observations so far:**
-- **Surface LB consistently wins**: +LBS delivers 10–22% speedups; cell LB is essentially neutral.
-- **Mix is close to surface**: +LBmix is 1–3 percentage points slower than +LBS but uses a different y-cut strategy that may scale differently to larger partitions.
-- **Pending**: OM2-01 +LBmix and all three +LBminmax runs.
+| Partition | walltime | speedup | ideal | efficiency |
+|---|---:|---:|---:|---:|
+| 1×1 | 38.6s | 1.00× | 1× | 100% |
+| 1×2 | 29.6s | 1.30× | 2× | 65% |
+| 1×4 | 23.2s | 1.66× | 4× | 42% |
+| 1×8 | 27.4s | 1.41× | 8× | 18% |
+
+**LB at 1×2** (1×2→1×4 baseline gain: 6.4s)
+
+| LB | walltime | speedup vs base | recovery of 1×4 gain | efficiency vs 1×1 |
+|---|---:|---:|---:|---:|
+| none | 29.6s | 1.00× | 0% | 65% |
+| **cell** | **27.0s** | **+8.8%** | **41%** | **71%** |
+| surface | _not tested_ | — | — | — |
+| mix | _not tested_ | — | — | — |
+| minmax | _not tested_ | — | — | — |
+
+### OM2-025 — V100
+
+Reference: 1×2 baseline (15m 26.4s). No 1×1 or 1×4/1×8 V100 measurements
+available, so no scaling table — only the LB-at-1×2 view.
+
+| LB | walltime | speedup vs base | recovery of 1×4 gain |
+|---|---:|---:|---:|
+| none | 15m 26.4s | 1.00× | 0% |
+| cell | 15m 28.7s | −0.2% | (regression) |
+| **surface** | **13m 0.2s** | **+15.7%** | _no 1×4 V100 data_ |
+| mix | 13m 29.4s | +12.6% | _no 1×4 V100 data_ |
+| minmax | _pending (168157798)_ | — | — |
+
+### OM2-025 — H200
+
+Reference: 1×2 baseline (5m 34.6s). 1×2→1×4 baseline gain: 105.8 s.
+
+**Baseline scaling**
+
+| Partition | walltime | speedup vs 1×2 | ideal | efficiency |
+|---|---:|---:|---:|---:|
+| 1×2 | 5m 34.6s | 1.00× | 1× | 100% |
+| 1×4 | 3m 48.8s | 1.46× | 2× | 73% |
+| 1×8 | 3m 53.4s | 1.43× | 4× | 36% |
+
+**LB at 1×2**
+
+| LB | walltime | speedup vs base | recovery of 1×4 gain |
+|---|---:|---:|---:|
+| none | 5m 34.6s | 1.00× | 0% |
+| cell | 5m 40.1s | −1.6% | (regression) |
+| **surface** | **4m 21.1s** | **+22.0%** | **70%** |
+| mix | 4m 26.0s | +20.5% | 65% |
+| minmax | _pending (168157803)_ | — | — |
+
+### OM2-01 — H200
+
+Reference: 1×2 baseline (3h 1m 47s = 10907s). 1×2→1×4 baseline gain: 5028s.
+
+**Baseline scaling**
+
+| Partition | walltime | speedup vs 1×2 | ideal | efficiency |
+|---|---:|---:|---:|---:|
+| 1×2 | 3h 1m 47s | 1.00× | 1× | 100% |
+| 1×4 | 1h 37m 59s | 1.85× | 2× | 93% |
+| 1×8 | 1h 38m 27s | 1.85× | 4× | 46% |
+
+**LB at 1×2**
+
+| LB | walltime | speedup vs base | recovery of 1×4 gain |
+|---|---:|---:|---:|
+| none | 3h 1m 47s | 1.00× | 0% |
+| cell | 2h 55m 52s | +3.3% | 7% |
+| **surface** | **2h 43m 8s** | **+10.3%** | **22%** |
+| mix | _pending (168147665)_ | — | — |
+| minmax | _pending (168157808)_ | — | — |
+
+### Observations
+
+- **Surface LB consistently wins** on every tested (model, GPU): +LBS delivers
+  +8.8% (OM2-1 — cell only) up to +22.0% (OM2-025 H200) speedup at 1×2.
+- **Cell LB is essentially neutral or a slight regression** at OM2-025 (both
+  GPUs); only at OM2-1 and OM2-01 does it give a small positive. This is the
+  "fake balance" effect: equalising 3D cells leaves the north rank with more
+  wet columns, and per-column work dominates here.
+- **Mix tracks ~1.5–2 points behind surface.** Same direction, slightly weaker.
+- **Recovery is partition-dependent**: at OM2-025 H200, surface LB at 1×2
+  recovers **70% of the 1×4 gain** — i.e. LB at the smaller partition gets
+  most of the way toward what doubling the GPU count would have given. At
+  OM2-01 H200 the same LB recovers only 22%, because there's much more room
+  to improve via raw GPU doubling (1×4 baseline is already 93% efficient).
+- **Cross-resolution surface LB recovery ranking**: OM2-025 H200 (70%) >
+  OM2-1 V100 cell (41%) > OM2-01 H200 (22%). Less efficient baseline → more
+  room for LB to close the gap.
+- **Pending**: OM2-01 +LBmix and all three +LBminmax runs to confirm whether
+  minmax's static-imbalance optimum (proposed in
+  [partition_balance.md](partition_balance.md)) translates to wall-time wins.
 
 ---
 
