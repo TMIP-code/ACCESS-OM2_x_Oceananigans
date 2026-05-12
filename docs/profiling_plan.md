@@ -33,6 +33,9 @@ Tricks (GC sync, temporal blocking, load balancing) are only meaningful for dist
 | **+GC** | `SYNC_GC_NSTEPS` | `5` |
 | **+TB** | `TBLOCKING` | `12` (requires halos ≥13; all partitions rebuilt with halos=13) |
 | **+LB** | `LOAD_BALANCE` | `cell` (cell-balanced y-partition; output dir gets `_LB` suffix automatically) |
+| **+LBS** | `LOAD_BALANCE` | `surface` (surface-cell balanced; output `_LBS`) |
+| **+LBmix** | `LOAD_BALANCE` | `mix` (hybrid cell+surface; output `_LBmix`) |
+| **+LBminmax** | `LOAD_BALANCE` | `minmax` (α-bisection to minimise max imbalance; output `_LBminmax`) |
 
 ---
 
@@ -120,6 +123,9 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 | 2 | 1x4 | 167940054 | ✓ | 7m 55s | hugemem, peak 195GB / 192GB (cap-hit) |
 | 2 | 1x8 | 167940055 | ✓ | 8m 10s | hugemem, peak 268GB / 256GB (cap-hit) |
 | 3 | 1x2_LB | 167940056 | ✓ | 6m 37s | hugemem 192GB (peak 93GB) |
+| 4 | 1x2_LBS | 168108520 | ✓ | 8m 37s | LOAD_BALANCE=surface (rebuild; old Apr 20 files were stale) |
+| 5 | 1x2_LBmix | 168147641 | ✓ | 10m 15s | LOAD_BALANCE=mix |
+| 6 | 1x2_LBminmax | 168157259 | ✓ | 10m 25s | LOAD_BALANCE=minmax |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -145,6 +151,18 @@ V100 vs H200 hardware comparison at 1x2 only (with all tricks). Larger partition
 | 1x4 | H200 | baseline nsys | 167950659 | ✓ 8m 55s | |
 | 1x8 | H200 | baseline bench | 167950660 | ✓ 12m 4s | |
 | 1x8 | H200 | baseline nsys | 167950661 | ✓ 19m 3s | |
+| 1x2 | V100 | +LBS bench | 168108560 | ✓ 24m 27s | LOAD_BALANCE=surface |
+| 1x2 | V100 | +LBS nsys | 168108561 | ✓ 12m 19s | |
+| 1x2 | H200 | +LBS bench | 168108562 | ✓ 14m 33s | |
+| 1x2 | H200 | +LBS nsys | 168108563 | ✓ 11m 8s | |
+| 1x2 | V100 | +LBmix bench | 168147661 | ✓ 28m 42s | LOAD_BALANCE=mix |
+| 1x2 | V100 | +LBmix nsys | 168147662 | ✓ 23m 1s | |
+| 1x2 | H200 | +LBmix bench | 168147663 | ✓ 24m 21s | |
+| 1x2 | H200 | +LBmix nsys | 168147664 | ✓ 14m 30s | |
+| 1x2 | V100 | +LBminmax bench | 168157798 | Q | LOAD_BALANCE=minmax |
+| 1x2 | V100 | +LBminmax nsys | 168157800 | Q | |
+| 1x2 | H200 | +LBminmax bench | 168157803 | Q | |
+| 1x2 | H200 | +LBminmax nsys | 168157805 | Q | |
 
 ---
 
@@ -177,6 +195,9 @@ Skip 1x1 (doesn't fit on H200).
 | 4 | grid (halos=19) | 167994958 | ✓ | 4m 53s | rebuild for K=18; overwrites halos=13 grid.jld2 |
 | 4 | vel (halos=19) | 167994959 | ✓ | 58m 56s | hugemem 512GB, peak 351GB |
 | 4 | 1x2 (halos=19) | 167994960 | ✓ | 42m 40s | megamem 1000GB, peak 909GB |
+| 5 | 1x2_LBS | 168108533 | ✓ | 42m 18s | LOAD_BALANCE=surface |
+| 6 | 1x2_LBmix | 168147643 | ✓ | 44m 59s | LOAD_BALANCE=mix |
+| 7 | 1x2_LBminmax | 168157260 | R | — | LOAD_BALANCE=minmax (still building) |
 
 ### Simulation Results (fill in as jobs complete)
 
@@ -194,6 +215,12 @@ Skip 1x1 (doesn't fit on H200).
 | 1x4 | baseline nsys | 167976677 | ✓ 17m 20s | halos=13 |
 | 1x8 | baseline bench | 167976678 | ✓ 2h 5m | halos=13 |
 | 1x8 | baseline nsys | 167976679 | ✓ 31m 28s | halos=13 |
+| 1x2 | +LBS bench | 168108564 | ✓ 3h 6m 14s | LOAD_BALANCE=surface |
+| 1x2 | +LBS nsys | 168108565 | ✓ 35m 24s | |
+| 1x2 | +LBmix bench | 168147665 | Q | LOAD_BALANCE=mix |
+| 1x2 | +LBmix nsys | 168147666 | Q | |
+| 1x2 | +LBminmax bench | 168157808 | H | LOAD_BALANCE=minmax (afterok 168157260) |
+| 1x2 | +LBminmax nsys | 168157810 | H | |
 | 1x2 | +TB bench (retry) | 168021140 | ✓ 3h 7m 7s | K=18, halos=19 |
 | 1x2 | +TB nsys (retry) | 168021141 | ✓ 24m 23s | K=18, BENCHMARK_STEPS=360 (20×18, 20 MPI passes), halos=19 |
 
@@ -263,16 +290,16 @@ Base: `logs/julia/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun
 Set the remote root once:
 
 ```bash
-GADI_ROOT="gadi:/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia"
 ```
 
 **Pull everything (all phases):**
 
 ```bash
+GADI_ROOT="/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans/logs/julia"
 mkdir -p nsys_profiles && cd nsys_profiles
-cpfromgadi "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-1/
-cpfromgadi "$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-025/
-cpfromgadi "$GADI_ROOT/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/*_profile_*.nsys-rep" om2-01/
+rsyncfromgadi "$GADI_ROOT/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-1/
+rsyncfromgadi "$GADI_ROOT/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/*_profile_*.nsys-rep" om2-025/
+rsyncfromgadi "$GADI_ROOT/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/standardrun/*_profile_*.nsys-rep" om2-01/
 ```
 
 **Pull specific job (e.g. one row of the matrix):**
