@@ -16,6 +16,13 @@ each load-balance scheme:
   some kernels are cell-bound (3D tendencies) and some are
   column-bound (implicit vertical diffusion) — balancing neither
   perfectly but both well.
+- **minmax** — α-weighted mix where α is chosen by bisection to
+  minimise `max(imb%(cells), imb%(surface))` (LB `_LBminmax`; env
+  `LOAD_BALANCE=minmax`). Same load form as `:mix` but α is *picked
+  adaptively* rather than fixed at ½ — lands on (or near) the Pareto
+  crossover where the cell- and surface-imbalances are roughly equal,
+  bounding the overload any single rank sees regardless of which
+  kernel class dominates.
 "True wet cells" / "true wet columns" in every table use `immersed_cell`
 on the actual `ImmersedBoundaryGrid + PartialCellBottom`.
 
@@ -77,15 +84,23 @@ those wider slabs, so:
   trade is 1.2% → 6.6% (cells) vs 53% → 19% (cols). Whether this is a
   net win depends on the share of column-bound work in the bench — to
   be measured.
-- **The `max%` column reveals which method wins the worst-case.**
-  At 1×2: `:mix` wins on all three models (max% ≈ 4.5–4.7), because
-  cells and surface end up nearly equal — the equal-weight mix happens
-  to sit close to the minimax balance point at this partition count.
-  At 1×8: `:surface` (max% = 12/16/14 for OM2-1/025/01) actually
-  beats `:mix` (22/19/17), because `:mix`'s equal weighting under-
-  corrects when the surface imbalance is the binding constraint.
-  Suggests there's room for a smarter mix that **minimises
-  `max(imb_cells, imb_surface)`** directly — see the next section.
+- **`:minmax` wins or ties at every (model, py) tested.** The
+  bisection method (described in the "what this suggests" section,
+  now implemented) finds an α that sits at the cell/surface Pareto
+  crossover. Cuts `max%` significantly at 1×4/1×8 vs both `:mix` and
+  the next-best static method:
+
+  | (model, 1×py) | best static | minmax | drop |
+  |---|---|---|---|
+  | OM2-1 1×8   | surface 12 | **8.6** | −28% |
+  | OM2-025 1×4 | mix 14     | **8.2** | −41% |
+  | OM2-025 1×8 | surface 16 | **10**  | −38% |
+  | OM2-01 1×4  | mix 14     | **7.8** | −44% |
+  | OM2-01 1×8  | surface 14 | **9.4** | −33% |
+
+  At 1×2 on OM2-025/01, `:minmax` lands on the same partition as
+  `:mix` (the bisection converges to α≈0.5 because the cell/surface
+  curves cross right at the equal-weight point).
 
 (A pre-2026-05-11 `:cell_obsolete` formula based on `z_center > bottom`
 was checked separately; it differed from the new `immersed_cell`-based
@@ -104,10 +119,11 @@ Total wet cells = **2,707,869**, total wet columns = **69,809**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny (rank 0, 1) |
 |-----------|------------:|--------------:|-----:|-------:|--------------------:|
-| equal     |         24  |           15  |  24  |    1.6 |            150, 150 |
-| surface   |        8.4  |          0.57 | 8.4  |    1.2 |            132, 168 |
-| **cell**  |        0.8  |           6.3 | 6.3  |    1.0 |            123, 177 |
-| **mix**   |        4.1  |           3.2 | 4.1  |    1.1 |            127, 173 |
+| equal      |         24  |           15  |  24  |    1.6 |            150, 150 |
+| surface    |        8.4  |          0.57 | 8.4  |    1.2 |            132, 168 |
+| cell       |        0.8  |           6.3 | 6.3  |    1.0 |            123, 177 |
+| mix        |        4.1  |           3.2 | 4.1  |    1.1 |            127, 173 |
+| **minmax** |        3.3  |           4.0 | 4.0  |    1.1 |            126, 174 |
 
 ### 1×4
 
@@ -115,10 +131,11 @@ Total wet cells = **2,707,869**, total wet columns = **69,809**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny           |
 |-----------|------------:|--------------:|-----:|-------:|-------------------|
-| equal     |         31  |           20  |  31  |    2.9 | 75  75  75  75    |
-| surface   |        9.4  |          0.86 | 9.4  |    1.5 | 70  62  65 103    |
-| **cell**  |        0.8  |           20  |  20  |    1.0 | 67  56  58 119    |
-| **mix**   |        5.3  |           10  |  10  |    1.2 | 68  59  61 112    |
+| equal      |         31  |           20  |  31  |    2.9 | 75  75  75  75    |
+| surface    |        9.4  |          0.86 | 9.4  |    1.5 | 70  62  65 103    |
+| cell       |        0.8  |           20  |  20  |    1.0 | 67  56  58 119    |
+| mix        |        5.3  |           10  |  10  |    1.2 | 68  59  61 112    |
+| **minmax** |        6.5  |           6.6 | 6.6  |    1.3 | 69  60  62 109    |
 
 ### 1×8
 
@@ -126,10 +143,11 @@ Total wet cells = **2,707,869**, total wet columns = **69,809**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny                          |
 |-----------|------------:|--------------:|-----:|-------:|----------------------------------|
-| equal     |         69  |           51  |  69  |    5.8 | 38  38  38  38  37  37  37  37   |
-| **surface** |       12  |           2.2 |  12  |    1.7 | 45  25  30  32  31  34  60  43   |
-| cell      |        2.5  |           51  |  51  |    1.1 | 45  22  27  29  28  30  38  81   |
-| mix       |        5.9  |           22  |  22  |    1.4 | 45  23  29  30  30  31  48  64   |
+| equal      |         69  |           51  |  69  |    5.8 | 38  38  38  38  37  37  37  37   |
+| surface    |         12  |           2.2 |  12  |    1.7 | 45  25  30  32  31  34  60  43   |
+| cell       |        2.5  |           51  |  51  |    1.1 | 45  22  27  29  28  30  38  81   |
+| mix        |        5.9  |           22  |  22  |    1.4 | 45  23  29  30  30  31  48  64   |
+| **minmax** |        8.6  |           6.6 | 8.6  |    1.6 | 45  24  30  31  31  32  56  51   |
 
 ---
 
@@ -143,10 +161,11 @@ Total wet cells = **36,952,668**, total wet columns = **970,921**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny (rank 0, 1) |
 |-----------|------------:|--------------:|-----:|-------:|--------------------:|
-| equal     |         32  |           20  |  32  |    1.9 |            540, 540 |
-| surface   |        9.9  |          0.01 | 9.9  |    1.2 |            453, 627 |
-| cell      |        0.2  |           8.8 | 8.8  |    1.0 |            415, 665 |
-| **mix**   |        4.7  |           4.7 | 4.7  |    1.1 |            433, 647 |
+| equal      |         32  |           20  |  32  |    1.9 |            540, 540 |
+| surface    |        9.9  |          0.01 | 9.9  |    1.2 |            453, 627 |
+| cell       |        0.2  |           8.8 | 8.8  |    1.0 |            415, 665 |
+| **mix**    |        4.7  |           4.7 | 4.7  |    1.1 |            433, 647 |
+| **minmax** |        4.7  |           4.7 | 4.7  |    1.1 |            433, 647 |
 
 **Note the 2D vs 3D split at 1×2 cell:** `:cell` drives 3D wet-cell imbalance down to 0.2%, but the corresponding wet-column (surface) imbalance is 8.8% — same direction as `equal` (rank 1 over-loaded), just smaller magnitude. Per-column work in this simulation (notably **implicit vertical diffusion**) scales with the wet-column count, so this rank-1 surplus is exactly the imbalance the wall-clock data shows.
 
@@ -156,10 +175,11 @@ Total wet cells = **36,952,668**, total wet columns = **970,921**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny           |
 |-----------|------------:|--------------:|-----:|-------:|-------------------|
-| equal     |         49  |           34  |  49  |    3.1 | 270 270 270 270   |
-| surface   |         12  |          0.53 |  12  |    1.6 | 260 193 251 376   |
-| cell      |        0.4  |           27  |  27  |    1.0 | 247 168 206 459   |
-| **mix**   |        5.5  |           14  |  14  |    1.2 | 253 180 226 421   |
+| equal      |         49  |           34  |  49  |    3.1 | 270 270 270 270   |
+| surface    |         12  |          0.53 |  12  |    1.6 | 260 193 251 376   |
+| cell       |        0.4  |           27  |  27  |    1.0 | 247 168 206 459   |
+| mix        |        5.5  |           14  |  14  |    1.2 | 253 180 226 421   |
+| **minmax** |        8.2  |           8.1 | 8.2  |    1.4 | 256 186 235 403   |
 
 ### 1×8
 
@@ -167,10 +187,11 @@ Total wet cells = **36,952,668**, total wet columns = **970,921**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny                              |
 |-----------|------------:|--------------:|-----:|-------:|--------------------------------------|
-| equal     |         79  |           58  |  79  |    6.4 | 135 135 135 135 135 135 135 135      |
-| **surface** |       16  |          0.69 |  16  |    1.7 | 175  85  87 106 109 142 232 144      |
-| cell      |        1.2  |           53  |  53  |    1.0 | 175  72  78  90  98 108 173 286      |
-| mix       |        6.6  |           19  |  19  |    1.3 | 175  78  82  98 104 122 241 180      |
+| equal      |         79  |           58  |  79  |    6.4 | 135 135 135 135 135 135 135 135      |
+| surface    |         16  |          0.69 |  16  |    1.7 | 175  85  87 106 109 142 232 144      |
+| cell       |        1.2  |           53  |  53  |    1.0 | 175  72  78  90  98 108 173 286      |
+| mix        |        6.6  |           19  |  19  |    1.3 | 175  78  82  98 104 122 241 180      |
+| **minmax** |        9.1  |           10  |  10  |    1.4 | 175  80  84 102 105 128 244 162      |
 
 ---
 
@@ -184,10 +205,11 @@ Total wet cells = **351,532,308**, total wet columns = **6,075,239**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny (rank 0, 1) |
 |-----------|------------:|--------------:|-----:|-------:|--------------------:|
-| equal     |         30  |           19  |  30  |    1.9 |          1350, 1350 |
-| surface   |        9.5  |          0.03 | 9.5  |    1.2 |          1138, 1562 |
-| cell      |        0.1  |           8.5 | 8.5  |    1.0 |          1045, 1655 |
-| **mix**   |        4.5  |           4.5 | 4.5  |    1.1 |          1090, 1610 |
+| equal      |         30  |           19  |  30  |    1.9 |          1350, 1350 |
+| surface    |        9.5  |          0.03 | 9.5  |    1.2 |          1138, 1562 |
+| cell       |        0.1  |           8.5 | 8.5  |    1.0 |          1045, 1655 |
+| **mix**    |        4.5  |           4.5 | 4.5  |    1.1 |          1090, 1610 |
+| **minmax** |        4.5  |           4.5 | 4.5  |    1.1 |          1090, 1610 |
 
 ### 1×4
 
@@ -195,10 +217,11 @@ Total wet cells = **351,532,308**, total wet columns = **6,075,239**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny                |
 |-----------|------------:|--------------:|-----:|-------:|------------------------|
-| equal     |         47  |           33  |  47  |    2.9 | 675 675 675 675        |
-| surface   |         11  |          0.22 |  11  |    1.5 | 651 487 641 921        |
-| cell      |        0.2  |           26  |  26  |    1.0 | 620 425 530 1125       |
-| **mix**   |        5.3  |           14  |  14  |    1.2 | 634 456 575 1035       |
+| equal      |         47  |           33  |  47  |    2.9 | 675 675 675 675        |
+| surface    |         11  |          0.22 |  11  |    1.5 | 651 487 641 921        |
+| cell       |        0.2  |           26  |  26  |    1.0 | 620 425 530 1125       |
+| mix        |        5.3  |           14  |  14  |    1.2 | 634 456 575 1035       |
+| **minmax** |        7.8  |           7.7 | 7.8  |    1.3 | 641 470 600  989       |
 
 ### 1×8
 
@@ -206,10 +229,11 @@ Total wet cells = **351,532,308**, total wet columns = **6,075,239**.
 
 | scheme    | imb%(cells) | imb%(surface) | max% | ×ratio | slab Ny                            |
 |-----------|------------:|--------------:|-----:|-------:|------------------------------------|
-| equal     |         77  |           58  |  77  |    5.8 | 338 338 338 338 337 337 337 337    |
-| **surface** |       14  |          0.33 |  14  |    1.6 | 438 213 219 268 276 365 577 344    |
-| cell      |        0.5  |           47  |  47  |    1.0 | 435 185 195 230 250 280 475 650    |
-| mix       |        6.5  |           17  |  17  |    1.3 | 436 198 207 249 262 313 621 414    |
+| equal      |         77  |           58  |  77  |    5.8 | 338 338 338 338 337 337 337 337    |
+| surface    |         14  |          0.33 |  14  |    1.6 | 438 213 219 268 276 365 577 344    |
+| cell       |        0.5  |           47  |  47  |    1.0 | 435 185 195 230 250 280 475 650    |
+| mix        |        6.5  |           17  |  17  |    1.3 | 436 198 207 249 262 313 621 414    |
+| **minmax** |        9.0  |           9.4 | 9.4  |    1.4 | 437 203 212 256 267 330 614 381    |
 
 ---
 
@@ -221,42 +245,23 @@ Total wet cells = **351,532,308**, total wet columns = **6,075,239**.
    suspect is rank 1 owning more wet columns AND the entire tripolar
    fold halo.
 
-2. **`:mix` already implements a combined cell+column proxy** (equal
-   weights, each metric normalised by its own total). It cuts column
-   imbalance ~3× at the cost of a few % cell imbalance — but is NOT
-   `max%`-optimal: at 1×8 OM2-025 it gives `max% = 19` while
-   `:surface` gives `max% = 16`.
+2. **`:minmax` is now implemented** (`load_balance.jl:_compute_minmax_y_sizes`).
+   The α-weighted load `wet_α[j] = α·cells[j]/Σcells +
+   (1-α)·cols[j]/Σcols` (same form as `:mix`) but α is chosen by
+   bisection on the sign of `imb%(cells) - imb%(surface)`. Tracks the
+   best `max%` seen across all bisection probes, so the step-function
+   integer-greedy artefact (`ic - is` is piecewise constant in α) is
+   handled. 30 iterations × O(Ny) greedy ≈ ~1s on OM2-01. The
+   numbers in the tables above confirm it wins (or ties `:mix`) on
+   every (model, py) tested. The right next step is a benchmark sweep
+   (`:cell` vs `:mix` vs `:minmax` vs `:surface`) at 1×2/1×4/1×8 on
+   OM2-025 H200 to see if the static-imbalance improvement translates
+   into wall-clock improvement on the actual GPU kernel mix.
 
-3. **Proposed `:minmax` method** — minimise `max(imb_cells, imb_surface)`
-   directly. The α-weighted load `wet_α[j] = α·cells[j]/Σcells +
-   (1-α)·cols[j]/Σcols` is the same form as `:mix` (which is α=½),
-   but α is chosen by **bisection** rather than fixed:
-
-   ```text
-   bisect α ∈ [0, 1]:
-       wet = α·cells_norm + (1-α)·cols_norm
-       sizes = greedy_y_split(wet, py)
-       ic = imb%(cells | sizes)
-       is = imb%(surface | sizes)
-       if ic > is: lo = α     # cells worse → give them more weight
-       else:       hi = α
-   ```
-
-   At the crossover α\*, `ic ≈ is`, so neither metric is the binding
-   constraint — that's the minmax point on the Pareto front. ~20–30
-   bisection iterations is enough; greedy_y_split is O(Ny). One caveat:
-   greedy partition is integer-valued so `ic - is` is a step function
-   in α — bisection finds the transition cell, and the true minimum
-   may be at one of the two α values straddling it. Easy to handle by
-   evaluating both endpoints and picking the smaller max.
-
-   Static-table prediction at 1×8 OM2-025: bisection should find
-   roughly α ≈ 0.2–0.3 (more weight on surface than `:mix`'s 0.5),
-   landing somewhere around `max% ≈ 8–10` — well below both `:cell`
-   (53) and `:surface` (16).
-
-4. **Tripolar-fold halo skew.** Rank py-1 always owns the
+3. **Tripolar-fold halo skew.** Rank py-1 always owns the
    tripolar-fold zipper boundary; its halo-exchange cost is higher per
-   row than ordinary rows. The greedy splitter doesn't see this, so it
-   gives the north rank more rows just because its cell density is
-   lower. Worth adding a small fold-rank penalty term.
+   row than ordinary rows. None of the static-load methods see this,
+   so they all give the north rank more rows just because its cell
+   density is lower. Worth adding a small fold-rank penalty term as a
+   follow-up to `:minmax` once we have wall-clock evidence on how
+   much it matters.
