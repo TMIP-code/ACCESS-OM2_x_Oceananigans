@@ -65,10 +65,8 @@ DIVERGE_TOL_YR = parse(Float64, get(ENV, "DIVERGE_TOL_YR", "1.0e-3"))
 
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+# build_model_config reads TIMESTEP_MULT from ENV and already appends _DTx{M}.
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
-
-TIMESTEP_MULT = parse(Int, get(ENV, "TIMESTEP_MULT", "1"))
-TIMESTEP_MULT != 1 && (model_config = "$(model_config)_DTx$(TIMESTEP_MULT)")
 
 # Directory layout:
 #   serial:      …/periodic/{MC}/NK/
@@ -114,8 +112,30 @@ flush(stdout); flush(stderr)
 # Discover trace files (lock-step Φ!-call numbers)
 ################################################################################
 
-ref_glob_re = Regex("^age_trace_iter_(\\d{4})_" * Base.escape_string(REF_JOB_ID) * "\\.jld2\$")
-cmp_glob_re = Regex("^age_trace_iter_(\\d{4})_" * Base.escape_string(CMP_JOB_ID) * "\\.jld2\$")
+# JLD2Writer with array_type=Array{Float64} on a DistributedField does NOT
+# auto-gather — each rank writes its own local slab to `..._rank{r}.jld2`.
+# Serial runs write a single global file (no _rank suffix).
+function parse_gpu_tag(tag)
+    isempty(tag) && return (1, 1)
+    parts = split(tag, "x")
+    return parse(Int, parts[1]), parse(Int, parts[2])
+end
+ref_px, ref_py = parse_gpu_tag(REF_GPU_TAG)
+cmp_px, cmp_py = parse_gpu_tag(GPU_TAG)
+@assert ref_px == 1 && cmp_px == 1 "PARTITION_X==1 assumed; got ref=$REF_GPU_TAG, cmp=$GPU_TAG"
+
+function trace_regex(job_id, partitioned)
+    return if partitioned
+        Regex("^age_trace_iter_(\\d{4})_" * Base.escape_string(job_id) * "_rank0\\.jld2\$")
+    else
+        Regex("^age_trace_iter_(\\d{4})_" * Base.escape_string(job_id) * "\\.jld2\$")
+    end
+end
+
+ref_partitioned = ref_py > 1
+cmp_partitioned = cmp_py > 1
+ref_glob_re = trace_regex(REF_JOB_ID, ref_partitioned)
+cmp_glob_re = trace_regex(CMP_JOB_ID, cmp_partitioned)
 
 function find_trace_calls(dir, regex)
     isdir(dir) || error("Trace directory not found: $dir")
@@ -139,31 +159,51 @@ flush(stdout); flush(stderr)
 ################################################################################
 
 """
-Each trace file is a JLD2Writer output with `timeseries/age/<iter>` and
-`timeseries/t/<iter>`. We saved one full year with
-`schedule = TimeInterval(stop_time)`, so the file contains an initial-state
-save (iter 0) and a final-state save. We want the FINAL state.
+Read the largest iteration key under `timeseries/age` (the final state at
+t = stop_time saved by `schedule = TimeInterval(stop_time)`) from one JLD2
+file. Returns (age_array, t_seconds).
 """
-function load_final_age(dir, call_idx, job_id)
-    iter_str = @sprintf("%04d", call_idx)
-    fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id).jld2")
+function _load_final_age_one_file(fpath)
     return jldopen(fpath, "r") do f
         iters = collect(keys(f["timeseries/age"]))
-        # JLD2Writer stores iter keys as strings — sort numerically and take the largest
         iters_int = parse.(Int, filter(k -> tryparse(Int, k) !== nothing, iters))
         sort!(iters_int)
         last_iter = string(last(iters_int))
-        age = f["timeseries/age/$(last_iter)"]    # 3D Array (interior — array_type = Array{Float64})
+        age = f["timeseries/age/$(last_iter)"]
         t = f["timeseries/t/$(last_iter)"]
         return age, t
     end
 end
 
-# Make sure dimensions match wet3D (interior). JLD2Writer with array_type=Array{Float64}
-# saves the INTERIOR (no halo) for the default indices=(:,:,:).
-sample_age, sample_t = load_final_age(ref_dir, first(common_calls), REF_JOB_ID)
-@info "Sample trace dims" size_age = size(sample_age) sample_t_yr = sample_t / year
-@assert size(sample_age) == (Nx, Ny, Nz) "Trace shape $(size(sample_age)) doesn't match wet3D shape $(Nx, Ny, Nz)"
+"""
+Load the final-state global age 3D array for Φ!-call `call_idx`. If
+`py > 1`, stitches per-rank files along y (rank r at y-stripe
+`y_offsets[r+1]+1 : y_offsets[r+1]+Ny_r`). For px=1, no x-stitching needed.
+"""
+function load_final_age(dir, call_idx, job_id, py)
+    iter_str = @sprintf("%04d", call_idx)
+    if py == 1
+        fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id).jld2")
+        return _load_final_age_one_file(fpath)
+    end
+    rank_slabs = Vector{Array{Float64, 3}}(undef, py)
+    t_out = NaN
+    for r in 0:(py - 1)
+        fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id)_rank$(r).jld2")
+        age, t = _load_final_age_one_file(fpath)
+        rank_slabs[r + 1] = age
+        t_out = t
+    end
+    # Stitch along y (dim 2)
+    return cat(rank_slabs...; dims = 2), t_out
+end
+
+sample_age, sample_t = load_final_age(ref_dir, first(common_calls), REF_JOB_ID, ref_py)
+@info "Sample trace dims (ref)" size_age = size(sample_age) sample_t_yr = sample_t / year
+@assert size(sample_age) == (Nx, Ny, Nz) "Ref trace shape $(size(sample_age)) doesn't match wet3D shape $(Nx, Ny, Nz)"
+sample_age_cmp, _ = load_final_age(cmp_dir, first(common_calls), CMP_JOB_ID, cmp_py)
+@info "Sample trace dims (cmp, stitched)" size_age = size(sample_age_cmp)
+@assert size(sample_age_cmp) == (Nx, Ny, Nz) "Cmp stitched shape $(size(sample_age_cmp)) doesn't match wet3D shape $(Nx, Ny, Nz)"
 
 ################################################################################
 # Per-call comparison
@@ -178,8 +218,8 @@ scan = NamedTuple{(:call, :max_diff_yr, :vol_rms_yr, :mean_diff_yr, :imax, :jmax
 first_diverge_call = -1
 
 for c in common_calls
-    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID)
-    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID)
+    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py)
+    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py)
     diff_3D = age_cmp .- age_ref
     diff_1D = diff_3D[idx]      # wet-cell only
     max_d = maximum(abs, diff_1D)
@@ -238,8 +278,8 @@ plot_calls = unique(filter(>(0), [first(common_calls), first_diverge_call, last(
 flush(stdout); flush(stderr)
 
 for c in plot_calls
-    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID)
-    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID)
+    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py)
+    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py)
     age_ref_yr = age_ref ./ year
     age_cmp_yr = age_cmp ./ year
     age_diff_yr = age_cmp_yr .- age_ref_yr
