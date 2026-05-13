@@ -436,12 +436,17 @@ the Newton-Krylov use case.
 | 1  | 30 min | 17532 | 2a | — | — | — | — | 0 | — |
 | 2  | 1 h    | 8766  | 2a | — | — | — | — | — | — |
 | 3  | 1.5 h  | 5844  | 2b | — | — | — | — | — | — |
-| 4  | 2 h    | 4383  | 2a | — | — | — | — | — | — |
+| 4  | 2 h    | 4383  | 2a | ⏳ queued | — | — | — | — | 168276371 |
 | 6  | 3 h    | 2922  | 2b | — | — | — | — | — | — |
 | 9  | 4.5 h  | 1948  | 2b | — | — | — | — | — | — |
 | 12 | 6 h    | 1461  | 2b | — | — | — | — | — | — |
 | 18 | 9 h    | 974   | 2b | — | — | — | — | — | — |
 | 36 | 18 h   | 487   | 2b | — | — | — | — | — | — |
+
+Submission: `PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (1×H200, 256 GB) — single-GPU; monthly velocity preprocessing
+already complete (no `vel` step needed). M=1 baseline still pending, so RMS Δ
+will be left blank until a baseline run lands.
 
 ### OM2-01 (Δt = 400 s baseline)
 
@@ -450,13 +455,22 @@ the Newton-Krylov use case.
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
 | 3   | 20 min    | 26298 | 2b | — | — | — | — | — | — |
-| 6   | 40 min    | 13149 | 2a | — | — | — | — | — | — |
+| 6   | 40 min    | 13149 | 2a | ⏳ queued | — | — | — | — | 168276435 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
 | 54  | 6 h       | 1461  | 2b | — | — | — | — | — | — |
 | 81  | 9 h       | 974   | 2b | — | — | — | — | — | — |
 | 162 | 18 h      | 487   | 2b | — | — | — | — | — | — |
+
+Submission: `PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=diagnose_w-run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (1×H200, 256 GB), driver default `PARTITION=1x1`. The
+`diagnose_w` step (job 168276434, afterok → run1yr) is a prerequisite —
+OM2-01 monthly preprocessing has the `u/v/w_from_mass_transport_monthly.jld2`
++ `eta_monthly.jld2` files but not `w_diagnosed_monthly.jld2` that
+`setup_model.jl` line 178 expects when `W_FORMULATION=wdiagnosed`. plot1yr =
+168276437 chains afterok run1yr. Stability sanity check is the headline
+question — RMS Δ vs M=1 stays blank until a baseline lands.
 
 ### Conclusions
 
