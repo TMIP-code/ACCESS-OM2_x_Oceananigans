@@ -214,26 +214,44 @@ if isfile(T_file) && isfile(S_file)
     end
 end
 
+# Optional diagnostic FTS loaders. Wrap in try/catch so a stale-halo file
+# (e.g. preprocessed before GRID_H{X,Y,Z} changed) skips that one diagnostic
+# with a hint instead of aborting the whole plot. MLD has a (1454,1094)
+# halo-mismatch against the current grid's (1466,1106) on OM2-025; the κV
+# file also has Hz=2 baked in vs the current GRID_HZ=7 on OM2-1.
+
+function _try_load_diag_fts(file, varname; grid, backend, time_indexing)
+    try
+        return FieldTimeSeries(file, varname; grid, backend, time_indexing)
+    catch err
+        @warn "Skipping $varname plot — could not load $file (likely halo mismatch; re-preprocess at current GRID_H{X,Y,Z})" exception = (err, catch_backtrace())
+        return nothing
+    end
+end
+
 # Optionally add MLD if monthly FTS exists
 mld_file = joinpath(mld_monthly_dir, "mld_monthly.jld2")
 if isfile(mld_file)
     @info "Loading MLD FTS from: $mld_file"
-    mld_ts = FieldTimeSeries(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
-    push!(field_specs, ("MLD", mld_ts, nothing))
-    push!(field_specs, ("MLK", mld_ts, nothing))
+    mld_ts = _try_load_diag_fts(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
+    if mld_ts !== nothing
+        push!(field_specs, ("MLD", mld_ts, nothing))
+        push!(field_specs, ("MLK", mld_ts, nothing))
+    end
 end
 
 # Optionally add κV at ~200m depth — only when MONTHLY_KAPPAV=yes, mirroring
-# setup_model.jl's gate. Unconditional load broke today because the κV file's
-# z-halo (Hz=2 in the May-4 preprocessing) didn't match the current GRID_HZ=7.
+# setup_model.jl's gate.
 κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
 if MONTHLY_KAPPAV && isfile(κV_file)
     @info "Loading κV FTS from: $κV_file"
-    κV_ts = FieldTimeSeries(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
-    k_200m = find_nearest_depth_index(grid, 200)
-    k_200m_halos = k_200m + Hz  # offset for halo in parent array
-    push!(field_specs, ("kappaV_200m", κV_ts, k_200m_halos))
+    κV_ts = _try_load_diag_fts(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
+    if κV_ts !== nothing
+        k_200m = find_nearest_depth_index(grid, 200)
+        k_200m_halos = k_200m + Hz  # offset for halo in parent array
+        push!(field_specs, ("kappaV_200m", κV_ts, k_200m_halos))
+    end
 elseif isfile(κV_file)
     @info "Skipping κV plot — set MONTHLY_KAPPAV=yes to enable (κV file present at $κV_file)"
 end
