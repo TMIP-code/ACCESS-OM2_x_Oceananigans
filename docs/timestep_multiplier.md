@@ -563,6 +563,7 @@ OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
 | 4  | 2 h  | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
 | 12 | 6 h  | SRK3 | ✓ stable | 253 | 1.73 | 168283651 |
 | 36 | 18 h | SRK3 | ✗ exploded (max=5.2e+59 yr at sim iter 41, final = NaN) | 130 (DNF) | NaN | 168283653 |
+| 36 | 18 h | SRK5 | ⏳ queued | — | — | 168286118 |
 
 **SRK3 fixes the OM2-025 M=4 instability** *and* extends cleanly to M=12
 — max age stays in the ~2 yr range across `M ∈ {4, 12}`, sim wall drops
@@ -570,14 +571,20 @@ from 484 s (M=4) to 253 s (M=12) — almost the full 3× per-step speedup,
 since I/O is now a smaller fraction of total wall (~70 s).
 
 **OM2-025 SRK3 wall sits between M=12 and M=36** — M=36 (Δt=18h)
-diverges before t=0.1 yr. The natural next probe is **M=18 (Δt=9h)**,
-the only practical divisor of `N_base=17532` between 12 and 36. If M=18
-is also stable, OM2-025 reaches the same effective Δt ceiling (9 h) as
-OM2-1 SRK3-M=6 — and M=12 (already known stable) is the safe sweet
-spot at 6 h.
+diverges before t=0.1 yr. Two ways to push higher:
 
-Follow-up: probe M=18 to find the SRK3 wall, then run the NK pipeline
-with SRK3 + the chosen M to reap the speedup.
+1. **Stay at SRK3, probe M=18 (Δt=9h)** — the only practical divisor of
+   `N_base=17532` between 12 and 36. If M=18 is stable, OM2-025 reaches
+   the same 9 h effective ceiling as OM2-1 SRK3-M=6.
+2. **Bump to SRK5 at M=36** — 5-stage Runge-Kutta has an even larger
+   absolute-stability region. Per-step cost ≈ 5/3 × SRK3 = 5× AB2, so
+   the wall only pays off if SRK5 reaches an M that drops the per-year
+   step count by > 5/3× over SRK3's ceiling. SRK5-M=36 vs SRK3-M=12 is
+   3× fewer steps, so even at 5/3× per-step it should be ~1.8× faster
+   if it converges.
+
+Currently queued: SRK5-M=36 (job 168286118). M=18-SRK3 still pending —
+will probe based on the SRK5 result.
 
 Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
 on `gpuhopper` (1×H200). Output lands at the separate
