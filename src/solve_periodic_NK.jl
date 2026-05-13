@@ -221,6 +221,9 @@ if rank == 0
     age_init_vec = load_initial_age(idx_global, Nidx_global, outputdir, model_config; year)
     nonlinearprob = NonlinearProblem(f!, age_init_vec)
 
+    NK_MAXITERS = parse(Int, get(ENV, "NK_MAXITERS", "1000"))
+    @info "Newton-GMRES maxiters = $NK_MAXITERS"
+
     @time sol = solve(
         nonlinearprob,
         newton_solver;
@@ -228,6 +231,7 @@ if rank == 0
         show_trace = Val(true),
         reltol = Inf,
         abstol = 0.0001year,
+        maxiters = NK_MAXITERS,
         verbose = true,
     )
 
