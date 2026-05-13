@@ -161,7 +161,7 @@ flush(stdout); flush(stderr)
 """
 Read the largest iteration key under `timeseries/age` (the final state at
 t = stop_time saved by `schedule = TimeInterval(stop_time)`) from one JLD2
-file. Returns (age_array, t_seconds).
+file. Returns (age_array, t_seconds). The array includes halos.
 """
 function _load_final_age_one_file(fpath)
     return jldopen(fpath, "r") do f
@@ -176,34 +176,80 @@ function _load_final_age_one_file(fpath)
 end
 
 """
-Load the final-state global age 3D array for Φ!-call `call_idx`. If
-`py > 1`, stitches per-rank files along y (rank r at y-stripe
-`y_offsets[r+1]+1 : y_offsets[r+1]+Ny_r`). For px=1, no x-stitching needed.
+Strip halos from a halo-inclusive parent array. Halo sizes (Hx, Hy, Hz)
+are inferred from the difference vs the known interior `(Nx_int, Ny_int, Nz_int)`,
+assuming symmetric halos in each dimension.
+
+For a 2D-stored field (Nz_int < halo z-dim), the z-extent is not haloed.
 """
-function load_final_age(dir, call_idx, job_id, py)
+function strip_halos(arr, Nx_int, Ny_int, Nz_int)
+    sx, sy, sz = size(arr, 1), size(arr, 2), size(arr, 3)
+    Hx = (sx - Nx_int) ÷ 2
+    Hy = (sy - Ny_int) ÷ 2
+    Hz = (sz - Nz_int) ÷ 2
+    @assert sx == Nx_int + 2Hx "x-halo not symmetric: parent=$sx int=$Nx_int Hx=$Hx"
+    @assert sy == Ny_int + 2Hy "y-halo not symmetric: parent=$sy int=$Ny_int Hy=$Hy"
+    z_range = sz > 2Hz ? ((Hz + 1):(Hz + Nz_int)) : (1:Nz_int)
+    return arr[(Hx + 1):(Hx + Nx_int), (Hy + 1):(Hy + Ny_int), z_range]
+end
+
+"""
+Load the final-state global age 3D array (INTERIOR only, halos stripped)
+for Φ!-call `call_idx`. If `py > 1`, stitches per-rank interior slabs along
+y. For px=1, no x-stitching needed.
+
+`Ny_local_each` is the per-rank interior Ny for each rank (`length py`).
+"""
+function load_final_age(dir, call_idx, job_id, py, Nx_int, Ny_int, Nz_int, Ny_local_each)
     iter_str = @sprintf("%04d", call_idx)
     if py == 1
         fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id).jld2")
-        return _load_final_age_one_file(fpath)
+        age_raw, t = _load_final_age_one_file(fpath)
+        return strip_halos(age_raw, Nx_int, Ny_int, Nz_int), t
     end
     rank_slabs = Vector{Array{Float64, 3}}(undef, py)
     t_out = NaN
     for r in 0:(py - 1)
         fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id)_rank$(r).jld2")
-        age, t = _load_final_age_one_file(fpath)
-        rank_slabs[r + 1] = age
+        age_raw, t = _load_final_age_one_file(fpath)
+        # Strip halos with this rank's LOCAL Ny interior
+        rank_slabs[r + 1] = strip_halos(age_raw, Nx_int, Ny_local_each[r + 1], Nz_int)
         t_out = t
     end
-    # Stitch along y (dim 2)
+    # Stitch along y (dim 2) — interiors only, no halo overlap
     return cat(rank_slabs...; dims = 2), t_out
 end
 
-sample_age, sample_t = load_final_age(ref_dir, first(common_calls), REF_JOB_ID, ref_py)
-@info "Sample trace dims (ref)" size_age = size(sample_age) sample_t_yr = sample_t / year
-@assert size(sample_age) == (Nx, Ny, Nz) "Ref trace shape $(size(sample_age)) doesn't match wet3D shape $(Nx, Ny, Nz)"
-sample_age_cmp, _ = load_final_age(cmp_dir, first(common_calls), CMP_JOB_ID, cmp_py)
-@info "Sample trace dims (cmp, stitched)" size_age = size(sample_age_cmp)
-@assert size(sample_age_cmp) == (Nx, Ny, Nz) "Cmp stitched shape $(size(sample_age_cmp)) doesn't match wet3D shape $(Nx, Ny, Nz)"
+# Determine per-rank interior Ny for the cmp run (peek at rank-0 file).
+function peek_rank_ny(dir, call_idx, job_id, py, Nx_int, Nz_int)
+    iter_str = @sprintf("%04d", call_idx)
+    nys = Int[]
+    for r in 0:(py - 1)
+        fpath = joinpath(dir, "age_trace_iter_$(iter_str)_$(job_id)_rank$(r).jld2")
+        sample = _load_final_age_one_file(fpath)[1]
+        sx, sy, _ = size(sample)
+        Hx = (sx - Nx_int) ÷ 2
+        # Halos are symmetric across x/y in this project (GRID_HX == GRID_HY,
+        # and free-surface/advection add the same amount to both).
+        Hy = Hx
+        push!(nys, sy - 2Hy)
+    end
+    return nys
+end
+
+ref_ny_local = ref_py > 1 ? peek_rank_ny(ref_dir, first(common_calls), REF_JOB_ID, ref_py, Nx, Nz) : [Ny]
+cmp_ny_local = cmp_py > 1 ? peek_rank_ny(cmp_dir, first(common_calls), CMP_JOB_ID, cmp_py, Nx, Nz) : [Ny]
+@assert sum(ref_ny_local) == Ny "ref per-rank Ny sums to $(sum(ref_ny_local)), expected $Ny"
+@assert sum(cmp_ny_local) == Ny "cmp per-rank Ny sums to $(sum(cmp_ny_local)), expected $Ny"
+@info "Per-rank Ny" ref = ref_ny_local cmp = cmp_ny_local
+
+sample_age, sample_t = load_final_age(ref_dir, first(common_calls), REF_JOB_ID, ref_py, Nx, Ny, Nz, ref_ny_local)
+exp_shape = (Nx, Ny, Nz)
+@info "Sample trace dims (ref, interior)" size_age = size(sample_age) sample_t_yr = sample_t / year
+@assert size(sample_age) == exp_shape "Ref interior shape $(size(sample_age)) doesn't match wet3D shape $(exp_shape)"
+sample_age_cmp, _ = load_final_age(cmp_dir, first(common_calls), CMP_JOB_ID, cmp_py, Nx, Ny, Nz, cmp_ny_local)
+@info "Sample trace dims (cmp, stitched interior)" size_age = size(sample_age_cmp)
+@assert size(sample_age_cmp) == exp_shape "Cmp stitched shape $(size(sample_age_cmp)) doesn't match wet3D shape $(exp_shape)"
 
 ################################################################################
 # Per-call comparison
@@ -213,13 +259,15 @@ sample_age_cmp, _ = load_final_age(cmp_dir, first(common_calls), CMP_JOB_ID, cmp
 @info @sprintf("  %5s  %14s  %14s  %14s  %20s", "call", "max|d|(yr)", "vol_rms(yr)", "mean|d|(yr)", "argmax(i,j,k)")
 flush(stdout); flush(stderr)
 
-scan = NamedTuple{(:call, :max_diff_yr, :vol_rms_yr, :mean_diff_yr, :imax, :jmax, :kmax),
-                  Tuple{Int, Float64, Float64, Float64, Int, Int, Int}}[]
+scan = NamedTuple{
+    (:call, :max_diff_yr, :vol_rms_yr, :mean_diff_yr, :imax, :jmax, :kmax),
+    Tuple{Int, Float64, Float64, Float64, Int, Int, Int},
+}[]
 first_diverge_call = -1
 
 for c in common_calls
-    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py)
-    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py)
+    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py, Nx, Ny, Nz, ref_ny_local)
+    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py, Nx, Ny, Nz, cmp_ny_local)
     diff_3D = age_cmp .- age_ref
     diff_1D = diff_3D[idx]      # wet-cell only
     max_d = maximum(abs, diff_1D)
@@ -230,10 +278,16 @@ for c in common_calls
     cmax = argmax(abs.(diff_3D_masked))
     max_d_yr = max_d / year
 
-    @info @sprintf("  %5d  %14.3e  %14.3e  %14.3e  (%4d,%4d,%4d)",
-                   c, max_d_yr, vn, md / year, cmax[1], cmax[2], cmax[3])
-    push!(scan, (call = c, max_diff_yr = max_d_yr, vol_rms_yr = vn,
-                 mean_diff_yr = md / year, imax = cmax[1], jmax = cmax[2], kmax = cmax[3]))
+    @info @sprintf(
+        "  %5d  %14.3e  %14.3e  %14.3e  (%4d,%4d,%4d)",
+        c, max_d_yr, vn, md / year, cmax[1], cmax[2], cmax[3]
+    )
+    push!(
+        scan, (
+            call = c, max_diff_yr = max_d_yr, vol_rms_yr = vn,
+            mean_diff_yr = md / year, imax = cmax[1], jmax = cmax[2], kmax = cmax[3],
+        )
+    )
 
     if first_diverge_call == -1 && max_d_yr > DIVERGE_TOL_YR
         first_diverge_call = c
@@ -278,8 +332,8 @@ plot_calls = unique(filter(>(0), [first(common_calls), first_diverge_call, last(
 flush(stdout); flush(stderr)
 
 for c in plot_calls
-    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py)
-    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py)
+    age_ref, _ = load_final_age(ref_dir, c, REF_JOB_ID, ref_py, Nx, Ny, Nz, ref_ny_local)
+    age_cmp, _ = load_final_age(cmp_dir, c, CMP_JOB_ID, cmp_py, Nx, Ny, Nz, cmp_ny_local)
     age_ref_yr = age_ref ./ year
     age_cmp_yr = age_cmp ./ year
     age_diff_yr = age_cmp_yr .- age_ref_yr
@@ -294,7 +348,7 @@ for c in plot_calls
     # 1. Reference age field
     plot_age_diagnostics(
         age_ref_yr, grid, wet3D, vol_3D, plot_output_dir,
-        "ref_$(REF_JOB_ID)_$(iter_label)";
+        "ref_$(REF_JOB_ID)_$(iter_label)"
         # Match compare_runs_across_architectures defaults; auto-range still
         # works for serial age in years
     )
@@ -302,7 +356,7 @@ for c in plot_calls
     # 2. Comparison age field
     plot_age_diagnostics(
         age_cmp_yr, grid, wet3D, vol_3D, plot_output_dir,
-        "cmp_$(CMP_JOB_ID)_$(iter_label)";
+        "cmp_$(CMP_JOB_ID)_$(iter_label)"
     )
 
     # 3. Difference field (balance colormap, scale = 3 × mean|diff|)
