@@ -449,15 +449,16 @@ by more than 3× — i.e. M ≥ 12 on OM2-1 — to beat AB2 at M=4.
 This sweep tests stability only — RMS Δ vs AB2-M=1 left blank since the
 goal is "does it complete cleanly".
 
-| `M` | Δt | TIMESTEPPER | Status | Wall time (s) | Max age (yr) | Mean age (yr) | Job ID |
+| `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Mean age (yr) | Job ID |
 |---|---|---|---|---|---|---|---|
 | 1 | 1.5 h | AB2 (ref) | ✓ | 108.1 | 2.083 | 0.973 | 168060698 |
+| 2 | 3 h | AB2 | ✓ | 88.0 | 1.978 | 0.974 | 168060700 |
 | 4 | 6 h | AB2 | ✓ | 78.1 | 1.855 | 0.977 | 168060703 |
 | 6 | 9 h | AB2 | (not run as 1yr; NK inner sim crashed at this Δt) | — | — | — | — |
 | 12 | 18 h | AB2 | (not run as 1yr; NK stalled at this Δt) | — | — | — | — |
-| 4 | 6 h | SRK3 | ⏳ queued | — | — | — | 168282254 |
-| 6 | 9 h | SRK3 | ⏳ queued | — | — | — | 168282256 |
-| 12 | 18 h | SRK3 | ⏳ queued | — | — | — | 168282258 |
+| 4 | 6 h | SRK3 | ✓ | 100.4 | 1.854 | 0.977 | 168282254 |
+| 6 | 9 h | SRK3 | ✓ | 90.1 | 1.767 | 0.977 | 168282256 |
+| 12 | 18 h | SRK3 | ✓ | 79.4 | 1.592 | 0.977 | 168282258 |
 
 Submission:
 ```bash
@@ -469,12 +470,41 @@ done
 Output paths: `standardrun/cgridtransports_wdiagnosed_centered2_SRK3_DTx{4,6,12}/`
 — separate from the existing `_AB2` paths.
 
-Headline questions:
-1. Does SRK3 complete cleanly at M=6 / M=12 where AB2 (NK inner)
-   exploded?
-2. If yes, how does SRK3 wall at M ≥ 12 compare to AB2 wall at M=4?
-   The 3×-per-step penalty means SRK3 only pays off if it pushes M
-   significantly past 4.
+##### Per-step cost (AB2 vs SRK3 at matched M=4)
+
+| | Sim wall (s) | Minus I/O (~69 s) | Step work / total steps | Per-step ratio |
+|---|---|---|---|---|
+| AB2 M=4  | 78.1  | 9.1 s  | 9.1 s / 1461 = 6.2 ms/step  | 1× |
+| SRK3 M=4 | 100.4 | 31.4 s | 31.4 s / 1461 = 21.5 ms/step | **3.45×** |
+
+So a SRK3 step costs **~3.45× an AB2 step** at matched M (consistent with the
+textbook 3:1 ratio of new RHS evaluations per step: AB2 reuses Gⁿ⁻¹ from the
+previous step, SRK3 does 3 fresh stages).
+
+##### Verdict — SRK3 stability sweep on OM2-1
+
+**Stability**: SRK3 completed cleanly at all three M's, including the
+M=6 and M=12 cases where AB2 inside the NK pipeline blew up
+([see NK doc](timestep_multiplier_NK.md#failure-modes)). Max age at
+t=1yr stays in the ~1.6–1.9 yr range across `M ∈ {4, 6, 12}` — no sign
+of the explosive divergence seen in AB2-OM2-025 M=4.
+
+**Wall time**: SRK3 sim wall **drops monotonically** with M (100.4 →
+90.1 → 79.4 s) — at M=12 it's essentially **tied with AB2 M=4** (79.4 s
+vs 78.1 s). So SRK3-M=12 is a "free upgrade": same wall as the
+fastest-stable AB2 config, but with the larger Δt the *NK inner loop*
+can use (where the I/O cost vanishes and the M-speedup is felt fully).
+
+**Next step for the NK pipeline**: re-run the NK sweep with
+`TIMESTEPPER=SRK3 TIMESTEP_MULT=12 INITIAL_AGE=TMage` and compare to
+the AB2-M=4 baseline. The win is twofold:
+
+1. The 1-year forward map is *known stable* at SRK3-M=12 (this sweep).
+2. The NK inner loop has no per-step I/O, so the per-step speedup of
+   M=12 vs M=4 (3× fewer steps) directly translates to wall reduction
+   — and the SRK3 step cost penalty (3.45× per step) is the cost.
+   Net: SRK3-M=12 NK wall ≈ AB2-M=4 NK wall = (52/2.61) ≈ 20 min,
+   but with the *known* convergence in the SRK3-M=12 regime.
 
 ### OM2-025 (Δt = 1800 s baseline)
 
@@ -527,10 +557,20 @@ per step). The win is only real if SRK3 stays stable at an `M` that
 makes the per-year step count drop by > 3× — i.e., at `M ≥ 12` on
 OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
 
-| `M` | TIMESTEPPER | Status | Wall time (s) | Max age (yr) | Job ID |
+| `M` | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|
 | 4 | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
-| 4 | SRK3 | ⏳ queued | — | — | 168280609 |
+| 4 | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
+
+**SRK3 fixes the OM2-025 M=4 instability**: max age drops from 889 yr →
+1.97 yr — about a **450× reduction**, and now in line with what the
+tracer should produce (max ~2 yr after 1 year of integration from
+zero). Sim wall is 8m 4s (SRK3) vs 6m 42s (AB2) — only ~20% slower
+end-to-end because I/O dominates at this resolution too.
+
+This validates the AB2 → SRK3 hypothesis for OM2-025 as well. Natural
+follow-ups: extend the SRK3 sweep to OM2-025 M ∈ {6, 9, 12, 18, 36}
+to find the SRK3 wall, since AB2 already fails at M=4.
 
 Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
 on `gpuhopper` (1×H200). Output lands at the separate
@@ -583,3 +623,18 @@ blank until a baseline lands.
 ### Conclusions
 
 TBD after sweep completes.
+
+### Known issues
+
+- **`plot_standardrun_age.jl` unconditionally loads κV** (`kappa_v_monthly.jld2`),
+  which currently fails when the on-disk halo size doesn't match the
+  active `GRID_HZ`. The OM2-1 κV file dates from 2026-05-04 with `Hz=2`
+  (parent z size 54), the current default is `GRID_HZ=7` (parent z size
+  64) → `DimensionMismatch` at
+  [plot_standardrun_age.jl:230](../src/plot_standardrun_age.jl#L230).
+  This blocked every plot1yr submitted after the sweep (AB2 OM2-025
+  resubmit + all 4 SRK3 plots). Possible fixes: (a) gate κV loading on
+  `MONTHLY_KAPPAV=yes`, (b) repreprocess κV with current halo, (c)
+  rebuild the κV `Field` with the active halo before pushing it into
+  `field_specs`. Stability conclusions above are unaffected — they come
+  from the run logs, not from the plot output.
