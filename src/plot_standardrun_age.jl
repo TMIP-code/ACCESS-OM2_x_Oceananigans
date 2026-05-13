@@ -223,14 +223,19 @@ if isfile(mld_file)
     push!(field_specs, ("MLK", mld_ts, nothing))
 end
 
-# Optionally add κV at ~200m depth if monthly FTS exists
+# Optionally add κV at ~200m depth — only when MONTHLY_KAPPAV=yes, mirroring
+# setup_model.jl's gate. Unconditional load broke today because the κV file's
+# z-halo (Hz=2 in the May-4 preprocessing) didn't match the current GRID_HZ=7.
 κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
-if isfile(κV_file)
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+if MONTHLY_KAPPAV && isfile(κV_file)
     @info "Loading κV FTS from: $κV_file"
     κV_ts = FieldTimeSeries(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
     k_200m = find_nearest_depth_index(grid, 200)
     k_200m_halos = k_200m + Hz  # offset for halo in parent array
     push!(field_specs, ("kappaV_200m", κV_ts, k_200m_halos))
+elseif isfile(κV_file)
+    @info "Skipping κV plot — set MONTHLY_KAPPAV=yes to enable (κV file present at $κV_file)"
 end
 
 @info "Generating surface field animations ($(length(field_specs)) fields)"
