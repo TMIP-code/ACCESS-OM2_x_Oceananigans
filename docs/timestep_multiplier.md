@@ -429,6 +429,53 @@ wall time. For longer runs, the periodic-solver inner loop (no per-step
 I/O) gets the full 4× speedup — which is the speedup that matters for
 the Newton-Krylov use case.
 
+#### Timestepper comparison: SRK3 stability sweep
+
+The NK pipeline at M=6 / M=12 with the default `AB2` timestepper failed
+([NK doc](timestep_multiplier_NK.md#failure-modes)) — M=6 crashed
+inside the 1-year forward map (max age jumped to 1e4 yr within the first
+year), M=12 stalled. Stability of the 1-year forward map is a
+*necessary* precondition for the NK pipeline at those M's. Hypothesis:
+a richer absolute-stability region (multi-stage RK) lets the forward
+map survive at larger Δt. SRK3 (3-stage Split Runge-Kutta) is the natural
+first try.
+
+Per-step *new* tendency-evaluation count is **3 for SRK3 vs 1 for AB2**
+(AB2 caches `G(t_{n-1})` from the previous step, so it does only 1 new
+RHS eval per step). So SRK3 step cost is roughly 3× AB2. The net win
+needs the SRK3 wall to push to an M that drops the per-year step count
+by more than 3× — i.e. M ≥ 12 on OM2-1 — to beat AB2 at M=4.
+
+This sweep tests stability only — RMS Δ vs AB2-M=1 left blank since the
+goal is "does it complete cleanly".
+
+| `M` | Δt | TIMESTEPPER | Status | Wall time (s) | Max age (yr) | Mean age (yr) | Job ID |
+|---|---|---|---|---|---|---|---|
+| 1 | 1.5 h | AB2 (ref) | ✓ | 108.1 | 2.083 | 0.973 | 168060698 |
+| 4 | 6 h | AB2 | ✓ | 78.1 | 1.855 | 0.977 | 168060703 |
+| 6 | 9 h | AB2 | (not run as 1yr; NK inner sim crashed at this Δt) | — | — | — | — |
+| 12 | 18 h | AB2 | (not run as 1yr; NK stalled at this Δt) | — | — | — | — |
+| 4 | 6 h | SRK3 | ⏳ queued | — | — | — | 168282254 |
+| 6 | 9 h | SRK3 | ⏳ queued | — | — | — | 168282256 |
+| 12 | 18 h | SRK3 | ⏳ queued | — | — | — | 168282258 |
+
+Submission:
+```bash
+for M in 4 6 12; do
+  PARENT_MODEL=ACCESS-OM2-1 TIMESTEP_MULT=$M TIMESTEPPER=SRK3 \
+    JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
+done
+```
+Output paths: `standardrun/cgridtransports_wdiagnosed_centered2_SRK3_DTx{4,6,12}/`
+— separate from the existing `_AB2` paths.
+
+Headline questions:
+1. Does SRK3 complete cleanly at M=6 / M=12 where AB2 (NK inner)
+   exploded?
+2. If yes, how does SRK3 wall at M ≥ 12 compare to AB2 wall at M=4?
+   The 3×-per-step penalty means SRK3 only pays off if it pushes M
+   significantly past 4.
+
 ### OM2-025 (Δt = 1800 s baseline)
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
