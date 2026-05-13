@@ -436,7 +436,7 @@ the Newton-Krylov use case.
 | 1  | 30 min | 17532 | 2a | — | — | — | — | 0 | — |
 | 2  | 1 h    | 8766  | 2a | — | — | — | — | — | — |
 | 3  | 1.5 h  | 5844  | 2b | — | — | — | — | — | — |
-| 4  | 2 h    | 4383  | 2a | ⏳ queued | — | — | — | — | 168276371 |
+| 4  | 2 h    | 4383  | 2a | ⚠ unstable (see below) | 402 | 8.89e+02 | 0.24 | — | 168276371 |
 | 6  | 3 h    | 2922  | 2b | — | — | — | — | — | — |
 | 9  | 4.5 h  | 1948  | 2b | — | — | — | — | — | — |
 | 12 | 6 h    | 1461  | 2b | — | — | — | — | — | — |
@@ -448,6 +448,20 @@ on `gpuhopper` (1×H200, 256 GB) — single-GPU; monthly velocity preprocessing
 already complete (no `vel` step needed). M=1 baseline still pending, so RMS Δ
 will be left blank until a baseline run lands.
 
+**Stability — M=4 (Δt=2h) is not safe on OM2-025**: the run returned exit 0
+but `max(age)` blew up to **3.9×10⁸ yr** at sim iter 3294 (t=0.75 yr) at
+`(i, j, k) = (143, 464, 45)` (subsurface western Pacific), then partially
+"recovered" to a final `max(age) = 889 yr` — still wildly non-physical for
+a passive tracer initialised at zero over a single year. The `mean` stays
+near 0.24 yr because the explosion is spatially local. `validate_age_field`
+catches NaN/Inf but not absurd magnitudes, so this run *was not caught* —
+future work should add a magnitude sanity check (e.g. fail if `max(age)
+> 100 yr` at t=1 yr). Julia-internal sim wall: 6m 42s.
+
+The first plot job (168276372) hit the 30-min `WALLTIME_PLOT` after writing
+10 PNGs + 4 of 10 MP4s; slice-depth animations were dropped. Plot
+resubmitted as 168280065 with `WALLTIME_PLOT=01:00:00`.
+
 ### OM2-01 (Δt = 400 s baseline)
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
@@ -455,7 +469,7 @@ will be left blank until a baseline run lands.
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
 | 3   | 20 min    | 26298 | 2b | — | — | — | — | — | — |
-| 6   | 40 min    | 13149 | 2a | ⏳ queued | — | — | — | — | 168277463 |
+| 6   | 40 min    | 13149 | 2a | ⏳ queued (1×2) | — | — | — | — | 168280162 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -463,19 +477,27 @@ will be left blank until a baseline run lands.
 | 81  | 9 h       | 974   | 2b | — | — | — | — | — | — |
 | 162 | 18 h      | 487   | 2b | — | — | — | — | — | — |
 
-Submission: `PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
-on `gpuhopper` (1×H200, 256 GB), driver default `PARTITION=1x1`. plot1yr =
-168277464 chains afterok run1yr. `W_FORMULATION=wdiagnosed` (default)
-means `w` is computed online via continuity in
-[setup_model.jl:173-220](../src/setup_model.jl#L173-L220) — no precomputed
-`w_diagnosed_monthly.jld2` is read, so `u/v_from_mass_transport_monthly.jld2`
-+ `eta_monthly.jld2` (all present) are the only velocity inputs needed.
+Submission: `PARTITION=1x2 PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (2×H200, 512 GB total). plot1yr = 168280163 chains afterok
+run1yr. `W_FORMULATION=wdiagnosed` (default) means `w` is computed online
+via continuity in [setup_model.jl:173-220](../src/setup_model.jl#L173-L220)
+— no precomputed `w_diagnosed_monthly.jld2` is read, so
+`u/v_from_mass_transport_monthly.jld2` + `eta_monthly.jld2` (all present)
+are the only velocity inputs needed.
 
-> Earlier today this row was incorrectly queued as
-> `diagnose_w-run1yr-plot1yr` (jobs 168276434/168276435/168276437,
-> cancelled mid-flight after a clarification — `diagnose_w` is only
-> needed for `W_FORMULATION=wprescribed` + `PRESCRIBED_W_SOURCE=diagnosed`,
-> a different code path).
+> **Submission history for this row** —
+> 1. `diagnose_w-run1yr-plot1yr` (jobs 168276434/168276435/168276437):
+>    cancelled mid-flight after clarification — `diagnose_w` is only
+>    needed for `W_FORMULATION=wprescribed` + `PRESCRIBED_W_SOURCE=diagnosed`,
+>    a different code path.
+> 2. `run1yr-plot1yr` at `PARTITION=1x1` (jobs 168277463/168277464):
+>    failed with **GPU OOM** — tried to allocate 79.3 GiB on top of
+>    84 GiB already used on a single 140 GiB H200. OM2-01's 3600×2700×75
+>    grid (729M cells) needs more than a single device. The driver default
+>    of `PARTITION=1x1` is wrong for OM2-01 — it should default to at
+>    least 1x2 for this model. Filed as a follow-up.
+> 3. `run1yr-plot1yr` at `PARTITION=1x2` (jobs 168280162/168280163):
+>    current attempt.
 
 Stability sanity check is the headline question — RMS Δ vs M=1 stays
 blank until a baseline lands.
