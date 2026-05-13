@@ -557,10 +557,12 @@ per step). The win is only real if SRK3 stays stable at an `M` that
 makes the per-year step count drop by > 3× — i.e., at `M ≥ 12` on
 OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
 
-| `M` | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
-|---|---|---|---|---|---|
-| 4 | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
-| 4 | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
+| `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
+|---|---|---|---|---|---|---|
+| 4  | 2 h  | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
+| 4  | 2 h  | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
+| 12 | 6 h  | SRK3 | ⏳ queued | — | — | 168283651 |
+| 36 | 18 h | SRK3 | ⏳ queued | — | — | 168283653 |
 
 **SRK3 fixes the OM2-025 M=4 instability**: max age drops from 889 yr →
 1.97 yr — about a **450× reduction**, and now in line with what the
@@ -568,9 +570,10 @@ tracer should produce (max ~2 yr after 1 year of integration from
 zero). Sim wall is 8m 4s (SRK3) vs 6m 42s (AB2) — only ~20% slower
 end-to-end because I/O dominates at this resolution too.
 
-This validates the AB2 → SRK3 hypothesis for OM2-025 as well. Natural
-follow-ups: extend the SRK3 sweep to OM2-025 M ∈ {6, 9, 12, 18, 36}
-to find the SRK3 wall, since AB2 already fails at M=4.
+This validates the AB2 → SRK3 hypothesis for OM2-025 as well.
+Follow-up sweep: M=12 (Δt=6h, matches the OM2-1 SRK3 ceiling) and M=36
+(Δt=18h, the largest valid divisor of N_base=17532 at ≤ 18h) to bracket
+the SRK3 wall on OM2-025.
 
 Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
 on `gpuhopper` (1×H200). Output lands at the separate
