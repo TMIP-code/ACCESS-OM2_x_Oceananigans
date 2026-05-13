@@ -1,20 +1,23 @@
 """
 Test that the production 1D wet-cell scatter/gather (src/mpi_partition_io.jl)
-agrees bitwise with an Oceananigans full-3D-field reference round-trip.
+agrees bitwise with an independently-implemented reference that round-trips
+through a full Nx·Ny·Nz Float64 buffer using only direct MPI primitives.
 
-Production:
+Production (1D, hot path):
     scatter!(age_local, age_global, arch)
     gather! (age_global, age_local, arch)
-    — permutation-based MPI.Scatterv!/Gatherv! on 1D vectors (NK hot path).
+    — permutation-based MPI.Scatterv!/Gatherv! on 1D wet-cell vectors.
 
-Reference (this file, step 2b of the partitioned-NK plan):
-    scatter_oceananigans!(...) / gather_oceananigans!(...)
-    — full Nx·Ny·Nz Float64 field round-trip via
-      set!(::DistributedField, ::Field) and reconstruct_global_field.
+Reference (3D, this file):
+    scatter_manual!(...) / gather_manual!(...)
+    — broadcast/all-reduce a full Nx·Ny·Nz buffer on every rank, then each
+      rank slices its y-stripe and extracts wet cells via its local idx.
+      Uses only MPI.Bcast! and MPI.Allreduce! on contiguous Arrays — no
+      Oceananigans distributed primitives are involved.
 
 Each rank fills the global vector with unique integer labels 1..Nidx_global
 (stored as Float64) so forward agreement and uniqueness can be checked
-bitwise. Then the round-trip must reproduce 1..Nidx_global on rank 0.
+bitwise. The round-trip must reproduce 1..Nidx_global on rank 0.
 
 Env vars:
     PARENT_MODEL, EXPERIMENT, TIME_WINDOW – standard
@@ -26,14 +29,10 @@ using MPI
 using Oceananigans
 using Oceananigans.Architectures: CPU, AbstractArchitecture
 using Oceananigans.DistributedComputations: Distributed, Partition, Sizes
-using Oceananigans.Fields: CenterField, interior
-import Oceananigans.Fields: set!
 using JLD2
 using Printf
 
 include("../src/shared_functions.jl")
-# parse_load_balance_env + compute_lb_y_sizes live here; the include is
-# idempotent if shared_functions already pulled it in.
 include("../src/shared_utils/load_balance.jl")
 
 MPI.Initialized() || MPI.Init()
@@ -41,7 +40,6 @@ COMM = MPI.COMM_WORLD
 rank = MPI.Comm_rank(COMM)
 nranks = MPI.Comm_size(COMM)
 
-# Configuration
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "2"))
 @assert px == 1 "PARTITION_X must be 1 (got $px)"
@@ -65,7 +63,6 @@ end
 rank == 0 && flush(stdout)
 MPI.Barrier(COMM)
 
-# Load both grids
 grid_local = load_tripolar_grid(grid_file, arch)
 grid_global = load_tripolar_grid(grid_file, CPU())
 
@@ -74,27 +71,28 @@ wet3D_local = local_mask.wet3D
 idx_local = local_mask.idx
 Nidx_local = local_mask.Nidx
 
-# Global mask + partition_y_sizes (rank 0 only)
-if rank == 0
-    gm = compute_wet_mask(grid_global)
-    wet3D_global = gm.wet3D
-    idx_global = gm.idx
-    Nidx_global = gm.Nidx
-    Ny_global = size(wet3D_global, 2)
-    partition_y_sizes = collect(Oceananigans.DistributedComputations.local_sizes(Ny_global, arch.partition.y))
-    Ny_sum = sum(partition_y_sizes)
-    Ny_sum != Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
-    @info "[rank 0] Global setup" Nidx_global Ny_global partition_y_sizes
-else
-    wet3D_global = nothing
-    idx_global = nothing
-    Nidx_global = 0
-    partition_y_sizes = Int[]
-end
+# Global wet mask on every rank (small, identical, ~13 MB BitArray for OM2-1).
+# Each rank can derive partition_y_sizes from arch.partition.y locally — no MPI.
+gm_global = compute_wet_mask(grid_global)
+wet3D_global = gm_global.wet3D
+idx_global = gm_global.idx
+Nidx_global = gm_global.Nidx
+Nx_global, Ny_global, Nz_global = size(wet3D_global)
 
-# Pull in production scatter!/gather! and build_global_permutation.
-# After this include, the production methods reference our module-scope
-# globals (perm, send_buf, recv_buf, counts, displs, Nidx_global, rank, COMM).
+partition_y_sizes = collect(Oceananigans.DistributedComputations.local_sizes(Ny_global, arch.partition.y))
+Ny_sum = sum(partition_y_sizes)
+Ny_sum != Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
+
+# Per-rank y-offset into the global grid (0-based first row)
+y_rank = arch.local_index[2]  # 1-based
+y_offset_local = sum(view(partition_y_sizes, 1:(y_rank - 1)))
+
+rank == 0 && @info "Global setup" Nidx_global Nx_global Ny_global Nz_global partition_y_sizes
+@info "[rank $rank] local slab" Nidx_local Ny_local = partition_y_sizes[y_rank] y_offset_local
+
+# Production scatter!/gather! and build_global_permutation. After this include,
+# the production methods reference our module-scope globals (perm, send_buf,
+# recv_buf, counts, displs, Nidx_global, rank, COMM).
 include("../src/mpi_partition_io.jl")
 
 if rank == 0
@@ -112,68 +110,74 @@ end
 
 MPI.Barrier(COMM)
 
-# ─── Oceananigans reference (step 2b) ──────────────────────────────────────
+# ─── Manual MPI-only reference (step 2b) ──────────────────────────────────
 
-function scatter_oceananigans!(
+"""
+Scatter via a global Nx·Ny·Nz Float64 buffer broadcast from rank 0; each
+rank then slices its own y-stripe and extracts wet cells.
+"""
+function scatter_manual!(
         age_local, age_global_, arch::Distributed,
-        grid_global_, grid_local_, idx_global_, idx_local_
+        Nx, Ny, Nz, idx_global_, idx_local_, y_offset, Ny_local
     )
-    f_global = CenterField(grid_global_)
+    buf = zeros(Float64, Nx, Ny, Nz)
     if rank == 0
-        fi = interior(f_global)
-        fill!(fi, 0)
-        fi[idx_global_] .= age_global_
+        buf[idx_global_] .= age_global_
     end
-    f_local = CenterField(grid_local_)
-    set!(f_local, f_global)
-    age_local .= view(interior(f_local), idx_local_)
+    MPI.Bcast!(buf, 0, COMM)
+    slab = view(buf, :, (y_offset + 1):(y_offset + Ny_local), :)
+    age_local .= view(slab, idx_local_)
     return age_local
 end
 
-function gather_oceananigans!(
+"""
+Gather via an Allreduce-summed global buffer: each rank places its 1D
+local age into a zero-padded global buffer at its y-offset; Allreduce-sum
+collects them on every rank; rank 0 extracts wet cells via idx_global.
+"""
+function gather_manual!(
         age_global_, age_local, arch::Distributed,
-        grid_local_, idx_global_, idx_local_
+        Nx, Ny, Nz, idx_global_, idx_local_, y_offset, Ny_local
     )
-    f_local = CenterField(grid_local_)
-    fill!(interior(f_local), 0)
-    interior(f_local)[idx_local_] .= age_local
-    f_global = Oceananigans.DistributedComputations.reconstruct_global_field(f_local)
+    buf = zeros(Float64, Nx, Ny, Nz)
+    slab = view(buf, :, (y_offset + 1):(y_offset + Ny_local), :)
+    slab[idx_local_] .= age_local
+    MPI.Allreduce!(buf, +, COMM)
     if rank == 0
-        age_global_ .= view(interior(f_global), idx_global_)
+        age_global_ .= view(buf, idx_global_)
     end
     return age_global_
 end
 
 # ─── Run the tests ─────────────────────────────────────────────────────────
 
-# Allocate test buffers
 age_local_A = Vector{Float64}(undef, Nidx_local)
 age_local_B = Vector{Float64}(undef, Nidx_local)
 age_global_input = rank == 0 ? Float64.(1:Nidx_global) : Float64[]
 
-# ── Test 1: Forward scatter (production vs reference) ──
+Ny_local_r = partition_y_sizes[y_rank]
+
+# ── Test 1: Forward scatter ──
 rank == 0 && (@info "TEST 1: forward scatter (production)"; flush(stdout))
 fill!(age_local_A, NaN)
 scatter!(age_local_A, age_global_input, arch)
 MPI.Barrier(COMM)
 
-rank == 0 && (@info "TEST 1: forward scatter (Oceananigans reference)"; flush(stdout))
+rank == 0 && (@info "TEST 1: forward scatter (reference)"; flush(stdout))
 fill!(age_local_B, NaN)
-scatter_oceananigans!(age_local_B, age_global_input, arch, grid_global, grid_local, idx_global, idx_local)
+scatter_manual!(
+    age_local_B, age_global_input, arch,
+    Nx_global, Ny_global, Nz_global, idx_global, idx_local, y_offset_local, Ny_local_r
+)
 MPI.Barrier(COMM)
 
 agree_local = age_local_A == age_local_B
-# Uniqueness/range check per rank (catches scatter overlap if both sides have the same bug)
 local_int = Int.(age_local_A)
-in_range_count = count(x -> 1 <= x <= sum(counts), local_int)
-distinct_count = length(Set(local_int))
-in_range_ok = in_range_count == Nidx_local
-distinct_ok = distinct_count == Nidx_local
+in_range_ok = all(1 .<= local_int .<= Nidx_global)
+distinct_ok = length(Set(local_int)) == Nidx_local
 
-# Pretty per-rank report (serialized via barriers)
 for r in 0:(nranks - 1)
     if rank == r
-        Nidx_global_check = rank == 0 ? Nidx_global : 0
         println("[rank $r] TEST 1 forward: agree=$agree_local in_range=$in_range_ok distinct=$distinct_ok (Nidx_local=$Nidx_local)")
         flush(stdout)
     end
@@ -185,37 +189,48 @@ in_range_count_all = MPI.Allreduce(in_range_ok ? 1 : 0, MPI.SUM, COMM)
 distinct_count_all = MPI.Allreduce(distinct_ok ? 1 : 0, MPI.SUM, COMM)
 forward_all_pass = (agree_count == nranks) && (in_range_count_all == nranks) && (distinct_count_all == nranks)
 
-# ── Test 2: Round-trip gather (global → local → global) ──
+# Cross-rank uniqueness: the union of labels across ranks must equal 1..Nidx_global.
+# Reduce per-rank Set sizes by Allreduce-sum; total must equal Nidx_global.
+local_set_size = length(Set(local_int))
+total_distinct = MPI.Allreduce(local_set_size, MPI.SUM, COMM)
+union_ok = total_distinct == Nidx_global  # since each Set is distinct and union must be 1:Nidx_global
+
+# ── Test 2: Round-trip gather ──
 rank == 0 && (@info "TEST 2: gather (production)"; flush(stdout))
 age_global_A = rank == 0 ? Vector{Float64}(undef, Nidx_global) : Float64[]
 fill!(age_global_A, NaN)
 gather!(age_global_A, age_local_A, arch)
 MPI.Barrier(COMM)
 
-rank == 0 && (@info "TEST 2: gather (Oceananigans reference)"; flush(stdout))
+rank == 0 && (@info "TEST 2: gather (reference)"; flush(stdout))
 age_global_B = rank == 0 ? Vector{Float64}(undef, Nidx_global) : Float64[]
 fill!(age_global_B, NaN)
-gather_oceananigans!(age_global_B, age_local_B, arch, grid_local, idx_global, idx_local)
+gather_manual!(
+    age_global_B, age_local_B, arch,
+    Nx_global, Ny_global, Nz_global, idx_global, idx_local, y_offset_local, Ny_local_r
+)
 MPI.Barrier(COMM)
 
-roundtrip_pass = true
+roundtrip_A = false
+roundtrip_B = false
+roundtrip_AB = false
 if rank == 0
     expected = Float64.(1:Nidx_global)
-    A_ok = age_global_A == expected
-    B_ok = age_global_B == expected
-    AB_ok = age_global_A == age_global_B
-    roundtrip_pass = A_ok && B_ok && AB_ok
-    @info "TEST 2 round-trip" production_matches_input = A_ok reference_matches_input = B_ok prod_eq_ref = AB_ok
-    A_ok || @info "  production diffs: $(count(age_global_A .!= expected)) / $Nidx_global cells"
-    B_ok || @info "  reference  diffs: $(count(age_global_B .!= expected)) / $Nidx_global cells"
+    roundtrip_A = age_global_A == expected
+    roundtrip_B = age_global_B == expected
+    roundtrip_AB = age_global_A == age_global_B
+    @info "TEST 2 round-trip" production_matches_input = roundtrip_A reference_matches_input = roundtrip_B prod_eq_ref = roundtrip_AB
+    roundtrip_A || @info "  production diffs: $(count(age_global_A .!= expected)) / $Nidx_global cells"
+    roundtrip_B || @info "  reference  diffs: $(count(age_global_B .!= expected)) / $Nidx_global cells"
 end
-roundtrip_pass = MPI.bcast(roundtrip_pass, 0, COMM)
+roundtrip_pass_int = MPI.bcast(Int(roundtrip_A && roundtrip_B && roundtrip_AB), 0, COMM)
+roundtrip_pass = roundtrip_pass_int == 1
 MPI.Barrier(COMM)
 
 # ── Summary ──
-overall = forward_all_pass && roundtrip_pass
+overall = forward_all_pass && union_ok && roundtrip_pass
 if rank == 0
-    @info "===== scatter/gather test summary =====" forward_all_pass roundtrip_pass overall
+    @info "===== scatter/gather test summary =====" forward_all_pass union_ok roundtrip_pass overall
     overall || error("scatter/gather test FAILED")
     @info "✓ All assertions passed"
 end
