@@ -459,8 +459,11 @@ future work should add a magnitude sanity check (e.g. fail if `max(age)
 > 100 yr` at t=1 yr). Julia-internal sim wall: 6m 42s.
 
 The first plot job (168276372) hit the 30-min `WALLTIME_PLOT` after writing
-10 PNGs + 4 of 10 MP4s; slice-depth animations were dropped. Plot
-resubmitted as 168280065 with `WALLTIME_PLOT=01:00:00`.
+10 PNGs + 4 of 10 MP4s; slice-depth animations were dropped. Initial
+resubmit (168280065) was cancelled because `model_configs/ACCESS-OM2-025.sh:46`
+hardcoded `WALLTIME_PLOT=00:30:00` and ignored the env override; the
+config has since been fixed to use `${WALLTIME_PLOT:-00:30:00}`. Plot
+resubmitted as **168280430** with `WALLTIME_PLOT=01:00:00`.
 
 ### OM2-01 (Δt = 400 s baseline)
 
