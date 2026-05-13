@@ -8,7 +8,9 @@ Included after `setup_model.jl` — assumes its globals are in scope:
 
 using LinearAlgebra: norm
 using Oceananigans.Simulations: reset!
+using Oceananigans.DistributedComputations: Distributed
 using Printf: @sprintf
+using MPI
 
 ################################################################################
 # Trace solver history configuration
@@ -47,8 +49,14 @@ flush(stdout); flush(stderr)
 Nx′, Ny′, Nz′ = size(wet3D)
 flush(stdout); flush(stderr)
 
-age3D_cpu = zeros(Float64, Nx′, Ny′, Nz′)
-age3D_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
+# Aliases — Φ!_body uses the *_local names to make scatter/gather semantics explicit.
+# In serial these alias the only-cell-mask variables; in distributed they are the
+# rank-local versions (the global versions are built later on rank 0).
+idx_local = idx
+age3D_local_cpu = zeros(Float64, Nx′, Ny′, Nz′)
+age3D_local_gpu = on_architecture(arch, zeros(Float64, Nx′, Ny′, Nz′))
+age3D_cpu = age3D_local_cpu
+age3D_gpu = age3D_local_gpu
 
 ################################################################################
 # Cell volumes and volume-weighted norm
@@ -63,6 +71,88 @@ v1D = interior(compute_volume(grid_cpu))[idx]
 # make_vol_norm is defined in shared_functions.jl
 
 vol_norm = make_vol_norm(v1D, year)
+
+################################################################################
+# MPI scatter/gather infrastructure for partitioned NK
+################################################################################
+#
+# Rank 0 drives NonlinearSolve.solve on a global 1D wet-cell vector
+# (`age_global`, length `Nidx_global`). Each Φ! invocation scatters that
+# vector to per-rank slabs via `scatter!`, runs the 1-year simulation
+# collectively across all ranks, and gathers the result back via `gather!`.
+# In serial mode `Nidx_local == Nidx_global` and scatter!/gather! collapse to
+# `copyto!`.
+
+include("mpi_partition_io.jl")
+
+# Local 1D wet-cell vector (every rank)
+Nidx_local = Nidx
+age_local_vec = Vector{Float64}(undef, Nidx_local)
+
+if arch isa Distributed
+    @assert px == 1 "Partitioned NK requires PARTITION_X=1 (got px=$px)"
+    COMM = MPI.COMM_WORLD
+    rank = MPI.Comm_rank(COMM)
+else
+    COMM = nothing
+    rank = 0
+end
+
+if arch isa Distributed && rank == 0
+    @info "[rank 0] Building partitioned-NK setup (global mask, v1D, permutation)"
+    flush(stdout); flush(stderr)
+    grid_cpu_global = load_tripolar_grid(grid_file, CPU())
+    global_mask = compute_wet_mask(grid_cpu_global)
+    wet3D_global = global_mask.wet3D
+    idx_global = global_mask.idx
+    Nidx_global = global_mask.Nidx
+    Nx′_global, Ny′_global, Nz′_global = size(wet3D_global)
+
+    # Replace rank-local v1D with global v1D for the volume-weighted norm.
+    # vol_norm only fires on rank 0 once the rank-0/rank-1 split lands in step 4.
+    v1D = interior(compute_volume(grid_cpu_global))[idx_global]
+    vol_norm = make_vol_norm(v1D, year)
+
+    Ny_global = size(wet3D_global, 2)
+    partition_y_sizes = collect(Oceananigans.DistributedComputations.local_sizes(Ny_global, arch.partition.y))
+    Ny_sum = sum(partition_y_sizes)
+    Ny_sum != Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
+
+    perm, counts, displs = build_global_permutation(wet3D_global, partition_y_sizes)
+    @info "[rank 0] Global setup complete" Nidx_global Ny_global partition_y_sizes counts
+
+    send_buf = Vector{Float64}(undef, Nidx_global)
+    recv_buf = Vector{Float64}(undef, Nidx_global)
+    age_global = Vector{Float64}(undef, Nidx_global)
+
+    # Free big rank-0-only buffers; keep wet3D_global + idx_global for the final save
+    grid_cpu_global = nothing
+    flush(stdout); flush(stderr)
+elseif arch isa Distributed
+    # Rank > 0 stubs (unused; scatter!/gather! distributed paths skip the rank-0 blocks)
+    wet3D_global = nothing
+    idx_global = nothing
+    Nidx_global = 0
+    Nx′_global = 0; Ny′_global = 0; Nz′_global = 0
+    perm = Int[]
+    counts = Int[]
+    displs = Int[]
+    send_buf = Float64[]
+    recv_buf = Float64[]
+    age_global = Float64[]
+else
+    # Serial: global aliases local
+    wet3D_global = wet3D
+    idx_global = idx
+    Nidx_global = Nidx_local
+    Nx′_global, Ny′_global, Nz′_global = (Nx′, Ny′, Nz′)
+    age_global = age_local_vec
+    perm = Int[]
+    counts = Int[]
+    displs = Int[]
+    send_buf = Float64[]
+    recv_buf = Float64[]
+end
 
 ################################################################################
 # Initial age loading (INITIAL_AGE env var)
@@ -143,20 +233,30 @@ g_call_count = Ref(0)
 jvp_call_count = Ref(0)
 
 """
-    Φ!(age_out, age_in; source_rate = 1.0)
+    Φ!_body(age_out, age_in; source_rate = 1.0)
 
-1-year forward map: runs the simulation for 1 year starting from `age_in`
-(wet-cell vector) and writes the final age into `age_out` (wet-cell vector).
+1-year forward map body. `age_in` and `age_out` are global 1D wet-cell
+vectors on rank 0 (length `Nidx_global`); on rank > 0 they are unused
+dummies. Internally, the global vector is scattered to per-rank local 1D
+buffers, packed into a local 3D field, run for 1 year, then the result is
+extracted back to a local 1D buffer and gathered to the global vector on
+rank 0. In serial mode `Nidx_local == Nidx_global` and scatter!/gather!
+collapse to `copyto!`.
 
 Set `source_rate = 0.0` to run the linear forward map (no constant interior
 source), used for exact JVP computation.
+
+The `Φ!` wrapper (defined alongside the rank-0 driver loop) prefixes an
+`MPI.Bcast!` so rank > 0 worker loops join each `Φ!_body` call.
 """
-function Φ!(age_out, age_in; source_rate = 1.0)
+function Φ!_body(age_out, age_in; source_rate = 1.0)
     g_call_count[] += 1
     call_num = g_call_count[]
     t_start = time()
-    @info "Φ! call #$call_num starting (source_rate=$source_rate)" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
-    flush(stdout); flush(stderr)
+    if rank == 0
+        @info "Φ! call #$call_num starting (source_rate=$source_rate)" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
+        flush(stdout); flush(stderr)
+    end
 
     # Toggle the source rate on GPU/CPU before running
     copyto!(source_rate_arr, [source_rate])
@@ -165,16 +265,19 @@ function Φ!(age_out, age_in; source_rate = 1.0)
     reset!(simulation)
     simulation.stop_time = stop_time
 
-    # CPU vec → CPU 3D → GPU 3D
-    fill!(age3D_cpu, 0)
-    age3D_cpu[idx] .= age_in
-    copyto!(age3D_gpu, age3D_cpu)
+    # Scatter rank-0 global vector → per-rank local 1D buffer (no-op in serial)
+    scatter!(age_local_vec, age_in, arch)
+
+    # Local CPU 1D vec → CPU 3D → GPU 3D
+    fill!(age3D_local_cpu, 0)
+    age3D_local_cpu[idx_local] .= age_local_vec
+    copyto!(age3D_local_gpu, age3D_local_cpu)
 
     # Ensure all ranks are synchronised before setting initial condition
-    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    arch isa Distributed && MPI.Barrier(COMM)
 
-    # Set initial condition and attach trace writer
-    set!(model, age = age3D_gpu)
+    # Set initial condition (local field set; no MPI inside)
+    set!(model, age = age3D_local_gpu)
 
     if TRACE_SOLVER_HISTORY
         iter_str = @sprintf("%04d", call_num)
@@ -188,25 +291,46 @@ function Φ!(age_out, age_in; source_rate = 1.0)
         )
     end
 
-    # Run 1-year simulation
+    # Run 1-year simulation (collective across ranks in distributed)
     run!(simulation)
 
-    # Remove trace writer before next iteration
     if TRACE_SOLVER_HISTORY
         delete!(simulation.output_writers, :trace)
     end
 
     # Ensure all ranks finish simulation before extracting results
-    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+    arch isa Distributed && MPI.Barrier(COMM)
 
-    # GPU field → CPU 3D → CPU vec  (copyto! avoids intermediate Array allocation)
-    copyto!(age3D_cpu, interior(model.tracers.age))
-    age_out .= view(age3D_cpu, idx)
+    # GPU field → CPU 3D → CPU local 1D vec
+    copyto!(age3D_local_cpu, interior(model.tracers.age))
+    age_local_vec .= view(age3D_local_cpu, idx_local)
+
+    # Gather per-rank local 1D buffer → rank-0 global vector (no-op in serial)
+    gather!(age_out, age_local_vec, arch)
 
     elapsed = time() - t_start
-    @info "Φ! call #$call_num done ($(round(elapsed; digits = 1))s)"
-    flush(stdout); flush(stderr)
+    if rank == 0
+        @info "Φ! call #$call_num done ($(round(elapsed; digits = 1))s)"
+        flush(stdout); flush(stderr)
+    end
     return age_out
+end
+
+"""
+    Φ!(age_out, age_in; source_rate = 1.0)
+
+Thin wrapper around `Φ!_body` that, in distributed mode, prefixes an
+`MPI.Bcast!` from rank 0 to wake the rank > 0 worker loop (defined in
+`solve_periodic_NK.jl`). Only rank 0 ever calls this wrapper; rank > 0
+calls `Φ!_body` directly from inside the worker loop after receiving the
+matching Bcast.
+"""
+function Φ!(age_out, age_in; source_rate = 1.0)
+    if arch isa Distributed
+        # [continue_flag, source_rate] — rank > 0 worker loop reads this
+        MPI.Bcast!([1.0, source_rate], 0, COMM)
+    end
+    return Φ!_body(age_out, age_in; source_rate = source_rate)
 end
 
 """

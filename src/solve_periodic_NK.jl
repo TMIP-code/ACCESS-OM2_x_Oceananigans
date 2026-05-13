@@ -3,8 +3,9 @@ Solve for the periodic steady-state age using Newton-GMRES.
 
 Finds x such that G(x) = Φ(x) - x = 0, where Φ(x) is the result of running
 the model for 1 year from initial condition x. Uses either a lump-and-spray
-preconditioner (Bardin et al., 2014) or a direct Q⁻¹ - I preconditioner, and
-either matrix-based or finite-difference JVP for GMRES.
+preconditioner (Bardin et al., 2014) or a direct Q⁻¹ - I preconditioner. The
+Jacobian-vector product is computed exactly via the linear forward map
+(`Φ!(·; source_rate = 0)`).
 
 Usage — interactive:
 ```
@@ -18,10 +19,6 @@ include("src/solve_periodic_NK.jl")
 ```
 
 Environment variables (in addition to setup_model.jl):
-  JVP_METHOD     – exact | matrix | finitediff  (default: exact)
-                   exact:      exact JVP via linear tracer linΦ! (1 simulation per JVP)
-                   matrix:     approximate JVP using transport matrix M (fast, sparse matvec)
-                   finitediff: finite-difference JVP via AutoFiniteDiff (slow, extra G! evals)
   LINEAR_SOLVER  – Pardiso | ParU | UMFPACK  (default: Pardiso)
                    Pardiso: MKL Pardiso iterative solver
                    ParU:    ParU parallel sparse LU factorization
@@ -51,14 +48,11 @@ using KernelAbstractions: @kernel, @index
 import Pardiso
 import ParU_jll
 using LinearSolve: ParUFactorization, UMFPACKFactorization
-const nprocs = parse(Int, ENV["PBS_NCPUS"])
+const nprocs = parse(Int, get(ENV, "PARDISO_NPROCS", ENV["PBS_NCPUS"]))
 
 ################################################################################
 # Configuration
 ################################################################################
-
-JVP_METHOD = get(ENV, "JVP_METHOD", "exact")
-(JVP_METHOD ∈ ("exact", "matrix", "finitediff")) || error("JVP_METHOD must be one of: exact, matrix, finitediff (got: $JVP_METHOD)")
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
@@ -75,23 +69,11 @@ TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 matrices_dir = joinpath(outputdir, "TM", model_config)
 
 @info "Newton-GMRES periodic solver configuration"
-@info "- JVP_METHOD  = $JVP_METHOD"
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
 @info "- TM_SOURCE = $TM_SOURCE"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- matrices_dir = $matrices_dir"
-flush(stdout); flush(stderr)
-
-################################################################################
-# Load pre-built transport matrix M from disk
-################################################################################
-
-M_file = joinpath(matrices_dir, TM_SOURCE, "M.jld2")
-@info "Loading transport matrix from $M_file"
-flush(stdout); flush(stderr)
-M = load(M_file, "M")
-@info "Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -112,73 +94,18 @@ mkpath(solver_output_dir)
 
 include("periodic_solver_common.jl")
 
-if arch isa Distributed
-    @warn "NK solver with Distributed arch: Newton solve runs on rank-local wet-cell " *
-        "partitions only — results will be incorrect until global gather/scatter is implemented."
-end
-
-@assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
-
 ################################################################################
-# LUMP, SPRAY, and preconditioner matrix Q_precond
+# Rank-0: M load, preconditioner, JVP setup, Newton solve, save.
+# Rank > 0: worker loop joining each Φ!_body call via MPI.Bcast!.
 ################################################################################
 
-if LUMP_AND_SPRAY
-    @info "Computing LUMP and SPRAY matrices"
-    flush(stdout); flush(stderr)
-    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
-    Mc = LUMP * M * SPRAY
-    @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
-    Q_precond = copy(Mc)
-    Q_precond.nzval .*= stop_time
-else
-    @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no); using full Q = stop_time * M"
-    LUMP = I
-    SPRAY = I
-    Q_precond = copy(M)
-    Q_precond.nzval .*= stop_time
-end
-flush(stdout); flush(stderr)
-
-################################################################################
-# Preconditioner setup
-################################################################################
-
-@info "Processing Q_precond (MATRIX_PROCESSING=$MATRIX_PROCESSING)"
-Q_precond = process_sparse_matrix(Q_precond, MATRIX_PROCESSING)
-
-@info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
-flush(stdout); flush(stderr)
-
-if LINEAR_SOLVER == "Pardiso"
-    error_msg = """
-        Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
-        Use MATRIX_PROCESSING=symdrop or symfill to enforce structural symmetry.
-    """
-    Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
-    matrix_type = Pardiso.REAL_SYM
-    @info "Using Pardiso REAL_SYM (mtype=1)"
-    @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
-elseif LINEAR_SOLVER == "ParU"
-    @info "Using ParUFactorization (parallel sparse LU)"
-    @show linear_solver = ParUFactorization(; reuse_symbolic = true)
-elseif LINEAR_SOLVER == "UMFPACK"
-    @info "Using UMFPACKFactorization (serial sparse LU)"
-    @show linear_solver = UMFPACKFactorization(; reuse_symbolic = true)
-end
-
-# P = S Q⁻¹ L - I  (Bardin et al., 2014)
-# When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
+# TMPreconditioner struct + ldiv! methods live at module scope (extend Base/LA).
+# Only rank 0 instantiates it; rank > 0 never references it.
 if !@isdefined(TMPreconditioner)
     struct TMPreconditioner
         prob
     end
 end
-
-Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
-Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
-Pl = TMPreconditioner(Plprob)
-
 Base.eltype(::TMPreconditioner) = Float64
 function LinearAlgebra.ldiv!(Pl::TMPreconditioner, x::AbstractVector)
     Pl.prob.b = LUMP * x
@@ -194,39 +121,84 @@ function LinearAlgebra.ldiv!(y::AbstractVector, Pl::TMPreconditioner, x::Abstrac
     return y
 end
 
-Pr = I
-precs = Returns((Pl, Pr))
+if rank == 0
+    ############################################################################
+    # Load pre-built transport matrix M from disk
+    ############################################################################
 
-@info "Preconditioner ready"
-flush(stdout); flush(stderr)
-
-################################################################################
-# JVP setup
-################################################################################
-
-if JVP_METHOD == "matrix"
-    @info "Using matrix-based JVP: J ≈ stop_time * M (sparse matvec)"
+    M_file = joinpath(matrices_dir, TM_SOURCE, "M.jld2")
+    @info "[rank 0] Loading transport matrix from $M_file"
+    flush(stdout); flush(stderr)
+    M = load(M_file, "M")
+    @info "[rank 0] Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
     flush(stdout); flush(stderr)
 
-    # M = ∂x/∂t
-    # ϕ(x(t)) = x(t + 1year) = x(t) + ∫ ∂x/∂t dt ≈ x(t) + Δt M x(t)
-    # G(x) = ϕ(x) - x ≈ Δt M x(t)
-    # The true Jacobian of G(x) = Φ(x) - x is J_G = exp(M*T) - I ≈ M*T
-    # (first-order approximation). Using this avoids expensive G! evaluations
-    # during GMRES iterations (sparse matvec vs full year simulation).
-    MT = copy(M)
-    MT.nzval .*= stop_time
+    @assert Nidx_global == size(M, 1) "Mismatch: global wet cells ($Nidx_global) != matrix rows ($(size(M, 1)))"
 
-    function approximate_jvp!(Jv, v, u, p)
-        return mul!(Jv, MT, v)
+    ############################################################################
+    # LUMP, SPRAY, and preconditioner matrix Q_precond
+    ############################################################################
+
+    if LUMP_AND_SPRAY
+        @info "Computing LUMP and SPRAY matrices"
+        flush(stdout); flush(stderr)
+        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D_global, v1D, M; di = 2, dj = 2, dk = 1)
+        Mc = LUMP * M * SPRAY
+        @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
+        Q_precond = copy(Mc)
+        Q_precond.nzval .*= stop_time
+    else
+        @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no); using full Q = stop_time * M"
+        LUMP = I
+        SPRAY = I
+        Q_precond = copy(M)
+        Q_precond.nzval .*= stop_time
+    end
+    flush(stdout); flush(stderr)
+
+    ############################################################################
+    # Preconditioner setup
+    ############################################################################
+
+    @info "Processing Q_precond (MATRIX_PROCESSING=$MATRIX_PROCESSING)"
+    Q_precond = process_sparse_matrix(Q_precond, MATRIX_PROCESSING)
+
+    @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
+    flush(stdout); flush(stderr)
+
+    if LINEAR_SOLVER == "Pardiso"
+        error_msg = """
+            Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
+            Use MATRIX_PROCESSING=symdrop or symfill to enforce structural symmetry.
+        """
+        Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
+        matrix_type = Pardiso.REAL_SYM
+        @info "Using Pardiso REAL_SYM (mtype=1)"
+        @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
+    elseif LINEAR_SOLVER == "ParU"
+        @info "Using ParUFactorization (parallel sparse LU)"
+        @show linear_solver = ParUFactorization(; reuse_symbolic = true)
+    elseif LINEAR_SOLVER == "UMFPACK"
+        @info "Using UMFPACKFactorization (serial sparse LU)"
+        @show linear_solver = UMFPACKFactorization(; reuse_symbolic = true)
     end
 
-    f! = NonlinearFunction(G!; jvp = approximate_jvp!)
-    newton_solver = NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
-    )
+    # P = S Q⁻¹ L - I  (Bardin et al., 2014)
+    # When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
+    Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
+    Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
+    Pl = TMPreconditioner(Plprob)
 
-elseif JVP_METHOD == "exact"
+    Pr = I
+    precs = Returns((Pl, Pr))
+
+    @info "Preconditioner ready"
+    flush(stdout); flush(stderr)
+
+    ############################################################################
+    # JVP setup (exact JVP via linear tracer)
+    ############################################################################
+
     @info "Using exact JVP via linear tracer (linΦ!)"
     flush(stdout); flush(stderr)
 
@@ -235,63 +207,67 @@ elseif JVP_METHOD == "exact"
         linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
     )
 
-elseif JVP_METHOD == "finitediff"
-    @info "Using finite-difference JVP (AutoFiniteDiff)"
-    @warn "This requires extra G! evaluations per GMRES iteration — much slower than matrix JVP"
+    ############################################################################
+    # Nonlinear solve: Newton-GMRES
+    ############################################################################
+
+    @info "Solving nonlinear problem with Newton-GMRES"
+    @info "- JVP method: exact (linear tracer)"
+    @info "- Preconditioner: $(LUMP_AND_SPRAY ? "lump-and-spray (Bardin et al., 2014)" : "direct Q⁻¹ - I")"
+    @info "- Linear solver: $LINEAR_SOLVER"
+    @info "- abstol = 0.001 years (volume-weighted RMS norm)"
     flush(stdout); flush(stderr)
 
-    f! = NonlinearFunction(G!)
-    newton_solver = NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
-        jvp_autodiff = AutoFiniteDiff(),
+    age_init_vec = load_initial_age(idx_global, Nidx_global, outputdir, model_config; year)
+    nonlinearprob = NonlinearProblem(f!, age_init_vec)
+
+    @time sol = solve(
+        nonlinearprob,
+        newton_solver;
+        # internalnorm = vol_norm,
+        show_trace = Val(true),
+        reltol = Inf,
+        abstol = 0.0001year,
+        verbose = true,
     )
+
+    @info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[] total_jvp_calls = jvp_call_count[]
+    flush(stdout); flush(stderr)
+
+    # Signal workers (rank > 0) that the solve is done
+    arch isa Distributed && MPI.Bcast!(zeros(2), 0, COMM)
+
+    ############################################################################
+    # Save result
+    ############################################################################
+
+    @info "Saving steady-state age"
+    flush(stdout); flush(stderr)
+
+    age_steady_3D = zeros(Float64, Nx′_global, Ny′_global, Nz′_global)
+    age_steady_3D[idx_global] .= sol.u
+
+    vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
+    @info "Volume-weighted mean periodic steady age: $vol_mean years"
+
+    steady_dir = solver_output_dir
+    steady_file = joinpath(steady_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
+    jldsave(steady_file; age = age_steady_3D, wet3D = wet3D_global, idx = idx_global)
+    @info "Saved steady-state age to $steady_file"
+    flush(stdout); flush(stderr)
+
+    @info "solve_periodic_NK.jl complete"
+    flush(stdout); flush(stderr)
+else
+    # Rank > 0 worker loop: block on Bcast between Φ! invocations; when rank 0
+    # signals end-of-solve (continue_flag = 0), exit.
+    ctrl = zeros(2)        # [continue_flag, source_rate]
+    dummy = Float64[]
+    while true
+        MPI.Bcast!(ctrl, 0, COMM)
+        ctrl[1] == 0.0 && break
+        Φ!_body(dummy, dummy; source_rate = ctrl[2])
+    end
+    @info "[rank $rank] worker loop exited; solve done"
+    flush(stdout); flush(stderr)
 end
-
-################################################################################
-# Nonlinear solve: Newton-GMRES
-################################################################################
-
-@info "Solving nonlinear problem with Newton-GMRES"
-@info "- JVP method: $JVP_METHOD"
-@info "- Preconditioner: $(LUMP_AND_SPRAY ? "lump-and-spray (Bardin et al., 2014)" : "direct Q⁻¹ - I")"
-@info "- Linear solver: $LINEAR_SOLVER"
-@info "- abstol = 0.001 years (volume-weighted RMS norm)"
-flush(stdout); flush(stderr)
-
-age_init_vec = load_initial_age(idx, Nidx, outputdir, model_config; year)
-nonlinearprob = NonlinearProblem(f!, age_init_vec)
-
-@time sol = solve(
-    nonlinearprob,
-    newton_solver;
-    # internalnorm = vol_norm,
-    show_trace = Val(true),
-    reltol = Inf,
-    abstol = 0.0001year,
-    verbose = true,
-)
-
-@info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[] total_jvp_calls = jvp_call_count[]
-flush(stdout); flush(stderr)
-
-################################################################################
-# Save result
-################################################################################
-
-@info "Saving steady-state age"
-flush(stdout); flush(stderr)
-
-age_steady_3D = zeros(Float64, Nx′, Ny′, Nz′)
-age_steady_3D[idx] .= sol.u
-
-vol_mean = sum(sol.u .* v1D) / sum(v1D) / year
-@info "Volume-weighted mean periodic steady age: $vol_mean years"
-
-steady_dir = solver_output_dir
-steady_file = joinpath(steady_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
-jldsave(steady_file; age = age_steady_3D, wet3D, idx)
-@info "Saved steady-state age to $steady_file"
-flush(stdout); flush(stderr)
-
-@info "solve_periodic_NK.jl complete"
-flush(stdout); flush(stderr)

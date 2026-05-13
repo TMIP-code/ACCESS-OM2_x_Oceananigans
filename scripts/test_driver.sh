@@ -27,6 +27,12 @@
 #   tmsym       — check structural symmetry of M, LUMP/SPRAY, and Mc (CPU, express)
 #   partbalance — per-rank load diagnostic for the LB partition methods
 #                 (reads grid.jld2 only; one model per submission via PARENT_MODEL)
+#   pardisompi  — Pardiso-under-MPI test (step 1 of partitioned-NK plan):
+#                 baseline serial + mpiexec sweep over PARDISO_NPROCS_SWEEP
+#                 on gpuvolta (2× V100, 24 CPUs)
+#   scattergather — partitioned 1D scatter/gather test (step 2c of partitioned-NK
+#                   plan): production permutation Scatterv/Gatherv vs Oceananigans
+#                   3D-field round-trip reference (CPU only, 2 ranks, express)
 
 set -euo pipefail
 
@@ -51,7 +57,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance pardisompi scattergather"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -185,6 +191,17 @@ has_step tmsym && \
 has_step partbalance && \
     submit_job partbalance 00:30:00 scripts/tests/run_partition_balance.sh \
         --queue express --ngpus 0 --ncpus 1 --mem 47GB > /dev/null
+
+# pardisompi: Pardiso-under-MPI sweep (step 1 of partitioned-NK plan)
+has_step pardisompi && \
+    submit_job pardisompi 01:00:00 scripts/tests/run_pardiso_mpi_test.sh \
+        --vars "TM_SOURCE=${TM_SOURCE},PARDISO_NPROCS_SWEEP=${PARDISO_NPROCS_SWEEP:-12,24}" > /dev/null
+
+# scattergather: 1D scatter/gather agreement test (step 2c of partitioned-NK plan)
+has_step scattergather && \
+    submit_job scattergather 00:30:00 scripts/tests/run_partition_scatter_gather_test.sh \
+        --queue express --ngpus 0 --ncpus "$RANKS" --mem 47GB \
+        --vars "PARTITION=${PARTITION},LOAD_BALANCE=${LOAD_BALANCE}" > /dev/null
 
 # --- Summary ---
 print_summary "${PARENT_MODEL}"
