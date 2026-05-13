@@ -455,7 +455,7 @@ will be left blank until a baseline run lands.
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
 | 3   | 20 min    | 26298 | 2b | — | — | — | — | — | — |
-| 6   | 40 min    | 13149 | 2a | ⏳ queued | — | — | — | — | 168276435 |
+| 6   | 40 min    | 13149 | 2a | ⏳ queued | — | — | — | — | 168277463 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -463,14 +463,22 @@ will be left blank until a baseline run lands.
 | 81  | 9 h       | 974   | 2b | — | — | — | — | — | — |
 | 162 | 18 h      | 487   | 2b | — | — | — | — | — | — |
 
-Submission: `PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=diagnose_w-run1yr-plot1yr bash scripts/driver.sh`
-on `gpuhopper` (1×H200, 256 GB), driver default `PARTITION=1x1`. The
-`diagnose_w` step (job 168276434, afterok → run1yr) is a prerequisite —
-OM2-01 monthly preprocessing has the `u/v/w_from_mass_transport_monthly.jld2`
-+ `eta_monthly.jld2` files but not `w_diagnosed_monthly.jld2` that
-`setup_model.jl` line 178 expects when `W_FORMULATION=wdiagnosed`. plot1yr =
-168276437 chains afterok run1yr. Stability sanity check is the headline
-question — RMS Δ vs M=1 stays blank until a baseline lands.
+Submission: `PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (1×H200, 256 GB), driver default `PARTITION=1x1`. plot1yr =
+168277464 chains afterok run1yr. `W_FORMULATION=wdiagnosed` (default)
+means `w` is computed online via continuity in
+[setup_model.jl:173-220](../src/setup_model.jl#L173-L220) — no precomputed
+`w_diagnosed_monthly.jld2` is read, so `u/v_from_mass_transport_monthly.jld2`
++ `eta_monthly.jld2` (all present) are the only velocity inputs needed.
+
+> Earlier today this row was incorrectly queued as
+> `diagnose_w-run1yr-plot1yr` (jobs 168276434/168276435/168276437,
+> cancelled mid-flight after a clarification — `diagnose_w` is only
+> needed for `W_FORMULATION=wprescribed` + `PRESCRIBED_W_SOURCE=diagnosed`,
+> a different code path).
+
+Stability sanity check is the headline question — RMS Δ vs M=1 stays
+blank until a baseline lands.
 
 ### Conclusions
 
