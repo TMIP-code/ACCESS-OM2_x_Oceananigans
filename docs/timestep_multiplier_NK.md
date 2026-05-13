@@ -238,28 +238,58 @@ total NK time use the PBS-side `resources_used.walltime`
 
 ### OM2-1 NK at `M ∈ {1, 2, 4}`
 
-Stage labels match the stability sweep — only the M values that passed
-Stage 2a there are run here. All three runs used
-`LINEAR_SOLVER=Pardiso`, `LUMP_AND_SPRAY=yes` (filename tag `Pardiso_LSprec`),
+Stage labels match the stability sweep. The first three rows (`M ∈
+{1, 2, 4}`) are the converged runs; the last two (`M ∈ {6, 12}`) are
+follow-up sweep extrema, **both of which failed** — see the per-`M`
+notes below. All runs used `LINEAR_SOLVER=Pardiso`,
+`LUMP_AND_SPRAY=yes` (filename tag `Pardiso_LSprec`),
 `JVP_METHOD=exact` (linear-tracer JVP), `INITIAL_AGE=TMage` (warm start
 from the per-`M` TMsolve), and `TM_SOURCE=const`.
 
 Wall times below are PBS `resources_used.walltime`. **Φ! calls** is the
 total count of `Φ! call # … starting` markers in the NK log — the same
 convention PROGRESS.md uses (`(N Φ)`). **Final ‖G‖_∞** is the
-NewtonRaphson trace's `Final` line (inf-norm of `G = Φ(x) − x` in years);
-all three runs returned `retcode = Success`.
+NewtonRaphson trace's `Final` line (inf-norm of `G = Φ(x) − x` in years).
+**Status**: ✓ = `retcode = Success`, ✗ = solver did not converge.
 
 | `M` | Δt | Status | TMbuild | TMsolve_c | NK wall | run1yrNK | plotNK | End-to-end | Φ! calls | Final ‖G‖_∞ (yr) | Job IDs (TMbuild / TMsolve_c / NK / run1yrNK / plotNK) |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | 1.5 h | ✓ | 08:25 | 03:29 | **51:59** | 06:16 | 08:32 | 78:41 | 62 | 4.06e+02 | 168091718 / 168091719 / 168091721 / 168091722 / 168091723 |
 | 2 | 3 h   | ✓ | 06:38 | 02:52 | **30:12** | 05:43 | 07:54 | 53:19 | 62 | 4.18e+02 | 168093148 / 168093149 / 168093151 / 168093152 / 168093153 |
 | 4 | 6 h   | ✓ | 06:16 | 03:15 | **19:52** | 05:51 | 09:16 | 44:30 | 62 | 1.10e+03 | 168093162 / 168093163 / 168093165 / 168093166 / 168093167 |
+| 6 | 9 h   | ✗ (crash) | — | — | **18:30** | — | — | — | 16 (≤) | n/a | — / — / 168257380 / — / — |
+| 12 | 18 h | ✗ (stalled) | — | — | **24:16** | — | — | — | 104 | 5.15e+78 | — / — / 168251280 / — / — |
 
-**NK speedup**: M=2 → 1.72× vs M=1; M=4 → 2.61× vs M=1.
+**NK speedup** (between converged runs): M=2 → 1.72× vs M=1; M=4 → 2.61× vs M=1.
 **Per-Φ-call speedup** (NK inner Julia time `2714 / 1465 / 894` s): 1.85× and 3.04× — close to the ideal `M×` at M=2, sub-linear at M=4 because fixed per-call overhead (init + first-step warmup + I/O) doesn't shrink with `M`.
 **End-to-end speedup** (TMbuild → plotNK): M=4 / M=1 = 1.77× — diluted because TMbuild / TMsolve / run1yrNK / plotNK are roughly constant across `M`.
-**Φ! calls flat at 62 across all `M`** — the JVP spectrum of the surface relaxation operator is not sensitive enough to Δt to change the Krylov inner-iteration count in this regime. Headline question 1 (does Newton count grow with `M`?) answers cleanly: **no**.
+**Φ! calls flat at 62 across `M ∈ {1, 2, 4}`** — the JVP spectrum of the surface relaxation operator is not sensitive enough to Δt to change the Krylov inner-iteration count in this regime. Headline question 1 (does Newton count grow with `M`?) answers cleanly: **no, within the convergent regime.**
+
+##### Failure modes
+
+- **M=6 (Δt = 9 h)** — numerical instability in the forward map. Inside
+  Φ! call #16, the simulation went unstable at `sim iter 574` of the
+  1-year integration: `max(age)` jumped from 8.8 yr to **1.0×10⁴ yr** at
+  `(i, j, k) = (331, 160, 39)` (surface tropical Pacific, one cell off
+  from the converged `M ∈ {1, 2, 4}` max-`|Δ|` location `(224, 40, 50)`
+  — same surface-relaxation regime). The next step crashed CUDA
+  (`copyto!` failure inside `progress_message`, Julia exit code 271).
+  This is the 1-year forward-map's stability wall, *not* an NK-solver
+  failure — the linear stability sweep should be re-run with `M=6` on
+  the *NK warm start* to confirm the start state is the trigger.
+- **M=12 (Δt = 18 h)** — solver stalled. `total_G_calls = 104`,
+  `retcode = ReturnCode.Stalled`. Final inf-norm of `G` blew up to
+  `5.15×10⁷⁸` yr and the saved `age_steady_3D` field has volume-mean
+  **−9.1×10⁻¹¹ yr** (effectively zero — the warm start was destroyed
+  by the first GMRES Newton step). At this Δt the forward map is
+  evidently far from the linearisation around the TMage warm start, so
+  the Krylov direction is dominated by spurious modes.
+
+Verdict for the OM2-1 base Δt: the practical convergent regime is
+`M ∈ {1, 2, 4}`. **M=4 (6 h)** is the highest stable multiplier; the
+9 h / 18 h forward maps are unstable / under-conditioned for this warm
+start. Future work: try `INITIAL_AGE=0` cold start, `LUMP_AND_SPRAY=no`,
+or a tighter GMRES inner tolerance to push the wall higher.
 
 #### Periodic age comparison (after run1yrNK + post-hoc)
 
