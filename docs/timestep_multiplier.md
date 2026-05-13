@@ -465,6 +465,34 @@ hardcoded `WALLTIME_PLOT=00:30:00` and ignored the env override; the
 config has since been fixed to use `${WALLTIME_PLOT:-00:30:00}`. Plot
 resubmitted as **168280430** with `WALLTIME_PLOT=01:00:00`.
 
+#### Timestepper comparison at M=4
+
+The AB2 result above is unstable at `M=4` on OM2-025. Hypothesis: a
+larger-stability-region timestepper might let us push Δt further before
+the explosion. AB2 is 2nd-order multistep with a small absolute-stability
+region tangent to the imaginary axis — barely stable for the
+mildly-diffusive offline-tracer operator at large Δt. Split Runge-Kutta
+methods (`SRK{N}`, N=2..5) have richer stability regions; SRK3 is the
+natural first try.
+
+Trade-off: each SRK3 step does ~3× the per-step work of AB2 (3 stages
+per step). The win is only real if SRK3 stays stable at an `M` that
+makes the per-year step count drop by > 3× — i.e., at `M ≥ 12` on
+OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
+
+| `M` | TIMESTEPPER | Status | Wall time (s) | Max age (yr) | Job ID |
+|---|---|---|---|---|---|
+| 4 | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
+| 4 | SRK3 | ⏳ queued | — | — | 168280609 |
+
+Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (1×H200). Output lands at the separate
+`{MC}_DTx4` path where `{MC} = cgridtransports_wdiagnosed_centered2_SRK3`,
+so it doesn't collide with the AB2 result above. Headline question: does
+SRK3 *complete cleanly* (max age ≲ 5 yr at t=1yr) at `M=4`? If yes, try
+`M=6 / M=12` to find the SRK3 wall and see if the speedup overcomes the
+3× per-step cost.
+
 ### OM2-01 (Δt = 400 s baseline)
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
