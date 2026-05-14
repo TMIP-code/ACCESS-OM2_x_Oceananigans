@@ -198,6 +198,21 @@ are misleading because `w ≈ 10⁻⁶ m/s` is six orders of magnitude smaller t
 `u, v ≈ 10⁻² m/s`, so an "FP-roundoff" `w` diff is actually a meaningful
 fraction of typical `w`.
 
+**Important precision caveat — saved files are Float32, not Float64.**
+JLD2Writer's default `array_type` is `Array{Float32}`, so saved `age`, `u`,
+`v`, `w`, `eta` are stored as Float32. (We tried forcing Float64 earlier;
+it triggered a `ReadOnlyMemoryError` in the implicit vertical diffusion
+solver — see Hypothesis 1 above.) `sigma_cc`, `eta_n`, `dt_sigma` use the
+manual `save_zstar_fields` callback and are saved as Float64.
+
+This means our diff comparisons resolve at Float32 precision:
+`ULP(Float32) ≈ 1.2e-7` relative, vs `ULP(Float64) ≈ 2.2e-16` relative.
+A "0" or "5e-12" diff in a Float32-stored field means the underlying
+Float64 state agrees only to about Float32 ULP at the local magnitude —
+not to Float64 ULP. Real differences below ~1e-7 relative are invisible
+to us. So "u/v/eta = 0 at iter 1 seam" really means "agree to ~Float32 ULP",
+not "agree to Float64 ULP".
+
 Field magnitudes used as the denominator (from serial run, wet cells, NaN-filtered):
 
 | field | mean\|serial\| | max\|serial\| |
@@ -255,11 +270,14 @@ relative diffs, denominator is per-field magnitude from the table above:
 | `w` k=50 | 1.36e-13 / 2.01e-6 ≈ **6.8e-8** | 2.17e-10 / 8.68e-4 ≈ **2.5e-7** |
 | `eta` 2D | 0 | 0 |
 
-`u` and `v` are bit-identical at the surface. `w` differs only at machine-epsilon
-levels — consistent with diagnostic-`w` recomputation order rather than transport-
-field divergence. So the divergence does NOT show up in the velocity fields
-themselves — it shows up in the **tracer** that the (bit-equal) velocities
-advect through a (suspectedly mis-swapped) halo.
+`u`, `v`, `eta` agree to within Float32 ULP (i.e. saved-Float32 bit-identical).
+`w` relative diff is ~3e-7 — small but **not Float64 machine epsilon** (which
+would be ~10⁻¹⁶); it's roughly Float32 precision. Through the Float32 save
+lens we cannot tell whether the underlying Float64 `w` truly differs at this
+level or whether it's just the rounding asymmetry of casting two slightly
+different Float64 values to Float32. Either way the velocity-field disagreement
+is so much smaller than the tracer disagreement (`age` reldiff up to O(1) at
+the seam) that it can't drive the seam bug by itself.
 
 **zstar fields (`sigma_cc`, `dt_sigma`, `eta_n`) — halo-fill artefact in the
 diagnostic save, NOT a real model divergence.** The compare script reports
@@ -543,11 +561,12 @@ a code path where the kernel compilation / launch behaviour diverges between
 the two backends — almost certainly a kernel that has an indexing or boundary
 condition that gets specialised differently on the GPU.
 
-**Cross-check — does serial GPU match serial CPU at j=164?** Yes, bit-identically
-at every iter (0, 1, 2, 10): max\|diff\| = 0 over row j=164. (Full-array there's
-some FP-roundoff scatter — 10 cells at iter 2 differing by ~1e-3 s, 64 cells at
-iter 10 by ~4e-3 s, all far from the seam.) So serial GPU has the right value at
-the row where the *distributed* GPU goes wrong.
+**Cross-check — does serial GPU match serial CPU at j=164?** Yes, Float32-save
+bit-identically at every iter (0, 1, 2, 10): max\|diff\| = 0 over row j=164.
+(Full-array there are some scattered diffs at Float32-ULP level — 10 cells at
+iter 2 differing by ~1e-3 s = 1 ULP at age=5e+3, 64 cells at iter 10 by ~4e-3
+s = 1 ULP at age=5e+4, all far from the seam.) So serial GPU has the right
+value at the row where the *distributed* GPU goes wrong.
 
 **The 2×2 table — bug only fires under GPU AND distributed:**
 
@@ -566,17 +585,23 @@ narrower search target than "the entire GPU code path".
 across the seam.** Per-field probe at GPU rank 1, parent y=13..16 (south
 halo + first three interior rows), iter 1:
 
+All max\|diff\| in Float32-storage units (the saved files are Float32 except
+zstar fields which are Float64). To convert to relative diff, divide by the
+typical magnitude — for `w` with `|w| ~ 10⁻⁶ m/s` the diffs below are ~10⁻⁶
+relative, i.e. about one Float32 ULP at typical `w`.
+
 | field | j=13 (halo) | **j=14 (1st interior)** | j=15 | j=16 |
 |---|---|---|---|---|
 | `u` | 0 | 0 | 0 | 0 |
 | `v` | 0 | 0 | 0 | 0 |
-| `w` | 5e-12 (FP) | 2.5e-12 (FP) | 2.7e-12 (FP) | 9.9e-12 (FP) |
+| `w` | 5e-12 (≈ Float32 ULP) | 2.5e-12 | 2.7e-12 | 9.9e-12 |
 | `eta`, `sigma_cc`, `dt_sigma`, `eta_n` | 0 | 0 | 0 | 0 |
-| **`age`** | 0 | **4.44e+3 s** (2896 cells) | 0 | 0 |
+| **`age`** | 0 | **4.44e+3 s** (2896 cells, reldiff up to ~0.8) | 0 | 0 |
 
-So dynamics is bit-identical, zstar is bit-identical, halos are bit-identical;
+So dynamics agrees to ≈ Float32 ULP (with `w` showing one-ULP-level scatter),
+zstar agrees exactly (Float64-saved, bit-identical), halos are correct;
 **only the tracer (`age`) has a wrong tendency, and only at the first interior
-row of rank 1**. That isolates the bug to the tracer-only code path: tracer
+row of rank 1, with `O(1)` relative diff there**. That isolates the bug to the tracer-only code path: tracer
 advection or the `age` forcing term, GPU + distributed only, at exactly the
 row that abuts the rank-rank seam. Candidates worth looking at:
 
@@ -670,10 +695,14 @@ seam — already visible after 10 steps in `diag` (mean relative age error
 
 - The bug is **GPU-specific**, not in the partitioner, MPI logic, or generic
   CPU advection.
-- Velocity fields are bit-identical between serial and distributed (`u`, `v`,
-  `eta` exactly; `w` relative diff ~10⁻⁷, i.e. ~10⁻¹³ m/s on a typical
-  `w ~ 10⁻⁶ m/s` — FP roundoff). The dynamics is fine; the **tracer halo
-  exchange / fold-fill** on the GPU path is the load-bearing suspect.
+- Velocity fields are bit-identical to within Float32 save precision
+  (`u`, `v`, `eta` agree exactly in their Float32 storage; `w` relative diff
+  ~10⁻⁷, comparable to one Float32 ULP at typical `|w| ~ 10⁻⁶ m/s`). Note
+  these are Float32-stored, so the resolution of comparison is Float32 ε
+  (~10⁻⁷), not Float64 ε (~10⁻¹⁶). The dynamics-side disagreement is therefore
+  *at most* one Float32 ULP relative — much smaller than the tracer-side
+  seam diff which reaches O(1) relative, so velocity can't be driving the
+  bug regardless.
 - PR #5427 was initially hypothesised but is ruled out (Hypothesis 1 above —
   the `Adapt.adapt_structure` swap is a no-op because individual buffer types
   adapt to `nothing`).
