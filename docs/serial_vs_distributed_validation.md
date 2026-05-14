@@ -543,6 +543,25 @@ a code path where the kernel compilation / launch behaviour diverges between
 the two backends — almost certainly a kernel that has an indexing or boundary
 condition that gets specialised differently on the GPU.
 
+**Cross-check — does serial GPU match serial CPU at j=164?** Yes, bit-identically
+at every iter (0, 1, 2, 10): max\|diff\| = 0 over row j=164. (Full-array there's
+some FP-roundoff scatter — 10 cells at iter 2 differing by ~1e-3 s, 64 cells at
+iter 10 by ~4e-3 s, all far from the seam.) So serial GPU has the right value at
+the row where the *distributed* GPU goes wrong.
+
+**The 2×2 table — bug only fires under GPU AND distributed:**
+
+| | serial (1×1) | distributed (1×2) |
+|---|---|---|
+| **CPU** | reference (correct) | bit-identical to serial CPU |
+| **GPU** | bit-identical to serial CPU at j=164 | **broken at j=14 (rank 1) / j=164 (global)** |
+
+That intersection — GPU backend + MPI partition — is exactly the necessary
+condition. The suspect kernel must (a) only run in distributed mode (otherwise
+serial GPU would already differ from serial CPU) and (b) have a GPU-specific
+specialisation (otherwise distributed CPU would also break). That's a much
+narrower search target than "the entire GPU code path".
+
    **Still a save-side fix to do**: `save_zstar_fields` should either trim
    the outermost halo or call `fill_halo_regions!` immediately before
    saving, so the compare script doesn't report this as a divergence.
