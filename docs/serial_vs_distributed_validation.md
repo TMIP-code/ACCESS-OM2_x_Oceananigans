@@ -754,8 +754,60 @@ end
 
 Applied on the fork branch `briochemc/Oceananigans.jl @
 bp/offline_ACCESS-OM2_v3` (sha 1abdd81). Manifest bumped in commit
-53984c8. Resubmitting the GPU 1×1 + 1×2 diag (+ 1-year) to confirm
-the seam bug disappears.
+53984c8.
+
+### Result: `sync_device!` patch does NOT fix the bug
+
+Resubmitted GPU diag 1×1 + 1×2 + compare under the patched Oceananigans
+(jobs 168334961, 168334969, 168335321; all exit 0), and the 1-year pair
+(168335285, 168335286, 168335322; all exit 0).
+
+| metric | pre-patch | **post-patch** |
+|---|---|---|
+| GPU diag max\|diff\| | 1.52e-03 yr | **1.52e-03 yr (unchanged)** |
+| GPU diag iter-1 j=14 affected cells | 2896 | **2911 (≈unchanged)** |
+| GPU diag iter-1 j=14 max age | 8718 s (1.61 × Δt) | **8572 s (1.59 × Δt, ≈unchanged)** |
+| GPU 1year max\|diff\| | 0.38 yr | 0.25 yr (within run-to-run scatter) |
+| u/v surface | bit-identical to serial | **bit-identical** |
+| Bell-shape spreading from j=14 | same | **same** |
+
+So **outcome 3 is also ruled out**: forcing `sync_device!` after the
+recv-unpack inside `synchronize_communication!` does not change the
+iter-1 j=14 over-aging. The bug is therefore **deterministic** (same
+numbers to 3 sig figs across runs) and not a recv→next-kernel race —
+at least not one that this `sync_device!` would catch.
+
+All three candidate mechanisms ruled out:
+
+1. ~~Uninitialized tracer halo on GPU~~ — probe shows age halo = 0 on
+   both arches at iter 0.
+2. ~~FTS loader drops bytes on GPU~~ — probe shows v_ts halo on GPU
+   rank 1 bit-identical to CPU.
+3. ~~recv_from_buffers! → next-kernel race~~ — `sync_device!` patch
+   has zero effect on the seam diff.
+
+This is now a hard mystery. The kernel must read **nonzero `c`** in
+its stencil at iter 1 (otherwise tendency = source = 1.0 → age = Δt =
+5400 s, but we observe 8572 s with max\|diff\| > 0 in 2911 cells at row
+j=14). But the probe shows every cell that ought to be in the stencil
+(rank 1's south halo, j=14 itself, j=15+) is exactly 0 on GPU at iter
+0. Either:
+
+- The kernel reads from a different array than `model.tracers.age` —
+  e.g. a scratch / staging buffer that holds different bytes.
+- The kernel applies a wrong stencil indexing under
+  `LeftConnectedRightCenterFolded` y-topology that reaches outside the
+  probed window (e.g. reads from j ∉ [1..16] for the south face of j=14).
+- The bug is in the **time stepper's `tendencies` storage**, not in
+  the tracer field itself: the AB2 stepper's `G⁻` array may carry GPU
+  garbage at iter 0 that gets blended in.
+
+Productive next probes:
+- Inspect `model.timestepper.G⁻.age` parent on rank 1 at iter 0.
+- Disable the implicit vertical diffusion (or replace AB2 with a
+  fresh-bootstrap stepper like SRK2) and see if the bug pattern changes.
+- Toggle off `forcing.age` (the source term that drives `dage/dt = 1`)
+  and see if the bug magnitude scales.
 
 ## Interim conclusion
 
