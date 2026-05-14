@@ -2,8 +2,11 @@
 Run a 10-step diagnostic simulation, saving age at every time step.
 
 Used to isolate where serial vs distributed results diverge.
-Output files: `age_diag_part1.jld2` ... `age_diag_part11.jld2`
-  (part 1 = t=0, part 2 = t=Δt, ..., part 11 = t=10Δt)
+
+Output files use a `_cpu` suffix on CPU runs to avoid colliding with GPU runs
+in the same `outputdir`; GPU is the production default and has no suffix:
+- GPU:   `age_diag.jld2`, `age_diag_rank0.jld2`, ...
+- CPU:   `age_diag_cpu.jld2`, `age_diag_cpu_rank0.jld2`, ...
 
 Usage:
 ```
@@ -22,8 +25,9 @@ include("../src/setup_simulation.jl")
 # Output writers (initial condition is set by setup_simulation.jl)
 ################################################################################
 
+duration_tag = device isa CPU ? "diag_cpu" : "diag"
 age_output_dir = setup_age_simulation(
-    simulation, outputdir, model_config, "diag";
+    simulation, outputdir, model_config, duration_tag;
     output_interval = Δt,
     progress_interval = Δt,
 )
