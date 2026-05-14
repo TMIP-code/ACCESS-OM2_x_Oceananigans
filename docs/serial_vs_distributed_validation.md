@@ -438,6 +438,40 @@ how diagnostic fields are saved, and don't reflect the model's runtime state.
    (correctly-filled) zstar values on both arches. Some other GPU-only
    mechanism is producing the seam tracer diff.
 
+   Extending the same probe to *every* saved field at GPU rank 0's
+   seam-adjacent halo row (parent y=164) gives:
+
+   | field | rank 0 vs serial @ y=164, GPU diag iter 10 |
+   |---|---|
+   | `u` | 0 at every probed `i` |
+   | `v` | 0 at every probed `i` |
+   | `w` | 0 at every probed `i` |
+   | `eta` | 0 at every probed `i` |
+   | `sigma_cc` | 0 at every probed `i` |
+   | `eta_n` | 0 at every probed `i` |
+   | `dt_sigma` | 0 at every probed `i` |
+   | `age` | 0 at most `i`; −0.92 s at `i=106` (rel ~2e-5) |
+
+   Every state field the seam-flux kernel reads from the halo is
+   bit-identical to serial. The tiny `age` diff in rank 0's seam halo at
+   `i=106` is not a halo-fill bug — that halo is filled by MPI exchange
+   from rank 1's interior, and rank 1's interior at global y=151 already
+   carries the GPU seam drift. So rank 0's halo is just faithfully copying
+   rank 1's already-drifted age.
+
+   **What this tells us about the GPU bug:** halo exchange is working;
+   all velocity/zstar/eta state at the seam-adjacent halo is correct on
+   GPU. The seam flux kernel is therefore being fed correct inputs yet
+   produces a different tendency than serial. The next places to look:
+   - the **tracer tendency / advection kernel** for a GPU-specific
+     code path near the rank boundary
+   - **static / cached inputs** the kernel reads: grid metrics
+     (`Δxᶜᶜᵃ`, `Δyᶜᶜᵃ`, `Azᶜᶜᵃ`), `bottom_height`, the wet/active mask,
+     `MutableVerticalDiscretization` z-coordinate state
+   - **reduction / sum operations** across the seam that might compile
+     differently on GPU (e.g., free-surface barotropic substep aggregating
+     across ranks).
+
    **Still a save-side fix to do**: `save_zstar_fields` should either trim
    the outermost halo or call `fill_halo_regions!` immediately before
    saving, so the compare script doesn't report this as a divergence.
@@ -489,20 +523,22 @@ seam — already visible after 10 steps in `diag` (mean relative age error
 
 Next steps:
 
-1. **Find the GPU-only tracer-halo mechanism** (the real bug).
-   - Run `weno5` instead of `centered2` and rerun GPU diag — if the seam grows
-     a lot more, PR #5564 (conditional-advection treatment of fold topologies)
-     is contributing too.
-   - Bisect / inspect GPU-only kernel branches in `fill_halo_regions!` for
-     tracers in `src/DistributedComputations/` between the v3 base and the
-     last known-good Oceananigans version.
-   - Try a 2×1 (x-partition) instead of 1×2 (y-partition) to confirm the seam
-     follows the partition direction (eliminates "it's always near the
-     equator" interpretations).
-   - The bell-shaped seam profile (peak at global y=151, decaying ~5 cells
-     either side after 10 timesteps) tells us this is an advection-stencil
-     consequence of incorrect halo values at the seam — look at what fills
-     the tracer's south halo on rank 1 / north halo on rank 0.
+1. **Find the GPU-only mechanism** (the real bug).
+   - The seam-adjacent halo probe rules out halo-fill bugs for **all** state
+     fields (u, v, w, eta, zstar). Halo exchange is working. So look at
+     what the tracer kernel reads *besides* halos: grid metrics, bottom
+     topography, wet mask, the `MutableVerticalDiscretization` state.
+   - Compare `bottom_height`, `Δxᶜᶜᵃ`, `Δyᶜᶜᵃ`, `Azᶜᶜᵃ` between serial
+     and distributed grid files near the seam — these are loaded once
+     at start of simulation, so any partition-construction bug would
+     leave a permanent diff that affects every timestep.
+   - Look at GPU-only kernel branches in the tracer tendency / advection
+     code paths under Distributed.
+   - Run `weno5` instead of `centered2` and rerun GPU diag — if the seam
+     grows a lot more, PR #5564 (conditional-advection treatment of fold
+     topologies) is contributing too.
+   - Try a 2×1 (x-partition) instead of 1×2 (y-partition) to confirm the
+     seam follows the partition direction.
 
 2. **Fix the v fold-row sign artefact in the save path.** Per the docstring
    in `compare_runs_across_architectures.jl` lines 599–606: `JLD2Writer`

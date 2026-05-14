@@ -44,7 +44,16 @@ println("is parent y=164 for rank 0 / parent y=13 for rank 1 — these are the s
 println("the model reads for flux computation.")
 println()
 
-for (field, initval) in (("sigma_cc", 1.0), ("eta_n", 0.0), ("dt_sigma", 0.0))
+for (field, initval) in (
+        ("sigma_cc", 1.0),
+        ("eta_n", 0.0),
+        ("dt_sigma", 0.0),
+        ("u", 0.0),
+        ("v", 0.0),
+        ("w", 0.0),
+        ("eta", 0.0),
+        ("age", 0.0),
+    )
     sp = joinpath(MC, "$(field)_$(DT).jld2")
     isfile(sp) || (println("$field: missing $sp"); continue)
     it, gd_raw = load_iter(sp, field, :last)
