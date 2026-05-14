@@ -562,6 +562,34 @@ serial GPU would already differ from serial CPU) and (b) have a GPU-specific
 specialisation (otherwise distributed CPU would also break). That's a much
 narrower search target than "the entire GPU code path".
 
+**Only `age` is affected — all other fields are bit-identical at iter 1
+across the seam.** Per-field probe at GPU rank 1, parent y=13..16 (south
+halo + first three interior rows), iter 1:
+
+| field | j=13 (halo) | **j=14 (1st interior)** | j=15 | j=16 |
+|---|---|---|---|---|
+| `u` | 0 | 0 | 0 | 0 |
+| `v` | 0 | 0 | 0 | 0 |
+| `w` | 5e-12 (FP) | 2.5e-12 (FP) | 2.7e-12 (FP) | 9.9e-12 (FP) |
+| `eta`, `sigma_cc`, `dt_sigma`, `eta_n` | 0 | 0 | 0 | 0 |
+| **`age`** | 0 | **4.44e+3 s** (2896 cells) | 0 | 0 |
+
+So dynamics is bit-identical, zstar is bit-identical, halos are bit-identical;
+**only the tracer (`age`) has a wrong tendency, and only at the first interior
+row of rank 1**. That isolates the bug to the tracer-only code path: tracer
+advection or the `age` forcing term, GPU + distributed only, at exactly the
+row that abuts the rank-rank seam. Candidates worth looking at:
+
+1. **The age forcing** (`dage/dt = 1 [s/s]`) — if its kernel range is wrong
+   under Distributed on GPU, the forcing could fire twice or with wrong stride
+   at the rank's south boundary row.
+2. **Tracer advection at the rank's south boundary** — the kernel for the
+   south face of row j=14 reads (j=13 halo, j=14 interior). Both inputs are
+   bit-identical to serial, so any wrongness has to come from the kernel's
+   arithmetic / indexing at that specific row.
+3. **Implicit vertical diffusion solver** applied to the tracer at this row,
+   if it uses any across-y operation.
+
    **Still a save-side fix to do**: `save_zstar_fields` should either trim
    the outermost halo or call `fill_halo_regions!` immediately before
    saving, so the compare script doesn't report this as a divergence.
