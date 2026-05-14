@@ -529,6 +529,20 @@ The CPU run does not exhibit this (rank 1's j=14 is bit-identical to serial),
 so whichever of those candidates is responsible, the issue lives in a
 GPU-only or KernelAbstractions-launch branch of the code path.
 
+**CPU vs GPU side-by-side, iter 1, rank 1's first interior row** (j=14, the row where the GPU bug fires):
+
+| metric | CPU | GPU | serial |
+|---|---|---|---|
+| `j=14` max age | **5400 s (= Δt, physical)** | **8718 s (> Δt, non-physical)** | 5400 s |
+| rows with diff vs serial | **none** (bit-identical) | j=14 only (2896 cells) | — |
+| max\|diff\| at j=14 | 0 | 4.44e+3 s | — |
+
+Same `centered2 + AB2` model, same partition, same MPI launch, same input grid.
+The only difference is `arch = CPU()` vs `arch = GPU()`. So the bug must be in
+a code path where the kernel compilation / launch behaviour diverges between
+the two backends — almost certainly a kernel that has an indexing or boundary
+condition that gets specialised differently on the GPU.
+
    **Still a save-side fix to do**: `save_zstar_fields` should either trim
    the outermost halo or call `fill_halo_regions!` immediately before
    saving, so the compare script doesn't report this as a divergence.
