@@ -13,6 +13,7 @@ cd "$repo_root"
 source scripts/env_defaults.sh
 
 # 1. Update (and download) packages on the login node but WITHOUT precompilation
+# env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.add(url="https://github.com/briochemc/Oceananigans.jl.git", rev="bp/offline_ACCESS-OM2_v3"); Pkg.update()'
 env JULIA_PKG_PRECOMPILE_AUTO=0 julia --project -e 'using Pkg; Pkg.update()'
 
 # 2. Submit the CPU precompile job
