@@ -25,7 +25,16 @@ function load_iter(path, field, which)
         haskey(f, "timeseries/$field") || return nothing
         iters = sort(parse.(Int, filter(k -> k != "serialized", collect(keys(f["timeseries/$field"])))))
         isempty(iters) && return nothing
-        it = which == :first ? (length(iters) >= 2 ? iters[2] : iters[1]) : iters[end]
+        it = if which isa Int
+            which in iters || error("iter $which not in saved iters $iters for $field")
+            which
+        elseif which == :iter0
+            iters[1]
+        elseif which == :first
+            length(iters) >= 2 ? iters[2] : iters[1]
+        else
+            iters[end]
+        end
         return (it, f["timeseries/$field/$it"])
     end
 end
@@ -56,13 +65,14 @@ for (field, initval) in (
     )
     sp = joinpath(MC, "$(field)_$(DT).jld2")
     isfile(sp) || (println("$field: missing $sp"); continue)
-    it, gd_raw = load_iter(sp, field, :last)
+    iter_choice = haskey(ENV, "ITER") ? parse(Int, ENV["ITER"]) : :last
+    it, gd_raw = load_iter(sp, field, iter_choice)
     gd = as_array(gd_raw)
 
     for r in 0:1
         rp = joinpath(MC, "1x2", "$(field)_$(DT)_rank$(r).jld2")
         isfile(rp) || continue
-        rd_raw = load_iter(rp, field, :last)
+        rd_raw = load_iter(rp, field, iter_choice)
         rd = as_array(rd_raw[2])
 
         # Probe several halo rows: nearest to interior, middle, outermost.

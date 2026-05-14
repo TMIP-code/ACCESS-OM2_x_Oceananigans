@@ -472,6 +472,63 @@ how diagnostic fields are saved, and don't reflect the model's runtime state.
      differently on GPU (e.g., free-surface barotropic substep aggregating
      across ranks).
 
+### Iter timeline at the seam: bug fires on iter 1, confined to one row
+
+Probed `age` on GPU diag at iter 0, 1, 2, ... 10 over the full 3D rank 1
+array (every i, j, k), to pinpoint when and where the bug first fires:
+
+| iter | rows with \|diff\| > 1e-10 in rank 1 | peak row | peak max\|diff\| |
+|---|---|---|---|
+| 0  | (none — initial state identical) | — | 0 |
+| 1  | **j=14 only** (2896 cells) | j=14 | **4.44e+3 s** |
+| 2  | j=13, **14**, 15 (5832 cells)      | j=14 | 9.36e+3 s |
+| 3  | j=12–16 plus a few outliers        | j=14 | grows |
+| 10 | j=10–20 (bell-shape, 19000 cells)  | j=14 | 4.81e+4 s |
+
+**The bug fires on the very first step (Euler bootstrap), and at iter 1 is
+confined to exactly one row: rank 1's first interior row** (parent y=14 =
+global Center-y = 151, immediately above the seam). Every other row is
+bit-identical to serial at iter 1. From iter 2 onward, centered2 advection
+propagates the iter-1 contamination one cell per step, producing the
+bell-shape seen at iter 10.
+
+Inspecting the actual values in rank 1 at iter 1 (rank-1-parent-y = 1..20):
+
+| j (rank 1 parent) | global j | rank 1 [min, max] | serial [min, max] | max\|diff\| |
+|---|---|---|---|---|
+| 1–13 (south halo) | 151–163 | [0, **5400**] | [0, 5400] | **0** ← halos correct |
+| **14 (first interior)** | 164 | [0, **8718**] | [0, 5400] | **4443** ← bug here |
+| 15–20 (deeper interior) | 165–170 | [0, 5400] | [0, 5400] | 0 |
+
+**The key tell**: rank 1's max age at j=14 is **8718 s — exceeding `Δt = 5400 s`**.
+Age physically cannot grow by more than `Δt` in one timestep (it's accumulating
+"time since immersion"). The model is over-aging some cells in row j=14
+(and under-aging others — the cell I sampled, i=62 k=50, has 747 s vs serial 5190 s).
+
+Halo rows 1–13 are bit-identical to serial → MPI exchange is delivering
+correct values. Rows 15+ are bit-identical → the tendency kernel is fine
+everywhere except at j=14. So **the bug is specifically in how the tendency
+is computed at rank 1's first interior row**, not in the halo exchange and
+not in the broader kernel.
+
+Strong candidates for "what's different at exactly j=14":
+
+- **Cell metrics** (`Δyᶜᶜᵃ`, `Δxᶜᶜᵃ`, `Azᶜᶜᵃ`) — constructed at partition
+  time, possibly with off-by-one or wrong sign for the row at the rank's
+  southern boundary.
+- **Vertical-coordinate cell-face heights** computed from `sigma_cc` /
+  `eta` at j=14's south face — the south face of row j=14 reads `sigma_cc`
+  from both j=14 itself and j=13 (the halo). If that interpolation goes
+  wrong only at this exact row, we'd see exactly this signal.
+- **Tracer-tendency kernel** branching on a "near-southern-boundary" flag
+  that's set wrong for rank 1's first interior row (e.g., a kernel that
+  applies a one-sided derivative at the *true* domain south boundary
+  mistakenly applying it at the rank's south boundary).
+
+The CPU run does not exhibit this (rank 1's j=14 is bit-identical to serial),
+so whichever of those candidates is responsible, the issue lives in a
+GPU-only or KernelAbstractions-launch branch of the code path.
+
    **Still a save-side fix to do**: `save_zstar_fields` should either trim
    the outermost halo or call `fill_halo_regions!` immediately before
    saving, so the compare script doesn't report this as a divergence.
