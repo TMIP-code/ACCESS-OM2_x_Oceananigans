@@ -621,6 +621,45 @@ row that abuts the rank-rank seam. Candidates worth looking at:
 | compare_gpudiag (afterok …680:681) | 168312951 |
 | compare_1year (afterok …682:683) | 168312952 |
 
+### Experiment: `ACTIVE_CELLS_MAP=no`
+
+Hypothesis: the GPU+distributed bug is due to a kernel-range issue when the
+immersed-boundary grid uses `active_cells_map=true`. Disabling it forces
+kernels to iterate over the full rectangular index range.
+
+Added an `ACTIVE_CELLS_MAP` env flag (default `yes`) that, when set to `no`:
+- builds the IBG with `active_cells_map = false` ([src/shared_utils/grid.jl](../src/shared_utils/grid.jl))
+- tags all output files with `_noACM` so they don't clobber the default-ACM runs
+- helpers `active_cells_map_enabled()` / `noACM_suffix()` in [src/shared_utils/config.jl](../src/shared_utils/config.jl)
+
+Resubmitted GPU diag 1×1 + 1×2 + compare with `ACTIVE_CELLS_MAP=no`:
+
+| iter | ACM cells at j=14 / max\|diff\| (s) | noACM cells at j=14 / max\|diff\| (s) |
+|---|---|---|
+| 1  | 2896 / 4.44e+3 | **185 / 4.22e+3** |
+| 2  | 5832 / 9.36e+3 | 1050 / 8.91e+3 |
+| 5  | (not probed)  | 1448 / 2.25e+4 |
+| 10 | 4884 / 4.81e+4 | 2310 / 4.81e+4 |
+
+| iter 1 max age at j=14 | rank 1 value | serial value |
+|---|---|---|
+| ACM (default) | 8718 s (= 1.61 × Δt, **non-physical**) | 5400 s |
+| **noACM** | **5495 s (= 1.02 × Δt, just barely over)** | 5400 s |
+
+**Conclusion: `ACTIVE_CELLS_MAP=no` does NOT fix the bug** — by iter 10 both runs
+converge to the same `max|diff|` = 4.81e+4 s, same bell-shape, same peak row.
+But ACM **amplifies the iter-1 incidence by ~15×** (2896 vs 185 affected cells)
+and pushes the worst-cell tendency from 2% over Δt to 61% over Δt.
+
+So the active-cells map isn't the root cause, but it's interacting with the
+underlying bug to make it much worse in the first step. The kernel that
+produces a wrong tendency at rank 1's first interior row is doing it under
+both code paths; the ACM path just visits more such cells / produces a more
+divergent value per cell.
+
+Jobs: GPU diag 1×1 noACM = 168325862, GPU diag 1×2 noACM = 168325863, compare
+= 168330518. All exit 0.
+
 ## Interim conclusion
 
 The 1×2 GPU runs produce a clear, localised tracer mismatch at the rank-rank
