@@ -400,7 +400,47 @@ how diagnostic fields are saved, and don't reflect the model's runtime state.
    `save_zstar_fields` callback writes `parent(field.data)` without filling
    halos in distributed mode, so the rank's halo cells hold placeholder
    values (`sigma=1`, `eta=0`) while serial has BC-filled values there.
-   **Fix in the diagnostic save**, not the model.
+
+   Visual confirmation: `sigma_cc` rank-0 vs rank-1 diffs at iter 10 of CPU
+   diag — a thin row at j≈175 (rank 0's north halo = seam) and j≈1 (rank 1's
+   south halo = seam), interior completely zero. Mirror images of each other:
+
+   | rank 0 (south halo at top) | rank 1 (south halo at bottom) |
+   |---|---|
+   | ![sigma_cc rank 0 CPU](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag_cpu/sigma_cc_rank0_diff_diag_cpu_iter10.png) | ![sigma_cc rank 1 CPU](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag_cpu/sigma_cc_rank1_diff_diag_cpu_iter10.png) |
+
+   Same for `eta_n` at iter 10:
+
+   | rank 0 | rank 1 |
+   |---|---|
+   | ![eta_n rank 0 CPU](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag_cpu/eta_n_rank0_diff_diag_cpu_iter10.png) | ![eta_n rank 1 CPU](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag_cpu/eta_n_rank1_diff_diag_cpu_iter10.png) |
+
+   **Resolved — only the outermost halo row is stale; the seam-adjacent
+   halo is correctly filled on both CPU and GPU.** Probed directly via
+   [scripts/debugging/zstar_halo_values.jl](../scripts/debugging/zstar_halo_values.jl)
+   at three depths in rank 0's north halo (Hy=13, so 13 halo cells total):
+
+   | rank 0 parent y | depth into halo | `eta_n` values | matches serial? |
+   |---|---|---|---|
+   | 164 | 1 (seam-adjacent) | real eta values (0.44, 0.59, 0.25, …) | **YES** (diff=0) |
+   | 170 | 7 (middle)        | real eta values (0.44, 0.61, 0.20, …) | **YES** (diff=0) |
+   | 176 | 13 (outermost)    | 0.0 in every cell (placeholder)        | NO (diff ≈ -0.5) |
+
+   So `fill_halo_regions!` *is* running on the zstar fields in distributed
+   mode, but only fills 12 of the 13 halo rows — leaves the outermost cell
+   at its init value. The compare-script diff is entirely at that single
+   outermost row. Same fill pattern on CPU and GPU.
+
+   **Implication for the seam tracer bug:** centered2 advection reads only
+   `Hy=1` cell beyond the interior; that cell is correctly filled on both
+   CPU and GPU. So **stale zstar halos do NOT explain the GPU seam tracer
+   drift** — the cell-face heights at the seam are computed from the same
+   (correctly-filled) zstar values on both arches. Some other GPU-only
+   mechanism is producing the seam tracer diff.
+
+   **Still a save-side fix to do**: `save_zstar_fields` should either trim
+   the outermost halo or call `fill_halo_regions!` immediately before
+   saving, so the compare script doesn't report this as a divergence.
 
 2. **v at the tripolar fold row (rank 1, global Face-y = Ny+1 = parent y=314).**
    Rank 1's saved `v` at the fold row has the **opposite sign** to serial
