@@ -13,6 +13,11 @@
 #   diag      — 10-step diagnostic run saving every step (serial or distributed GPU)
 #   diagcpu   — 10-step diagnostic on CPU (distributed MPI, no GPUs, express queue)
 #   diagcpuserial — 10-step diagnostic on CPU (serial, no GPUs, express queue)
+#   probetend  — dump tracer-tendency G + inputs at iter 0..PROBE_NSTEPS on
+#                distributed GPU (set PARTITION=1x2; PROBE_NSTEPS defaults to 1)
+#   probetendcpu — same probe on distributed CPU (express queue)
+#   compareprobe — diff CPU vs GPU probe dumps, find first divergent field
+#                  (login-node Julia, no PBS — just runs scripts/debugging/compare_tendency_probes.jl)
 #   compare   — compare serial vs distributed outputs (CPU, express queue)
 #               set DURATION_TAG=diag or DURATION_TAG=1year (default: diag)
 #   plotpartitions — plot per-rank partitioned FTS files (from preprocessed_inputs/.../partitions/{P}/)
@@ -57,7 +62,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance pardisompi scattergather"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial probetend probetendcpu compareprobe compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance pardisompi scattergather"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -109,6 +114,20 @@ has_step diagcpu && \
 has_step diagcpuserial && \
     submit_job diagcpuserial 00:30:00 scripts/tests/run_diagnostic_steps.sh \
         --queue express --ngpus 0 --ncpus 1 --mem 47GB > /dev/null
+
+has_step probetend && \
+    submit_job probetend "$WALLTIME" scripts/tests/run_probe_tracer_tendency.sh \
+        --gpu --vars "GPU_QUEUE=${GPU_QUEUE},PARTITION=${PARTITION},PROBE_NSTEPS=${PROBE_NSTEPS:-1}" > /dev/null
+
+has_step probetendcpu && \
+    submit_job probetendcpu 00:30:00 scripts/tests/run_probe_tracer_tendency.sh \
+        --queue express --ngpus 0 --ncpus "$RANKS" --mem 47GB \
+        --vars "PARTITION=${PARTITION},PROBE_NSTEPS=${PROBE_NSTEPS:-1}" > /dev/null
+
+if has_step compareprobe; then
+    PROBE_NSTEPS="${PROBE_NSTEPS:-1}" PARTITION="${PARTITION}" \
+        julia $JULIA_BOUNDS_FLAG --project scripts/debugging/compare_tendency_probes.jl
+fi
 
 if has_step compare; then
     DURATION_TAG=${DURATION_TAG:-diag}
