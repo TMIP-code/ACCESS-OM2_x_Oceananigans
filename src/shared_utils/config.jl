@@ -36,6 +36,23 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     return mc
 end
 
+"""
+Return `true` if the immersed-boundary grid should be built with
+`active_cells_map = true` (the default), `false` otherwise.
+
+Controlled by the `ACTIVE_CELLS_MAP` env var (yes | no, default yes). Setting
+it to "no" also causes `noACM_suffix()` to return "_noACM" so output files
+don't collide with the default runs.
+"""
+function active_cells_map_enabled()
+    return lowercase(get(ENV, "ACTIVE_CELLS_MAP", "yes")) != "no"
+end
+
+"""Suffix to tack onto duration tags / file names when ACTIVE_CELLS_MAP=no."""
+function noACM_suffix()
+    return active_cells_map_enabled() ? "" : "_noACM"
+end
+
 """Return the sorted list of positive divisors of `n`."""
 function _divisors(n::Integer)
     n ≥ 1 || error("_divisors requires n ≥ 1 (got: $n)")

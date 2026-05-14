@@ -55,6 +55,7 @@ GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
 GRID_HZ=${GRID_HZ:-7}                                   # grid halo in z (2 sufficient; larger is harmless)
 LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1
+ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}               # yes | no — when "no", build IBG with active_cells_map=false and tag output files with _noACM
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
 case "$LOAD_BALANCE" in
     no)             LB_TAG="" ;;
@@ -89,7 +90,7 @@ fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
-export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE
+export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -120,6 +121,7 @@ echo "MONTHLY_KAPPAV=$MONTHLY_KAPPAV"
 echo "TBLOCKING=$TBLOCKING"
 echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"
 echo "LOAD_BALANCE=$LOAD_BALANCE"
+echo "ACTIVE_CELLS_MAP=$ACTIVE_CELLS_MAP"
 echo "MODEL_CONFIG=$MODEL_CONFIG"
 
 # Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes

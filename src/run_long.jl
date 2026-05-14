@@ -107,7 +107,7 @@ function save_checkpoint(sim)
     age_3D = zeros(Float64, Nx′, Ny′, Nz′)
     age_3D[idx] .= age_wet
 
-    checkpoint_file = joinpath(age_output_dir, "age_long_$(NYEARS)years_checkpoint_$(elapsed_years).jld2")
+    checkpoint_file = joinpath(age_output_dir, "age_long_$(NYEARS)years$(noACM_suffix())_checkpoint_$(elapsed_years).jld2")
     jldsave(checkpoint_file; age = age_3D, wet3D, idx, elapsed_years)
     @info "Saved checkpoint to $checkpoint_file"
     return flush(stdout); flush(stderr)

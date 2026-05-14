@@ -3,10 +3,12 @@ Run a 10-step diagnostic simulation, saving age at every time step.
 
 Used to isolate where serial vs distributed results diverge.
 
-Output files use a `_cpu` suffix on CPU runs to avoid colliding with GPU runs
-in the same `outputdir`; GPU is the production default and has no suffix:
-- GPU:   `age_diag.jld2`, `age_diag_rank0.jld2`, ...
-- CPU:   `age_diag_cpu.jld2`, `age_diag_cpu_rank0.jld2`, ...
+Output files use a `_cpu` suffix on CPU runs (GPU is the production default,
+no suffix) and a `_noACM` suffix when `ACTIVE_CELLS_MAP=no` is set:
+- GPU, default ACM:   `age_diag.jld2`, `age_diag_rank0.jld2`, ...
+- CPU, default ACM:   `age_diag_cpu.jld2`, `age_diag_cpu_rank0.jld2`, ...
+- GPU, no ACM:        `age_diag_noACM.jld2`, ...
+- CPU, no ACM:        `age_diag_cpu_noACM.jld2`, ...
 
 Usage:
 ```
@@ -25,7 +27,7 @@ include("../src/setup_simulation.jl")
 # Output writers (initial condition is set by setup_simulation.jl)
 ################################################################################
 
-duration_tag = device isa CPU ? "diag_cpu" : "diag"
+duration_tag = (device isa CPU ? "diag_cpu" : "diag") * noACM_suffix()
 age_output_dir = setup_age_simulation(
     simulation, outputdir, model_config, duration_tag;
     output_interval = Δt,

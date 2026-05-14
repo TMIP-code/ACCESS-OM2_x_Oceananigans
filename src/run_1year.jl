@@ -31,7 +31,7 @@ include("setup_simulation.jl")
 ################################################################################
 
 age_output_dir = setup_age_simulation(
-    simulation, outputdir, model_config, "1year";
+    simulation, outputdir, model_config, "1year" * noACM_suffix();
     output_interval = prescribed_Δt,
     progress_interval = prescribed_Δt,
 )

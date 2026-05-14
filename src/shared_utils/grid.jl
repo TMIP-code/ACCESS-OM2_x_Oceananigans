@@ -396,10 +396,11 @@ end
 function load_tripolar_grid(grid_file, arch = CPU(), FT = Float64)
     gd = load(grid_file) # gd for grid Dict
     underlying_grid = build_underlying_grid(gd, arch, FT)
+    acm = active_cells_map_enabled()
     return ImmersedBoundaryGrid(
         underlying_grid,
         PartialCellBottom(gd["bottom"]);
-        active_cells_map = true,
+        active_cells_map = acm,
         active_z_columns = true,
     )
 end
