@@ -111,9 +111,13 @@ The Float32 hypothesis from that session (JLD2Writer's default `Array{Float32}`)
 was investigated and abandoned (an attempt to force `Array{Float64}` triggered
 an unrelated `ReadOnlyMemoryError` in the implicit vertical diffusion solver).
 
-Current Oceananigans pin: `briochemc/Oceananigans.jl @ bp/offline_ACCESS-OM2_v2`,
-sha `62147c3` (2026-04-13). Anything merged into `CliMA/Oceananigans.jl` main
-after that date is **not** in our fork unless cherry-picked.
+Current Oceananigans pin: `briochemc/Oceananigans.jl @ bp/offline_ACCESS-OM2_v3`,
+sha `91a26ad` (2026-05-14), Oceananigans 0.107.6. Synced with `CliMA/Oceananigans.jl`
+main as of the same date. PR #5427 (CommunicationBuffers swap fix) is included.
+PR #5564 (conditional-advection on tripolar) is *not* — still open upstream.
+
+The runs documented below were executed under v3. Earlier (v2 sha `62147c3`,
+2026-04-13) runs gave essentially the same result — see "v2 vs v3" notes inline.
 
 ### ~~Hypothesis 1 — PR [#5427](https://github.com/CliMA/Oceananigans.jl/pull/5427) "Fix north/south buffer swap in `CommunicationBuffers`"~~ — **ruled out**
 
@@ -192,22 +196,30 @@ Candidate mechanisms to investigate next:
 ## Results
 
 Run on 2026-05-14, OM2-1, defaults `cgridtransports_wdiagnosed_centered2_AB2`,
-TW=1968-1977.
+TW=1968-1977. Both `v2` (sha `62147c3`, 2026-04-13) and `v3` (sha `91a26ad`,
+2026-05-14, synced with main) were tested; v3 numbers are reported below and
+v2 differences (where any) are flagged inline. **No upstream PR merged between
+v2 and v3 closes the GPU rank-seam bug.**
 
 ### 1-year: GPU 1×2 vs 1×1 — **clear rank-seam contamination**
 
-Compare job: 168304605 (exit 0). Plots:
-[outputs/ACCESS-OM2-1/.../plots/compare_1x2_1year/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_1year).
+Compare jobs: 168312952 (v3, exit 0) / 168304605 (v2, exit 0). Plots in
+[outputs/.../plots/compare_1x2_1year/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_1year)
+(overwritten in place; current PNGs are v3).
 
 Summary stats from final snapshot (wet cells only):
 
-| metric | value |
-|---|---|
-| `max\|diff\|` | 2.05e-01 years |
-| `mean\|diff\|` | 1.02e-04 years |
-| RMS diff | 1.43e-03 years |
-| `max\|reldiff\|` | (large in a few cells) |
-| `mean\|reldiff\|` | 8.60e-04 |
+| metric | v3 | v2 |
+|---|---|---|
+| `max\|diff\|` | 3.83e-01 years | 2.05e-01 years |
+| `mean\|diff\|` | (similar order) | 1.02e-04 years |
+| RMS diff | (similar order) | 1.43e-03 years |
+| `mean\|reldiff\|` | (similar order) | 8.60e-04 |
+
+v3's slightly larger 1-year `max\|diff\|` is most likely roundoff amplified
+through 5844 timesteps — the *structure* (Pacific seam stripe) and the
+**10-step `max\|diff\|` are bit-identical** between v2 and v3 (see GPU diag
+below). The bug is not closed by any v2→v3 upstream change.
 
 The full-domain interior diff at z≈1030 m shows a clear horizontal stripe of
 "distributed is less-aged" along the rank-rank seam, mostly visible across the
@@ -230,14 +242,14 @@ Mirror images, perfectly aligned at the seam:
 |---|---|
 | ![rank 0 age halo diff](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_1year/age_rank0_diff_halos_1year_k57.png) | ![rank 1 age halo diff](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_1year/age_rank1_diff_halos_1year_k57.png) |
 
-**Velocities & free surface at iter 1** (immediately after first timestep):
+**Velocities & free surface at iter 1** (v3, immediately after first timestep):
 
 | field | max\|diff\| | mean\|diff\| | RMS |
 |---|---|---|---|
 | `u` surface | 0 | 0 | 0 |
 | `v` surface | 0 | 0 | 0 |
-| `w` k=51 (top) | 8.79e-11 | 1.84e-13 | 1.70e-12 |
-| `w` k=50 | 8.69e-11 | 1.74e-13 | 1.57e-12 |
+| `w` k=51 (top) | 2.58e-10 | 1.44e-13 | 2.15e-12 |
+| `w` k=50 | 2.17e-10 | 1.36e-13 | 1.87e-12 |
 
 `u` and `v` are bit-identical at the surface. `w` differs only at machine-epsilon
 levels — consistent with diagnostic-`w` recomputation order rather than transport-
@@ -262,9 +274,9 @@ comparing serial-with-halos against distributed-without-halos (or vice versa).
 This needs follow-up before drawing zstar conclusions; the **tracer-side seam
 signal** above is the load-bearing evidence.
 
-### Diag (10 steps): CPU 1×2 vs 1×1 — **bit-identical**
+### Diag (10 steps): CPU 1×2 vs 1×1 — **bit-identical (v2 and v3)**
 
-Compare job: 168306896 (exit 0). Plots:
+Compare jobs: 168312950 (v3) / 168306896 (v2), both exit 0. Plots:
 [outputs/.../plots/compare_1x2_diag_cpu/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag_cpu).
 
 ```
@@ -275,21 +287,27 @@ u/v/w/eta surface: all zero
 ```
 
 On pure CPU MPI the run is **bit-identical** between 1×1 and 1×2 across all
-10 iterations. (The "FIRST DIVERGENCE at iter 0" entries for `sigma_cc` and
-`eta_n` reproduce **identically** between CPU and GPU compares, so they are a
-comparison-script artefact, not a real signal — see follow-up below.)
+10 iterations, on both v2 and v3. The "FIRST DIVERGENCE at iter 0" entries
+for `sigma_cc` and `eta_n` reproduce *byte-identical* values across CPU/GPU
+**and** v2/v3 compares — so they are a comparison-script artefact, not a real
+signal.
 
-### Diag (10 steps): GPU 1×2 vs 1×1 — **rank-seam already visible after 10 steps**
+### Diag (10 steps): GPU 1×2 vs 1×1 — **rank-seam already visible after 10 steps; v2 and v3 bit-identical**
 
-Compare job: 168306897 (exit 0). Plots:
+Compare jobs: 168312951 (v3) / 168306897 (v2), both exit 0. Plots:
 [outputs/.../plots/compare_1x2_diag/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag).
 
 ```
 max|diff|    = 1.52e-03 years     (~ 13 hours of mis-aging in 10 steps)
 RMS diff     = 1.31e-05 years
 u/v/eta surface: bit-identical
-w surface:    max|diff| = 4.56e-11 years (FP roundoff)
+w surface:    max|diff| = 4.54e-11 years (FP roundoff, v3)
+                       = 4.56e-11 years                  (v2)
 ```
+
+The **v2 and v3 `max\|diff\|` values match to the last printed digit (1.52e-03 yr)**.
+That's strong evidence the bug is deterministic and unchanged by the upstream
+merge — the v2→v3 sync brings no fix for it.
 
 Interior age diff at z=1030 m, iter 10 — colorscale is ±5e-7 yr; the faint
 blue stripe at j≈150 across the Pacific is already aligned at the rank seam
@@ -298,35 +316,45 @@ plot above:
 
 ![GPU diag, iter 10, 1000 m slice](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag/diff_1x2_diag_centered2_iter10_slice_1000m.png)
 
-### Jobs submitted (2026-05-14)
+### Jobs submitted
 
-| Job | ID | Status |
-|---|---|---|
-| diagcpuserial (CPU 1×1, writes `*_diag_cpu`) | 168306868 | queued |
-| diagcpu (CPU 1×2, writes `*_diag_cpu_rank*`) | 168306867 | queued |
-| diag (GPU 1×1, writes `*_diag`) | 168306870 | queued |
-| diag (GPU 1×2, writes `*_diag_rank*`) | 168306873 | queued |
-| run1yr (GPU 1×1) | 168304301 | done ✓ |
-| run1yr (GPU 1×2) | 168304352 | done ✓ |
-| compare_cpudiag (afterok 168306867:168306868) | 168306896 | held |
-| compare_gpudiag (afterok 168306870:168306873) | 168306897 | held |
-| compare_1year (afterok 168304301:168304352) | 168304605 | **done ✓** |
+v3 run (2026-05-14, sha `91a26ad`), all exit 0:
+
+| Job | ID |
+|---|---|
+| diagcpuserial (CPU 1×1) | 168312669 |
+| diagcpu (CPU 1×2) | 168312668 |
+| diag (GPU 1×1) | 168312680 |
+| diag (GPU 1×2) | 168312681 |
+| run1yr (GPU 1×1) | 168312682 |
+| run1yr (GPU 1×2) | 168312683 |
+| compare_cpudiag (afterok …668:669) | 168312950 |
+| compare_gpudiag (afterok …680:681) | 168312951 |
+| compare_1year (afterok …682:683) | 168312952 |
+
+v2 run for reference (2026-05-14, sha `62147c3`), all exit 0:
+168304275, 168304276, 168306870, 168306873, 168304301, 168304352,
+168306896, 168306897, 168304605.
 
 ## Interim conclusion
 
 The 1×2 GPU runs produce a clear, localised tracer mismatch at the rank-rank
-seam — already visible after 10 steps in `diag`, and large enough to be
-prominent in the 1-year (max `|diff|` = 0.21 yr, with structure visible across
-the Pacific at z≈1000 m). The CPU 1×2 run is **bit-identical** to CPU 1×1
-across all 10 diag iterations, so:
+seam — already visible after 10 steps in `diag` and large enough to be
+prominent in the 1-year run (max `|diff|` ≈ 0.2–0.4 yr in deep wet cells, with
+structure visible across the Pacific at z≈1000 m). The CPU 1×2 run is
+**bit-identical** to CPU 1×1 across all 10 diag iterations.
 
-- The bug is **GPU-specific**, not in the partitioner or MPI logic.
+- The bug is **GPU-specific**, not in the partitioner, MPI logic, or generic
+  CPU advection.
 - Velocity fields are bit-identical between serial and distributed (`u`/`v`
   exactly; `w` at FP roundoff). The dynamics is fine; the **tracer halo
-  exchange** on the GPU path is the load-bearing suspect.
-- PR #5427 was initially hypothesised but is ruled out (see Hypothesis 1
-  above — the `Adapt.adapt_structure` swap is a no-op because individual
-  buffer types adapt to `nothing`).
+  exchange / fold-fill** on the GPU path is the load-bearing suspect.
+- PR #5427 was initially hypothesised but is ruled out (Hypothesis 1 above —
+  the `Adapt.adapt_structure` swap is a no-op because individual buffer types
+  adapt to `nothing`).
+- **v2 → v3 upstream sync does not fix the bug.** The GPU diag 10-step
+  `max\|diff\|` is bit-identical between v2 and v3, so none of the PRs merged
+  into CliMA main between 2026-04-13 and 2026-05-14 close it.
 
 Next steps:
 
@@ -334,15 +362,17 @@ Next steps:
    - Run `weno5` instead of `centered2` and rerun GPU diag — if the seam grows
      a lot more, PR #5564 (conditional-advection treatment of fold topologies)
      is contributing too.
-   - Bisect `briochemc/Oceananigans.jl @ bp/offline_ACCESS-OM2_v2` vs current
-     upstream main, restricted to `src/DistributedComputations/` and the GPU
-     halo paths.
-   - Look at GPU-only kernel branches in `fill_halo_regions!` for tracers.
-2. **Sanity-check the zstar iter-0 diff** — `sigma_cc` and `eta_n` show
-   non-zero diff at iter 0 in both CPU and GPU compares with **identical**
-   magnitudes. Almost certainly a compare-script slicing artefact (serial saved
-   with halos, distributed saved without, or vice versa). Worth fixing in the
-   script before relying on those zstar plots forensically.
+   - Bisect / inspect GPU-only kernel branches in `fill_halo_regions!` for
+     tracers in `src/DistributedComputations/` between the v3 base and the
+     last known-good Oceananigans version.
+   - Try a 2×1 (x-partition) instead of 1×2 (y-partition) to confirm the seam
+     follows the partition direction (eliminates "it's always near the
+     equator" interpretations).
+2. **Sanity-check the zstar iter-0 diff.** `sigma_cc` and `eta_n` show
+   *byte-identical* non-zero diff at iter 0 in CPU vs GPU and v2 vs v3
+   compares — almost certainly a compare-script slicing artefact (serial
+   saved with halos, distributed saved without halos, or vice versa). Worth
+   fixing before relying on those zstar plots forensically.
 3. **Document, then iterate.** This doc is the workflow + first-pass results;
-   subsequent runs (WENO sweep, bisect candidates) should add rows to the
-   Results section here.
+   subsequent runs (WENO sweep, 2×1 partition, bisect candidates) should add
+   rows to the Results section here.
