@@ -326,6 +326,95 @@ grew to the bold blue stripe in the 1-year plot above:
 
 ![GPU diag, iter 10, 1000 m slice](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/standardrun/cgridtransports_wdiagnosed_centered2_AB2/plots/compare_1x2_diag/diff_1x2_diag_centered2_iter10_slice_1000m.png)
 
+### Halo-depth sweep — all fields, all halo trim levels
+
+To verify that the bug is purely in tracer halos (and not in dynamics or
+silent halo placeholders), we ran [scripts/debugging/halo_diff_sweep.jl](../scripts/debugging/halo_diff_sweep.jl)
+on every saved JLD2 variable, reporting max|diff| at four trim levels:
+**interior** (trim by full Hx,Hy), **+1 halo**, **+2 halos**, and **full halos**.
+Detected `Hx=Hy=13` from `age` (Center-Center). 1×2 split gives 150 Center-y
+cells per rank → rank 0 covers global parent y=1..176, rank 1 covers y=151..326.
+
+GPU diag (iter 10 for age/zstar; iter 1 for u/v/w/eta):
+
+| field   | rank | interior   | +1 halo    | +2 halos   | full halos   |
+|---------|------|------------|------------|------------|--------------|
+| age     | 0    | 3.42e+3 s  | 4.81e+4 s  | 4.81e+4 s  | 4.81e+4 s    |
+| age     | 1    | **4.81e+4 s** | 4.81e+4 s  | 4.81e+4 s  | 4.81e+4 s    |
+| u       | 0/1  | 0          | 0          | 0          | 0            |
+| v       | 0    | 0          | 0          | 0          | 0            |
+| v       | 1    | 1.38e-1*   | 1.38e-1*   | 1.38e-1*   | 1.38e-1*     |
+| w       | 0/1  | ~3–5e-11   | ~3–5e-11   | ~3–5e-11   | ~6e-5–2e-4   |
+| eta     | 0/1  | 0          | 0          | 0          | 0            |
+| sigma_cc/dt_sigma/eta_n | 0/1 | 0     | 0          | 0          | 0            |
+
+CPU diag — same sweep:
+
+| field   | rank | interior | +1 halo | +2 halos | full halos |
+|---------|------|----------|---------|----------|------------|
+| age, u, eta | 0/1 | 0     | 0       | 0        | 0          |
+| v       | 0    | 0        | 0       | 0        | 0          |
+| v       | 1    | 1.38e-1* | 1.38e-1*| 1.38e-1* | 1.38e-1*   |
+| w       | 0/1  | 0        | 0       | 0 / (18200 NaN in rank 0 z-halos) | 6.5e-5 / 2.2e-4 |
+| sigma_cc/dt_sigma/eta_n | 0/1 | 0 | 0 | 0   | 5.4e-2 / 1.2e-9 / 9.7e-1 |
+
+`*` v rank-1 diff is at the **tripolar fold row** (global Face-y = Ny+1 = parent
+y=314), not at the rank-rank seam — see "Known save-side artefacts" below.
+
+### Seam y-profile — exactly where does the diff first appear?
+
+[scripts/debugging/seam_profile.jl](../scripts/debugging/seam_profile.jl)
+scans `max|diff|` row-by-row across global parent y in the seam band (parent
+y=156..170, i.e. Center-y=143..157), GPU diag:
+
+| global parent y | global Center y | age `max\|diff\|` (s) | note |
+|---|---|---|---|
+| 158 | 145 | 0 | |
+| 159 | 146 | 3.91e-3 | |
+| 160 | 147 | 5.47e-2 | |
+| 161 | 148 | 2.79 | |
+| 162 | 149 | 1.50e+2 | |
+| 163 | 150 | **3.42e+3** | rank 0's last interior cell |
+| 164 | 151 | **4.81e+4** | rank 1's first interior cell ← **SEAM** |
+| 165 | 152 | 3.64e+3 | |
+| 166 | 153 | 2.60e+2 | |
+| 167 | 154 | 1.68e+1 | |
+| 168 | 155 | 0.875 | |
+| 169 | 156 | 3.52e-2 | |
+| 170 | 157 | 3.91e-3 | |
+
+**Bell-shaped peak exactly at global Center-y=151** (rank 1's first interior
+cell, immediately above the seam). 10-step diag has spread the contamination
+~5 cells in either direction, consistent with centered2 advection's one-cell
+stencil propagating over 10 timesteps. CPU diag is **0 across the entire band**
+for every field — confirms the seam contamination is GPU-only.
+
+### Known save-side artefacts (NOT real model divergence)
+
+These were initially mistaken for real seam signals; they're side effects of
+how diagnostic fields are saved, and don't reflect the model's runtime state.
+
+1. **zstar halo cells (`sigma_cc`, `eta_n`, `dt_sigma`) on CPU.** The compare
+   script's "FIRST DIVERGENCE at iter 0" lines (max|diff|≈5.4e-2, 9.7e-1,
+   1.2e-9) come entirely from the outermost halo row of each rank — the
+   `save_zstar_fields` callback writes `parent(field.data)` without filling
+   halos in distributed mode, so the rank's halo cells hold placeholder
+   values (`sigma=1`, `eta=0`) while serial has BC-filled values there.
+   **Fix in the diagnostic save**, not the model.
+
+2. **v at the tripolar fold row (rank 1, global Face-y = Ny+1 = parent y=314).**
+   Rank 1's saved `v` at the fold row has the **opposite sign** to serial
+   (`v_rank = -v_serial` exactly, per [scripts/debugging/locate_v_diff.jl](../scripts/debugging/locate_v_diff.jl)).
+   This is documented in `compare_runs_across_architectures.jl` itself
+   (lines 599-606): JLD2Writer wraps fields in anonymous ComputedFields whose
+   `fill_halo_regions!` dispatches to default `sign=+1` BCs because the wrapper
+   isn't named `:u`/`:v`. Serial applies the wrong (positive) sign and stores
+   the wrong fold-row value; distributed retains the true `sign=-1` value.
+   **This needs a fix** (in `JLD2Writer` or in our save callback) — the
+   *saved* `u`/`v` data near the fold has the wrong sign in serial mode.
+   It does not affect the simulation itself (the model uses its own internal
+   field with the correct BCs), only the diagnostic output.
+
 ### Jobs submitted (2026-05-14, all exit 0)
 
 | Job | ID |
@@ -360,7 +449,7 @@ seam — already visible after 10 steps in `diag` (mean relative age error
 
 Next steps:
 
-1. **Find the actual GPU-only mechanism.** Suggested:
+1. **Find the GPU-only tracer-halo mechanism** (the real bug).
    - Run `weno5` instead of `centered2` and rerun GPU diag — if the seam grows
      a lot more, PR #5564 (conditional-advection treatment of fold topologies)
      is contributing too.
@@ -370,15 +459,26 @@ Next steps:
    - Try a 2×1 (x-partition) instead of 1×2 (y-partition) to confirm the seam
      follows the partition direction (eliminates "it's always near the
      equator" interpretations).
-2. **Fix the zstar diagnostic save.** Confirmed via direct JLD2 read
-   (see [check_zstar_locations.jl](../scripts/debugging/check_zstar_locations.jl)):
-   the "iter-0 zstar divergence" is purely a halo-fill artefact in
-   `save_zstar_fields` — the rank's saved halo cells hold placeholder values
-   (sigma=1, eta=0) while the serial global save has BC-filled values there.
-   Interior is bit-identical (max|diff|=0). The diagnostic should either
-   (a) call `fill_halo_regions!` on the zstar fields before saving, or (b)
-   trim the saved arrays to the interior so the compare script doesn't pick
-   up the placeholder cells.
-3. **Document, then iterate.** This doc is the workflow + first-pass results;
-   subsequent runs (WENO sweep, 2×1 partition, bisect candidates) should add
-   rows to the Results section here.
+   - The bell-shaped seam profile (peak at global y=151, decaying ~5 cells
+     either side after 10 timesteps) tells us this is an advection-stencil
+     consequence of incorrect halo values at the seam — look at what fills
+     the tracer's south halo on rank 1 / north halo on rank 0.
+
+2. **Fix the v fold-row sign artefact in the save path.** Per the docstring
+   in `compare_runs_across_architectures.jl` lines 599–606: `JLD2Writer`
+   wraps `u`/`v` in anonymous `ComputedField`s, so the `fill_halo_regions!`
+   on the wrapper can't dispatch to `sign=-1` for the zipper BC; it defaults
+   to `sign=+1` and stores the wrong fold-row value in serial. Confirmed via
+   [locate_v_diff.jl](../scripts/debugging/locate_v_diff.jl): exact sign-flip
+   at global Face-y=314 (the fold row). Either name the wrapper `:u`/`:v` so
+   it dispatches correctly, or save with `with_halos=false` for `u`/`v` and
+   use the existing manual-callback path that bypasses the wrapper.
+
+3. **Fix the zstar diagnostic save** (`sigma_cc`, `eta_n`, `dt_sigma`).
+   Halo cells on each rank hold placeholder values (sigma=1, eta=0) while
+   serial has BC-filled values there. Either call `fill_halo_regions!` on
+   the zstar fields before saving, or trim the saved arrays to the interior.
+   (Interior is bit-identical — confirmed via [check_zstar_locations.jl](../scripts/debugging/check_zstar_locations.jl).)
+
+4. **Document, then iterate.** Subsequent runs (WENO sweep, 2×1 partition,
+   bisect candidates) should add rows to the Results section here.
