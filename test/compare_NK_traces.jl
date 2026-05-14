@@ -290,7 +290,7 @@ for c in common_calls
     )
 
     if first_diverge_call == -1 && max_d_yr > DIVERGE_TOL_YR
-        first_diverge_call = c
+        global first_diverge_call = c
     end
 end
 flush(stdout); flush(stderr)
