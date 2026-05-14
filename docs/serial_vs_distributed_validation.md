@@ -685,6 +685,78 @@ divergent value per cell.
 Jobs: GPU diag 1×1 noACM = 168325862, GPU diag 1×2 noACM = 168325863, compare
 = 168330518. All exit 0.
 
+### Probe: FTS + tracer halo immediately after model construction
+
+Following a hypothesis from a parallel Oceananigans-side discussion, ran a
+direct probe to discriminate between three remaining candidates:
+
+1. `model.tracers.age` south halo on rank 1 holds uninitialized device
+   garbage at iter 0 → tendency at j=14 reads garbage in stencil → bug.
+2. FTS loader on GPU drops bytes in the velocity halo → wrong v at the seam.
+3. A race between `recv_from_buffers!` and the next KA kernel inside
+   `synchronize_communication!` — the unpack kernel writes to the halo
+   asynchronously and the tendency kernel reads before the write completes.
+
+Probe script: [test/probe_fts_halo.jl](../test/probe_fts_halo.jl) +
+wrapper [scripts/tests/run_probe_fts_halo.sh](../scripts/tests/run_probe_fts_halo.sh).
+Runs `setup_model.jl` + `setup_simulation.jl` then prints
+`Array(parent(...))` halo slices of `u_ts`, `v_ts`, `η_ts`, and
+`model.tracers.age` on each rank, **before any** `time_step!`.
+
+Comparing rank 1 (the rank whose first interior row has the GPU bug),
+CPU 1×2 vs GPU 1×2, parent y=1..13 (south halo) at k=57:
+
+| field | CPU rank 1 south halo | GPU rank 1 south halo |
+|---|---|---|
+| `u_ts` | real values, mean\|·\|=0.12 m/s | **same**, mean\|·\|=0.12 |
+| `v_ts` | real values, mean\|·\|=0.042 m/s | **same**, mean\|·\|=0.042 |
+| `model.tracers.age` | exactly 0 (5018/5018 cells) | **exactly 0** (5018/5018) |
+
+Identical down to the printed digits, on both ranks, including the NORTH
+halo. So **outcomes 1 and 2 are ruled out**: GPU loads the velocity FTS
+halos correctly, and the tracer halo is genuinely zero (no uninitialized
+device garbage) at iter 0. That leaves **outcome 3** as the live
+candidate.
+
+Per the mathematical argument: if `u`/`v`/`w` halos are bit-identical to
+serial AND the tracer initial halo is zero AND the tracer interior is
+zero everywhere, then a centered-2 advection tendency at j=14 must be
+exactly `source × 1.0 = 1 [s/s]` → age at j=14 after Δt = Δt = 5400 s
+exactly. To get the observed 8718 s, the kernel has to read **nonzero**
+`c` somewhere in its stencil at iter 1 — and the only place that can
+come from, given the probe results, is a partially-written halo cell
+during the iter-1 fill, i.e. the recv-unpack → next-kernel race.
+
+Probe jobs: CPU probe 168333459 / GPU probe 168333460 (initial round
+crashed on η_ts, but already produced v_ts data); CPU 168333772 / GPU
+168333773 (v2 with `model.tracers.age` probe added). All produced the
+data summarised above.
+
+### Fix: `sync_device!(arch)` after `recv_from_buffers!`
+
+The minimal patch (in Oceananigans
+[`src/DistributedComputations/distributed_fields.jl`](https://github.com/CliMA/Oceananigans.jl/blob/main/src/DistributedComputations/distributed_fields.jl)):
+
+```julia
+function synchronize_communication!(field::DistributedField)
+    arch = architecture(field.grid)
+    if !isempty(arch.mpi_requests)
+        cooperative_waitall!(arch.mpi_requests)
+        arch.mpi_tag[] = 0
+        empty!(arch.mpi_requests)
+    end
+    recv_from_buffers!(field.data, field.communication_buffers, field.grid)
+    sync_device!(arch)   # forces the unpack KA kernel to finish before
+                         # any subsequent compute kernel reads the halo
+    return nothing
+end
+```
+
+Applied on the fork branch `briochemc/Oceananigans.jl @
+bp/offline_ACCESS-OM2_v3` (sha 1abdd81). Manifest bumped in commit
+53984c8. Resubmitting the GPU 1×1 + 1×2 diag (+ 1-year) to confirm
+the seam bug disappears.
+
 ## Interim conclusion
 
 The 1×2 GPU runs produce a clear, localised tracer mismatch at the rank-rank
