@@ -40,7 +40,8 @@ function describe(name, fts)
     # Probe rank's south halo (parent y = 1..Hy), snapshot 1, at the surface k
     if size(p, 1) > 0 && size(p, 2) >= Hy && size(p, 3) > 0 && size(p, 4) >= 1
         n_k = size(p, 3)
-        k_surf = n_k - 7   # near-surface, away from outer z halo
+        # For 2D fields (eta) stored with nz=1, just take the only level.
+        k_surf = n_k == 1 ? 1 : max(1, n_k - 7)
         south_halo_strip = p[:, 1:Hy, k_surf, 1]
         flat = filter(isfinite, vec(south_halo_strip))
         @info @sprintf(
@@ -82,6 +83,67 @@ if @isdefined(η_ts)
     @info "PROBE_FTS: rank=$rank inspecting η_ts"
     describe("eta_ts", η_ts)
 end
+
+# Include setup_simulation.jl so the model's `age` tracer is fully initialized
+# (set_initial_condition!, halo fill, etc.). This still does NOT run time_step!.
+@info "PROBE_FTS: rank=$rank running setup_simulation.jl to initialize age tracer"
+include("../src/setup_simulation.jl")
+
+# Now probe model.tracers.age directly. NOT a FieldTimeSeries — it's a regular
+# Field with parent(...) returning a 3D OffsetArray (i, j, k).
+function describe_field(name, field)
+    p_dev = parent(field)
+    p = Array(p_dev)
+    Hy = 13
+    @info "PROBE_FTS: rank=$rank $name parent size=$(size(p_dev)) eltype=$(eltype(p_dev))"
+    n_k = size(p, 3)
+    k_surf = n_k == 1 ? 1 : max(1, n_k - 7)
+    # South halo (y=1..Hy)
+    south_halo = p[:, 1:Hy, k_surf]
+    flat = filter(isfinite, vec(south_halo))
+    @info @sprintf(
+        "PROBE_FTS: rank=%d %s south halo (y=1:%d, k=%d) min=%.6e max=%.6e mean(abs)=%.6e n_zero=%d/%d n_nonfinite=%d",
+        rank, name, Hy, k_surf,
+        isempty(flat) ? NaN : minimum(flat),
+        isempty(flat) ? NaN : maximum(flat),
+        isempty(flat) ? NaN : sum(abs, flat) / length(flat),
+        count(==(0), flat), length(flat),
+        length(vec(south_halo)) - length(flat)
+    )
+    # Seam-adjacent halo row (y=Hy)
+    row = p[:, Hy, k_surf]
+    @info @sprintf(
+        "PROBE_FTS: rank=%d %s seam-adjacent halo row y=%d k=%d: min=%.6e max=%.6e mean(abs)=%.6e n_zero=%d/%d",
+        rank, name, Hy, k_surf,
+        minimum(row), maximum(row), sum(abs, row) / length(row),
+        count(==(0), row), length(row)
+    )
+    # First interior row (y=Hy+1)
+    intr = p[:, Hy + 1, k_surf]
+    @info @sprintf(
+        "PROBE_FTS: rank=%d %s first interior row y=%d k=%d: min=%.6e max=%.6e mean(abs)=%.6e n_zero=%d/%d",
+        rank, name, Hy + 1, k_surf,
+        minimum(intr), maximum(intr), sum(abs, intr) / length(intr),
+        count(==(0), intr), length(intr)
+    )
+    # Also inspect the rank-0 north halo (top of parent array, i.e., y=size-Hy+1 : size)
+    n_y = size(p, 2)
+    nhalo_start = n_y - Hy + 1
+    nhalo = p[:, nhalo_start:n_y, k_surf]
+    flat_n = filter(isfinite, vec(nhalo))
+    @info @sprintf(
+        "PROBE_FTS: rank=%d %s NORTH halo (y=%d:%d, k=%d) min=%.6e max=%.6e mean(abs)=%.6e n_zero=%d/%d",
+        rank, name, nhalo_start, n_y, k_surf,
+        isempty(flat_n) ? NaN : minimum(flat_n),
+        isempty(flat_n) ? NaN : maximum(flat_n),
+        isempty(flat_n) ? NaN : sum(abs, flat_n) / length(flat_n),
+        count(==(0), flat_n), length(flat_n)
+    )
+    return nothing
+end
+
+@info "PROBE_FTS: rank=$rank inspecting model.tracers.age (BEFORE first time_step!)"
+describe_field("model.tracers.age", model.tracers.age)
 
 @info "PROBE_FTS: rank=$rank done. Exiting without time_step."
 flush(stdout); flush(stderr)
