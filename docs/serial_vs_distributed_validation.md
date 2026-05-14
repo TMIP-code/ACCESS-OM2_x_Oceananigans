@@ -261,14 +261,27 @@ field divergence. So the divergence does NOT show up in the velocity fields
 themselves — it shows up in the **tracer** that the (bit-equal) velocities
 advect through a (suspectedly mis-swapped) halo.
 
-**zstar fields (`sigma_cc`, `dt_sigma`, `eta_n`) per-iter** — the script reports
-"first divergence" iteration for each zstar field per rank. The recorded
-non-zero diffs at iter 0 (e.g. `sigma_cc` ≈ 5.36e-2 ≈ 5.4% of unity; `eta_n`
-≈ 9.73e-1 ≈ ~unity) reproduce **byte-identically** between the CPU and GPU
-compares — strongly suggesting these are a **compare-script slicing artefact**
-(serial saved with halos, distributed saved without, or vice versa) rather
-than a real iter-0 mismatch. This needs follow-up before relying on these
-plots; the **tracer-side seam signal** above is the load-bearing evidence.
+**zstar fields (`sigma_cc`, `dt_sigma`, `eta_n`) — halo-fill artefact in the
+diagnostic save, NOT a real model divergence.** The compare script reports
+"FIRST DIVERGENCE at iter 0" for `sigma_cc` (max|diff|≈5.4e-2) and `eta_n`
+(max|diff|≈9.7e-1) on **both** CPU and GPU compares, with byte-identical
+values. Cross-checked directly against the JLD2 files via
+[scripts/debugging/check_zstar_locations.jl](../scripts/debugging/check_zstar_locations.jl):
+
+| field | max\|diff\| over full saved array | max\|diff\| over interior only |
+|---|---|---|
+| `sigma_cc` rank 0 | 5.36e-2 | **0.00e+00** |
+| `sigma_cc` rank 1 | 5.02e-2 | **0.00e+00** |
+| `eta_n` rank 0 | 9.73e-1 | **0.00e+00** |
+| `eta_n` rank 1 | 9.18e-1 | **0.00e+00** |
+
+All diffs live in **halo rows** at `j=1` (rank 1's south halo) and
+`j=Ny_rank` (rank 0's north halo). Pattern: the rank's saved halo cells hold
+the placeholder values (`sigma=1.0`, `eta=0.0`), while the serial global
+array has the actual values filled by the BC there. `save_zstar_fields`
+dumps raw `parent(...)` data without re-filling halos in the distributed
+case. Bug is in the *diagnostic save*, not in the *model state*. **CPU
+interior is genuinely bit-identical** — consistent with the age=0 result.
 
 ### Diag (10 steps): CPU 1×2 vs 1×1 — **bit-identical**
 
@@ -357,11 +370,15 @@ Next steps:
    - Try a 2×1 (x-partition) instead of 1×2 (y-partition) to confirm the seam
      follows the partition direction (eliminates "it's always near the
      equator" interpretations).
-2. **Sanity-check the zstar iter-0 diff.** `sigma_cc` and `eta_n` show
-   *byte-identical* non-zero diff at iter 0 in CPU vs GPU compares — almost
-   certainly a compare-script slicing artefact (serial saved with halos,
-   distributed saved without halos, or vice versa). Worth fixing before
-   relying on those zstar plots forensically.
+2. **Fix the zstar diagnostic save.** Confirmed via direct JLD2 read
+   (see [check_zstar_locations.jl](../scripts/debugging/check_zstar_locations.jl)):
+   the "iter-0 zstar divergence" is purely a halo-fill artefact in
+   `save_zstar_fields` — the rank's saved halo cells hold placeholder values
+   (sigma=1, eta=0) while the serial global save has BC-filled values there.
+   Interior is bit-identical (max|diff|=0). The diagnostic should either
+   (a) call `fill_halo_regions!` on the zstar fields before saving, or (b)
+   trim the saved arrays to the interior so the compare script doesn't pick
+   up the placeholder cells.
 3. **Document, then iterate.** This doc is the workflow + first-pass results;
    subsequent runs (WENO sweep, 2×1 partition, bisect candidates) should add
    rows to the Results section here.
