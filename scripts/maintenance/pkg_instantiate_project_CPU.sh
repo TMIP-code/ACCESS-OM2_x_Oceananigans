@@ -4,7 +4,7 @@
 #PBS -P y99
 #PBS -l mem=47GB
 #PBS -q express
-#PBS -l walltime=01:00:00
+#PBS -l walltime=00:15:00
 #PBS -l ncpus=12
 #PBS -l storage=scratch/y99+gdata/y99
 #PBS -l jobfs=4GB
