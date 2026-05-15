@@ -54,7 +54,7 @@ IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no"
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
-GRID_HZ=${GRID_HZ:-7}                                   # grid halo in z (2 sufficient; larger is harmless)
+GRID_HZ=${GRID_HZ:-2}                                   # grid halo in z (2 sufficient; larger is harmless)
 LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1
 ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}               # yes | no — when "no", build IBG with active_cells_map=false and tag output files with _noACM
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
