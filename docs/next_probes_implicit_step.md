@@ -145,7 +145,7 @@ vanishes:
 implicit_step! (the BatchedTridiagonalSolver path) is the sole cause
 of the GPU rank-1 seam tracer bug.** No second mechanism exists.
 
-### Probe C — solver coefficients dump
+### Probe C — solver coefficients dump — **DONE 2026-05-15: coefficients clean → bug is in `solve_batched_tridiagonal_system_kernel!`**
 
 Extend the probe to dump the **per-column tri-diagonal coefficients**
 that `implicit_step!` constructs before the Thomas sweep, for every
@@ -156,12 +156,60 @@ that `implicit_step!` constructs before the Thomas sweep, for every
   - monkey-patching `implicit_step!` to also write the LHS / RHS arrays
     to JLD2 before calling the BatchedTridiagonalSolver.
 
-If the coefficients differ CPU vs GPU on rank 1 row 14 → the bug is in
-the coefficient builder (probably a fold-row-aware κ lookup or
-metric). If coefficients match but the solve output differs → the bug
-is in `BatchedTridiagonalSolver` itself.
+Implementation: `dump_implicit_coefficients(model, n, Δt)` in
+[test/probe_tracer_tendency.jl](../test/probe_tracer_tendency.jl)
+(commit 160620a) launches a kernel that mirrors
+`BatchedTridiagonalSolver`'s per-cell `get_coefficient` calls — without
+the Thomas sweep — and writes a/b/c into Nx×Ny×Nz Float64 arrays. The
+RHS is already captured in the post_explicit age snapshot. Filters
+closure exactly the way `implicit_step!` does (only
+`VerticallyImplicitTimeDiscretization` components survive). Companion
+diff script:
+[scripts/debugging/compare_implicit_coeffs.jl](../scripts/debugging/compare_implicit_coeffs.jl).
 
-This is the most invasive probe but the most decisive one.
+Submit:
+```bash
+PARENT_MODEL=ACCESS-OM2-1 GPU_QUEUE=gpuvolta PARTITION=1x2 \
+    PROBE_NSTEPS=1 \
+    JOB_CHAIN=probetend-probetendcpu bash scripts/test_driver.sh
+PARENT_MODEL=ACCESS-OM2-1 PARTITION=1x2 PROBE_NSTEPS=1 \
+    julia --project scripts/debugging/compare_implicit_coeffs.jl
+```
+
+**Result:** the LHS coefficients are CPU↔GPU bit-identical at the
+rank-1 seam row (interior j=1 = parent y=14):
+
+| coef | seam row max\|diff\| | seam row n_differ | GLOBAL max\|diff\| (n_differ / total) |
+|---|---|---|---|
+| a | **0** | 0 / 18000 | 9.9e-14 (135 / 2.7M, Float64 ULP) |
+| b | **0** | 0 / 18000 | 1.1e-13 (95 / 2.7M, Float64 ULP)  |
+| c | **0** | 0 / 18000 | 7.1e-14 (123 / 2.7M, Float64 ULP) |
+
+So in the rank-1 seam row:
+- **LHS (a, b, c):** bit-identical CPU↔GPU (Probe C, above)
+- **RHS (post_explicit age):** bit-identical CPU↔GPU (Probe B re-confirmed)
+- **post_implicit age:** differs by **4534.677 s in 3769 / 18000 cells**
+
+Identical inputs → different outputs. **The bug is in
+`solve_batched_tridiagonal_system_kernel!`** (the Thomas-sweep kernel
+in [Oceananigans `src/Solvers/batched_tridiagonal_solver.jl`](https://github.com/briochemc/Oceananigans.jl/blob/bp/offline_ACCESS-OM2_v3/src/Solvers/batched_tridiagonal_solver.jl)),
+specifically on the GPU rank-1 path. The coefficient builder is
+exonerated. The remaining hypotheses (from this doc's TL;DR section)
+collapse to one: the GPU kernel launches / executes wrong on the
+rank-1 `LeftConnectedRightFaceFolded` y-topology, in a way that the
+CPU path doesn't reproduce. Probes D + E (and a structural look at
+the active-cells map for rank 1) are the next steps.
+
+### Halo-size note (housekeeping, 2026-05-15)
+
+The serial grid was rebuilt mid-session with new defaults
+`Hx=Hy=7, Hz=2` (down from `Hx=Hy=13, Hz=7`). Partitioned monthly FTS
+files had to be rebuilt to match (`JOB_CHAIN=partition`, ~3 min).
+Coefficient dumps in this section are therefore at the new halo;
+parent-array shapes in the TL;DR table (`386 × 176 × 64`) refer to the
+old halo and won't match a fresh probe run. Interior shapes
+(`360 × 150 × 64` for `age`, `360 × 150 × 50` for the coefficient
+arrays) are halo-invariant.
 
 ### Probe D — try a 2×1 partition (x-direction split)
 
