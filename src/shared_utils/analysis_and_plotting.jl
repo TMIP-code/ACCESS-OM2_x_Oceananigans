@@ -296,6 +296,7 @@ function animate_zonal_averages(
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         n_frames = 144,
         framerate = 24,
+        tracer_title::AbstractString = "age",
     )
     mkpath(output_dir)
 
@@ -365,7 +366,7 @@ function animate_zonal_averages(
         zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
         za_obs.val .= za_buf
         notify(za_obs)
-        title_obs[] = @sprintf("age — %s zonal avg (t = 0.0 months)", basin_name)
+        title_obs[] = @sprintf("%s — %s zonal avg (t = 0.0 months)", tracer_title, basin_name)
 
         filepath = joinpath(output_dir, "$(prefix)_zonal_avg_$(basin_name).mp4")
         record(fig, filepath, 1:n_frames; framerate) do i
@@ -374,7 +375,7 @@ function animate_zonal_averages(
             zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
             za_obs.val .= za_buf
             notify(za_obs)
-            title_obs[] = @sprintf("age — %s zonal avg (t = %.1f months)", basin_name, frame_times[i] / (year / 12))
+            title_obs[] = @sprintf("%s — %s zonal avg (t = %.1f months)", tracer_title, basin_name, frame_times[i] / (year / 12))
         end
 
         @info "Saved $filepath"
@@ -400,6 +401,7 @@ function animate_depth_slices(
         highclip = colormap[end],
         n_frames = 144,
         framerate = 24,
+        tracer_title::AbstractString = "age",
     )
     mkpath(output_dir)
 
@@ -442,14 +444,14 @@ function animate_depth_slices(
         age_raw = interior(age_fts[Time(frame_times[1])])
         @. age_buf = ifelse(wet3D, age_raw / year, NaN)
         slice_obs[] = @view(age_buf[:, :, k])
-        title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = 0.0 months)", depth, k, actual_depth)
+        title_obs[] = @sprintf("%s at %d m (k=%d, z=%.1f m, t = 0.0 months)", tracer_title, depth, k, actual_depth)
 
         filepath = joinpath(output_dir, "$(prefix)_slice_$(depth)m.mp4")
         record(fig, filepath, 1:n_frames; framerate) do i
             age_raw = interior(age_fts[Time(frame_times[i])])
             @. age_buf = ifelse(wet3D, age_raw / year, NaN)
             slice_obs[] = @view(age_buf[:, :, k])
-            title_obs[] = @sprintf("age at %d m (k=%d, z=%.1f m, t = %.1f months)", depth, k, actual_depth, frame_times[i] / (year / 12))
+            title_obs[] = @sprintf("%s at %d m (k=%d, z=%.1f m, t = %.1f months)", tracer_title, depth, k, actual_depth, frame_times[i] / (year / 12))
         end
 
         @info "Saved $filepath"

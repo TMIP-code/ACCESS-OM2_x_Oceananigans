@@ -57,6 +57,10 @@ GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+
 GRID_HZ=${GRID_HZ:-2}                                   # grid halo in z (2 sufficient; larger is harmless)
 LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1
 ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}               # yes | no — when "no", build IBG with active_cells_map=false and tag output files with _noACM
+TRAF=${TRAF:-no}                                        # yes | no — Time-Reversed Adjoint Flow (adjoint age via reversed monthly FTS + sign-flipped u, v)
+case "$TRAF" in yes|no) ;; *) echo "ERROR: TRAF must be yes or no (got: $TRAF)" >&2; exit 1 ;; esac
+TRAF_TM_SOURCE=${TRAF_TM_SOURCE:-invVMtV}               # invVMtV | M_traf — matrix to use for TMsolve/NK when TRAF=yes (ignored when TRAF=no)
+case "$TRAF_TM_SOURCE" in invVMtV|M_traf) ;; *) echo "ERROR: TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)" >&2; exit 1 ;; esac
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
 case "$LOAD_BALANCE" in
     no)             LB_TAG="" ;;
@@ -93,10 +97,14 @@ MODEL_CONFIG="${MODEL_CONFIG}${LB_TAG}"
 if [ "$TIMESTEP_MULT" != "1" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_DTx${TIMESTEP_MULT}"
 fi
+if [ "$TRAF" = "yes" ]; then
+    MODEL_CONFIG="${MODEL_CONFIG}_traf"
+fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
+export TRAF TRAF_TM_SOURCE
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -129,6 +137,8 @@ echo "TBLOCKING=$TBLOCKING"
 echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"
 echo "LOAD_BALANCE=$LOAD_BALANCE"
 echo "ACTIVE_CELLS_MAP=$ACTIVE_CELLS_MAP"
+echo "TRAF=$TRAF"
+echo "TRAF_TM_SOURCE=$TRAF_TM_SOURCE"
 echo "MODEL_CONFIG=$MODEL_CONFIG"
 
 # Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes

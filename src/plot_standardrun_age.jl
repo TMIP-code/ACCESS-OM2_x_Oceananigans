@@ -138,8 +138,12 @@ vol_3D = Array(interior(vol))
 # Generate static diagnostic plots (PNGs)
 ################################################################################
 
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+age_base = TRAF ? "age_traf" : "age"
+tracer_title = TRAF ? "TRAF age (time to re-emergence)" : "age"
+
 age_years_3D = age_data ./ year
-label = "age_$(DURATION)_$(ADVECTION_SCHEME)"
+label = "$(age_base)_$(DURATION)_$(ADVECTION_SCHEME)"
 
 @info "Generating static age diagnostic plots"
 flush(stdout); flush(stderr)
@@ -158,7 +162,7 @@ flush(stdout); flush(stderr)
 
 animate_zonal_averages(
     age_fts, grid, wet3D, vol_3D, age_output_dir, label;
-    colorrange, levels,
+    colorrange, levels, tracer_title,
 )
 
 ################################################################################

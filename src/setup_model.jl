@@ -69,6 +69,15 @@ MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
 IMPLICIT_KAPPAV_STR = lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes"))
 IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
 IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+if TRAF
+    @info "TRAF=yes — reversing every monthly FTS in time; flipping sign of u, v FTS"
+    W_FORMULATION == "wprescribed" && error(
+        "TRAF=yes is only supported with W_FORMULATION=wdiagnosed in the first cut " *
+            "(w is recomputed from continuity using sign-flipped/time-reversed u, v, η). " *
+            "Support for TRAF + wprescribed is a follow-up.",
+    )
+end
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 @info "Run configuration"
@@ -80,6 +89,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- GM_REDI           = $GM_REDI"
 @info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
 @info "- IMPLICIT_KAPPAV   = $IMPLICIT_KAPPAV"
+@info "- TRAF              = $TRAF"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -143,15 +153,18 @@ end
 
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 u_ts = load_fts(arch, u_file, "u", grid; backend, time_indexing, fts_kw...)
+TRAF && reverse_fts_time!(u_ts; flip_sign = true)
 @show u_ts
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 v_ts = load_fts(arch, v_file, "v", grid; backend, time_indexing, fts_kw...)
+TRAF && reverse_fts_time!(v_ts; flip_sign = true)
 @show v_ts
 @info "Loading sea surface height from MOM output"
 flush(stdout); flush(stderr)
 η_file = joinpath(monthly_dir, "eta_monthly.jld2")
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 η_ts = load_fts(arch, η_file, "η", grid; backend, time_indexing, fts_kw...)
+TRAF && reverse_fts_time!(η_ts; flip_sign = false)
 @show η_ts
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
@@ -168,9 +181,11 @@ if GM_REDI
     S_file = joinpath(monthly_dir, "salt_monthly.jld2")
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     T_ts = load_fts(arch, T_file, "T", grid; backend, time_indexing, fts_kw...)
+    TRAF && reverse_fts_time!(T_ts; flip_sign = false)
     @show T_ts
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     S_ts = load_fts(arch, S_file, "S", grid; backend, time_indexing, fts_kw...)
+    TRAF && reverse_fts_time!(S_ts; flip_sign = false)
     @show S_ts
     @info "T and S FieldTimeSeries loaded"
     flush(stdout); flush(stderr)
@@ -230,6 +245,7 @@ if MONTHLY_KAPPAV
     @info "Loading κV (monthly) from: $κV_file"
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
+    TRAF && reverse_fts_time!(κV_ts; flip_sign = false)
     @show κV_ts
     # Initialize κVField from first month
     set!(κVField, κV_ts[1])

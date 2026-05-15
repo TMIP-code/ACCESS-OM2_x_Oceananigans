@@ -66,6 +66,24 @@ MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+if TRAF
+    TM_SOURCE == "const" || error(
+        "TRAF=yes is only supported with TM_SOURCE=const in the first cut (got TM_SOURCE=$TM_SOURCE). " *
+            "Snapshot/avg-matrix support for TRAF is a follow-up.",
+    )
+    TRAF_TM_SOURCE in ("invVMtV", "M_traf") ||
+        error("TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)")
+end
+M_basename = if !TRAF
+    "M.jld2"
+elseif TRAF_TM_SOURCE == "invVMtV"
+    "invVMtV.jld2"
+else  # "M_traf"
+    "M_traf.jld2"
+end
+
 matrices_dir = joinpath(outputdir, "TM", model_config)
 
 @info "Newton-GMRES periodic solver configuration"
@@ -126,7 +144,7 @@ if rank == 0
     # Load pre-built transport matrix M from disk
     ############################################################################
 
-    M_file = joinpath(matrices_dir, TM_SOURCE, "M.jld2")
+    M_file = joinpath(matrices_dir, TM_SOURCE, M_basename)
     @info "[rank 0] Loading transport matrix from $M_file"
     flush(stdout); flush(stderr)
     M = load(M_file, "M")

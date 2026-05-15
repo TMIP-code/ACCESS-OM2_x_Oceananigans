@@ -77,6 +77,9 @@ GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+TRAF_OPTION_A = lowercase(get(ENV, "TRAF", "no")) == "yes" &&
+    get(ENV, "TRAF_TM_SOURCE", "invVMtV") == "M_traf"
+TRAF_OPTION_A && @info "TRAF Option A: flipping yearly velocity signs for autodiff rebuild"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 @info "Run configuration"
@@ -139,11 +142,13 @@ vbcs = FieldBoundaryConditions(grid, (Center(), Face(), Center()); north = FPivo
 u_constant = XFaceField(grid; boundary_conditions = ubcs)
 set!(u_constant, load(u_constant_file, "u"))
 fill_halo_regions!(u_constant)
+TRAF_OPTION_A && (parent(u_constant) .*= -1)
 @show u_constant
 
 v_constant = YFaceField(grid; boundary_conditions = vbcs)
 set!(v_constant, load(v_constant_file, "v"))
 fill_halo_regions!(v_constant)
+TRAF_OPTION_A && (parent(v_constant) .*= -1)
 @show v_constant
 
 η_constant = Field{Center, Center, Nothing}(grid)
@@ -181,6 +186,7 @@ if W_FORMULATION == "wprescribed"
     w_constant = ZFaceField(grid; boundary_conditions = wbcs)
     set!(w_constant, load(w_constant_file, "w"))
     fill_halo_regions!(w_constant)
+    TRAF_OPTION_A && (parent(w_constant) .*= -1)
     @show w_constant
     velocities = PrescribedVelocityFields(u = u_constant, v = v_constant, w = w_constant)
 elseif W_FORMULATION == "wdiagnosed"

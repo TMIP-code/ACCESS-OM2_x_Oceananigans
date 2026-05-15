@@ -25,6 +25,51 @@ Environment variables:
   (Age solving has been factored out into solve_matrix_age.jl)
 """
 
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+
+if TRAF && TRAF_TM_SOURCE == "invVMtV"
+    # ── Option B: algebraic synthesis  M_traf = V⁻¹ Mᵀ V  from the forward M ──
+    # No autodiff, no Oceananigans heavy setup — just sparse linear algebra.
+    using JLD2, SparseArrays, LinearAlgebra
+    using Oceananigans
+    using Oceananigans.Architectures: CPU
+    include("shared_functions.jl")
+
+    (; parentmodel, experiment_dir, outputdir) = load_project_config()
+    (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
+    traf_mc = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+    fwd_mc = replace(traf_mc, r"_traf$" => "")
+    fwd_mc == traf_mc && error(
+        "TRAF=yes but model_config has no _traf suffix: $traf_mc. " *
+            "Check that build_model_config and env_defaults.sh agree on the _traf rule.",
+    )
+    fwd_M_path = joinpath(outputdir, "TM", fwd_mc, "const", "M.jld2")
+    @info "TRAF/invVMtV: loading forward M from $fwd_M_path"
+    isfile(fwd_M_path) || error(
+        "Forward M not found at $fwd_M_path. Build it first with the same MODEL_CONFIG " *
+            "but TRAF=no (e.g. TRAF=no JOB_CHAIN=TMbuild bash scripts/driver.sh).",
+    )
+    M = load(fwd_M_path, "M")
+
+    grid_file = joinpath(experiment_dir, "grid.jld2")
+    grid = load_tripolar_grid(grid_file, CPU())
+    (; idx, Nidx) = compute_wet_mask(grid)
+    v = interior(compute_volume(grid))[idx]
+    size(M, 1) == Nidx == length(v) || error(
+        "Size mismatch: M is $(size(M, 1))×$(size(M, 2)), Nidx=$Nidx, length(v)=$(length(v)). " *
+            "Forward M was likely built on a different grid configuration.",
+    )
+
+    invVMtV = sparse(Diagonal(v .^ -1)) * M' * sparse(Diagonal(v))
+    out_dir = joinpath(outputdir, "TM", traf_mc, "const")
+    mkpath(out_dir)
+    out_path = joinpath(out_dir, "invVMtV.jld2")
+    jldsave(out_path; M = invVMtV)
+    @info "TRAF/invVMtV: wrote $out_path  (nnz = $(nnz(invVMtV)))"
+    exit()
+end
+
 include("matrix_setup.jl")
 
 ################################################################################
@@ -47,9 +92,10 @@ flush(stdout); flush(stderr)
 @info "Sparsity pattern of M:"
 display(M)
 
-@info "Saving Jacobian to $(const_dir)"
+output_M_name = (TRAF && TRAF_TM_SOURCE == "M_traf") ? "M_traf.jld2" : "M.jld2"
+@info "Saving Jacobian to $(joinpath(const_dir, output_M_name))"
 flush(stdout); flush(stderr)
-jldsave(joinpath(const_dir, "M.jld2"); M)
+jldsave(joinpath(const_dir, output_M_name); M)
 
 fig = Figure()
 ax = Axis(fig[1, 1])

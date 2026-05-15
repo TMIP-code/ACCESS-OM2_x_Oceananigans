@@ -87,6 +87,35 @@ function load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
 end
 
 """
+    reverse_fts_time!(fts; flip_sign=false)
+
+In-place time reversal of a periodic monthly `FieldTimeSeries`: snapshot `i`
+↔ snapshot `N+1-i`. If `flip_sign=true`, also negates each snapshot afterwards
+(use for velocity FTS only). `fts.times` is unchanged — because the FTS uses
+`Cyclical` indexing on a uniformly-spaced monthly grid, reordering the snapshot
+data implements time reversal of the underlying continuous field.
+
+Used by the TRAF (Time-Reversed Adjoint Flow) feature: under `TRAF=yes`,
+`setup_model.jl` calls this on every monthly FTS after loading.
+"""
+function reverse_fts_time!(fts; flip_sign::Bool = false)
+    N = length(fts.times)
+    for i in 1:(N ÷ 2)
+        j = N + 1 - i
+        pi_, pj_ = parent(fts[i]), parent(fts[j])
+        @inbounds @simd for idx in eachindex(pi_)
+            pi_[idx], pj_[idx] = pj_[idx], pi_[idx]
+        end
+    end
+    if flip_sign
+        for i in 1:N
+            parent(fts[i]) .*= -1
+        end
+    end
+    return fts
+end
+
+"""
     load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
 Load MLD data and create a vertical diffusivity field.

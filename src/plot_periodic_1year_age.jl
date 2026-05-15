@@ -164,7 +164,11 @@ for n in 1:n_avg
 end
 @. age_buf = ifelse(wet3D, age_buf / n_avg, NaN)
 
-label = "age_periodic_mean_$(ADVECTION_SCHEME)"
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+age_base = TRAF ? "age_traf" : "age"
+tracer_title = TRAF ? "TRAF age (time to re-emergence)" : "age"
+
+label = "$(age_base)_periodic_mean_$(ADVECTION_SCHEME)"
 
 @info "Generating averaged diagnostic plots"
 flush(stdout); flush(stderr)
@@ -178,9 +182,9 @@ plot_age_diagnostics(age_buf, grid, wet3D, vol_3D, plot_dir, label; colorrange, 
 @info "Generating smooth animations (144 frames @ 24 fps, 6s per video)"
 flush(stdout); flush(stderr)
 
-anim_prefix = "age_periodic_$(ADVECTION_SCHEME)"
-animate_zonal_averages(age_fts, grid, wet3D, vol_3D, plot_dir, anim_prefix; colorrange, levels, colormap)
-animate_depth_slices(age_fts, grid, wet3D, plot_dir, anim_prefix; colorrange, levels, colormap)
+anim_prefix = "$(age_base)_periodic_$(ADVECTION_SCHEME)"
+animate_zonal_averages(age_fts, grid, wet3D, vol_3D, plot_dir, anim_prefix; colorrange, levels, colormap, tracer_title)
+animate_depth_slices(age_fts, grid, wet3D, plot_dir, anim_prefix; colorrange, levels, colormap, tracer_title)
 
 @info "plot_periodic_1year_age.jl complete — 10 averaged PNGs + 10 animations saved to $plot_dir"
 flush(stdout); flush(stderr)
