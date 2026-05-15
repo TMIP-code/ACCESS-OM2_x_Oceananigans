@@ -219,11 +219,17 @@ Unlike the IAF plan (which only needed small driver fixes), TRAF required a feat
 
 ## Submitted runs
 
-*To be filled in after submission (in a separate session).* Mirror the IAF table format once jobs are queued:
+Submitted 2026-05-16. `GIT_COMMIT=cd80157` (head at submission). Each driver invocation submits a 6-job chain `TMbuild → {TMslv_c, TMslv_cG, NK_c} → run1yrNK_c → plotNK` (TMslv_c and TMslv_cG run in parallel as CPU/GPU comparisons; NK_c depends only on TMbuild via the invVMtV short-circuit). 24 PBS jobs total.
 
-| (PM, TW) | Driver invocation | Jobs | TMbuild job | NK_c job | Plot job |
-|---|---|---|---|---|---|
-| OM2-1, 1968-1977 | TBD | 5 | TBD | TBD | TBD |
-| OM2-1, 1999-2008 | TBD | 5 | TBD | TBD | TBD |
-| OM2-025, 1968-1977 | TBD | 5 | TBD | TBD | TBD |
-| OM2-025, 1999-2008 | TBD | 5 | TBD | TBD | TBD |
+| (PM, TW) | GPU queue | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c | plotNK |
+|---|---|---|---|---|---|---|---|
+| OM2-1, 1968-1977 | gpuvolta | 168464264 | 168464265 | 168464266 | 168464267 | 168464268 | 168464270 |
+| OM2-1, 1999-2008 | gpuvolta | 168464274 | 168464275 | 168464276 | 168464277 | 168464278 | 168464279 |
+| OM2-025, 1968-1977 | gpuhopper | 168464308 | 168464309 | 168464310 | 168464311 | 168464312 | 168464313 |
+| OM2-025, 1999-2008 | gpuhopper | 168464316 | 168464317 | 168464318 | 168464319 | 168464320 | 168464321 |
+
+Manifests:
+- OM2-1 / 1968-1977 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T095315_748363.toml`
+- OM2-1 / 1999-2008 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T095401_753307.toml`
+- OM2-025 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T095620_766478.toml`
+- OM2-025 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T095646_769552.toml`
