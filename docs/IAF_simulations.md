@@ -185,3 +185,18 @@ Driver commit at submission: `db03214` (chain summary printed `GRID halos=(7,7,2
 Total: 42 PBS jobs. Manifests written under each `outputs/{PM}/{EXP}/{TW}/manifests/20260515T15…toml`. `scripts/runs/submissions.tsv` reconciled (PostToolUse hook + manual `bash scripts/runs/reconcile_submissions.sh`).
 
 To track progress: `qstat -u $USER` (auto-reconciles submissions.tsv via the PostToolUse hook). To watch logs once jobs start running: `tail -f logs/PBS/<job>.OU`.
+
+## Run status (last refreshed 2026-05-15, after first qstat sweep)
+
+| Pipeline | Preprocessing | TM build | TM solve (CPU+GPU) | NK_c | run1yrNK_c | plotNK |
+|---|---|---|---|---|---|---|
+| OM2-1 / 1968-1977   | ✅ exit 0 | ✅ exit 0 (6:55) | ✅ exit 0 (3:23 / 4:04) | ✅ exit 0 (23:48) | ✅ exit 0 (7:24) | ✅ exit 0 (7:21) |
+| OM2-1 / 1999-2008   | ✅ exit 0 | ✅ exit 0 (6:48) | ✅ exit 0 (3:07 / 3:20) | ✅ exit 0 (25:56) | ✅ exit 0 (6:26) | ✅ exit 0 (7:10) |
+| OM2-025 / 1968-1977 | ✅ exit 0 | ✅ exit 0 (40:28) | ✅ exit 0 (15:36 / 5:33) | 🟡 queued (gpuhopper) | ⏸ held | ⏸ held |
+| OM2-025 / 1999-2008 | ✅ exit 0 | ✅ exit 0 (38:16) | ✅ exit 0 (16:31 / 5:33) | 🟡 queued (gpuhopper) | ⏸ held | ⏸ held |
+
+Notable per-step walltimes (reconciled from `submissions.tsv`):
+- OM2-1: NK_c ≈ 24–26 min on gpuvolta; full pipeline ≈ 1h15m end-to-end.
+- OM2-025: TMbuild ≈ 38–40 min (CPU, ~80–90 GB mem); TMslv_c ≈ 16 min (~120–130 GB mem); NK_c waiting on gpuhopper slot.
+
+All 28 completed jobs (OM2-1 ×11 + ×10, OM2-025 preprocessing/TM ×7 + ×7) finished with exit code 0. No failures or restarts so far. Will refresh this section after the OM2-025 NK runs land.
