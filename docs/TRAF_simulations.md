@@ -115,7 +115,7 @@ Repeat for the other three (PM, TW) combinations. Total: **4 driver invocations,
 
 ## Pre-submission validation — FTS reversal smoke test
 
-Before submitting any TRAF NK run, submit and pass the `trafftsrev` test driver step. This loads each of the six monthly FTS files that TRAF reads (u, v, η, T, S, κV) one by one, also loads the corresponding non-reversed FTS, applies `reverse_fts_time!` with the matching `flip_sign` choice, and at a dense sweep of 24 clock times (snapshot-aligned + mid-snapshot midpoints across the 1-year period) verifies `reversed_fts[Time(t)] ≈ sign · forward_fts[Time(T - t)]`.
+Before submitting any TRAF NK run, submit and pass the `trafftsrev` test driver step. This loads each of the six monthly FTS files that TRAF reads (u, v, η, T, S, κV) one by one, also loads the corresponding non-reversed FTS, applies `reverse_fts_time!` with the matching `flip_sign` choice, and verifies (a) bit-exact `parent`-array equality at every snapshot index — `parent(rev[i]) == sign · parent(fwd[N+1-i])` — and (b) interpolated agreement `interior(rev[Time(t)]) ≈ sign · interior(fwd[Time(T - t)])` at 22 mid-snapshot clock times (avoiding exact snapshot times to sidestep an asymmetric Oceananigans code path in `fts[Time(t)]` between the n₁ == n₂ and n₁ ≠ n₂ cases — TRAF simulations always go through the n₁ ≠ n₂ linear-blend path, so mid-snapshot times are the relevant check).
 
 The test is OM2-1-only — `reverse_fts_time!` is grid-agnostic, so the OM2-1 run is sufficient as a smoke test for OM2-025 as well. Run once per TIME_WINDOW:
 

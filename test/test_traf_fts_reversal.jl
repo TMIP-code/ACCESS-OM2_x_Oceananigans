@@ -78,9 +78,22 @@ time_indexing = Cyclical(1year)
             end
         end
 
-        @testset "$(spec.name) — clock-time sweep (24 times)" begin
-            for k in 0:23
-                t = fwd.times[1] + k * (Δt / 2)
+        # Use only mid-snapshot times here. The exact snapshot times t = times[i]
+        # are already covered bit-exactly by the snapshot-aligned testset above
+        # (via `parent` equality on the raw stored data), and at exact snapshots
+        # Oceananigans' `fts[Time(t)]` takes asymmetric code paths: it returns
+        # the *stored* Field directly when n₁ == n₂ (e.g. t == times[1]), but
+        # builds a *new* Field via compute!(...) when n₁ ≠ n₂ (e.g. t == times[N],
+        # where ñ exactly equals 1.0). The new-Field path runs fill_halo_regions!,
+        # which for `v` at the tripolar fold (FPivotZipperBoundaryCondition,
+        # j = Ny) modifies the j = Ny row to enforce antisymmetry — so we'd be
+        # comparing raw stored data on one side against fill-halo'd data on the
+        # other and observe small differences from the MOM output's residual
+        # antisymmetry violation. Mid-snapshot times always trigger the same
+        # linear-blend path on both sides, so the comparison is well-posed.
+        @testset "$(spec.name) — mid-snapshot clock-time sweep (22 times)" begin
+            for k in 0:21
+                t = fwd.times[1] + Δt / 4 + k * (Δt / 2)
                 t_mirror = mod(T_period - t, T_period)
                 lhs = interior(rev[Time(t)])
                 rhs = sgn .* interior(fwd[Time(t_mirror)])
