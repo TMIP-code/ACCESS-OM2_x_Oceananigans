@@ -79,7 +79,7 @@ PARTITION=1x2 CPU + GPU baseline from
 [probe_tracer_tendency.jl](../test/probe_tracer_tendency.jl) as the
 control.
 
-### Probe A — `κV` halo at the seam (cheap; 0 new code)
+### Probe A — `κV` halo at the seam (cheap; 0 new code) — **DONE 2026-05-15: clean**
 
 The existing dumps already include `κV`. Read the rank-1 GPU vs CPU
 `κV` parent-array at parent y = 13 (south halo), 14 (first interior),
@@ -87,16 +87,20 @@ and the matching north-halo rows; print min/max/n_differ. If CPU and
 GPU disagree on `κV` at the seam-adjacent halo, the bug is upstream of
 the solver, in the κV halo-fill path.
 
-Expected outcome: clean. (`κV` is loaded once, partitioned by
-`partition_data.jl`, and the existing probe-iter-0 dump showed all
-inputs identical except `w`.) If it _is_ clean, this rules out
-"wrong κV halo on rank 1" as the upstream cause.
+Implementation: [`scripts/debugging/probe_kV_at_seam.jl`](../scripts/debugging/probe_kV_at_seam.jl)
+(commit e69499f). Run on the login node — pure JLD2 reading, no GPU
+needed:
 
-Skeleton: `scripts/debugging/probe_kV_at_seam.jl` — open the iter-0
-dump, slice `κV[:, [13, 14, ...], :]` on rank 1 for both arches, print
-side-by-side.
+```bash
+julia --project scripts/debugging/probe_kV_at_seam.jl
+```
 
-### Probe B — disable implicit vertical diffusion (direct confirmation)
+**Result:** `κV_age` is CPU↔GPU bit-identical on both ranks. max|diff|
+= 0 on every row of interest (parent y = 13, 14, 15, 163, 164, 165) and
+globally (4.3M cells). Rules out "wrong κV halo on rank 1" as the
+upstream cause.
+
+### Probe B — disable implicit vertical diffusion (direct confirmation) — **DONE 2026-05-15: bug vanishes → implicit_step! is the sole cause**
 
 Toggle `κVField` (the closure's κ) to zero, or temporarily replace
 `implicit_vertical_diffusion = VerticalScalarDiffusivity(...)` with
@@ -105,10 +109,41 @@ CPU 1×2). If the seam tracer drift vanishes, that **confirms**
 `implicit_step!` is the sole cause; if it persists, there is a second
 mechanism we haven't found.
 
-Cheapest path: add a `IMPLICIT_KAPPAV=no` env flag to
-[src/setup_model.jl](../src/setup_model.jl) that drops the implicit
-closure, tag outputs with a `_noKV` suffix so they don't clobber the
-default runs, and submit via the existing `diag` step.
+Implementation: `IMPLICIT_KAPPAV=yes|no` env var (default yes; commit
+4f57feb). When set to `no`, `src/setup_model.jl` drops
+`VerticalScalarDiffusivity` from the closure tuple; Oceananigans then
+returns `implicit_solver = nothing`, and `implicit_step!(field, ::Nothing,
+…) = nothing` makes the call site a clean no-op without touching the
+probe script's call site. Outputs are tagged with a `_noKV` suffix on
+MODEL_CONFIG.
+
+Probe re-fix (commit ff77a7a): `dump_kappa_v!` in
+[test/probe_tracer_tendency.jl](../test/probe_tracer_tendency.jl)
+previously hard-coded `closure[2]`. Now searches the tuple for
+`VerticalScalarDiffusivity` by type and returns early when none is
+present.
+
+Submit:
+```bash
+PARENT_MODEL=ACCESS-OM2-1 GPU_QUEUE=gpuvolta PARTITION=1x2 \
+    IMPLICIT_KAPPAV=no PROBE_NSTEPS=1 \
+    JOB_CHAIN=probetend-probetendcpu bash scripts/test_driver.sh
+PARENT_MODEL=ACCESS-OM2-1 PARTITION=1x2 IMPLICIT_KAPPAV=no \
+    JOB_CHAIN=compareprobe bash scripts/test_driver.sh
+```
+
+**Result:** with `IMPLICIT_KAPPAV=no`, the seam-row divergence
+vanishes:
+
+| stage | DEFAULT rank-1 max\|diff\| (seam) | noKV rank-1 max\|diff\| (seam) |
+|---|---|---|
+| post_explicit | 1.8e-12 s ULP (0)             | 1.8e-12 s ULP (0)            |
+| **post_implicit** | **4534.677 s (3769)**     | **1.8e-12 s ULP (0)**        |
+| iter-1 age   | 4534.677 s (4266)              | 1.8e-12 s ULP (0)            |
+
+`post_implicit` becomes equal to `post_explicit` exactly. **Confirms
+implicit_step! (the BatchedTridiagonalSolver path) is the sole cause
+of the GPU rank-1 seam tracer bug.** No second mechanism exists.
 
 ### Probe C — solver coefficients dump
 
