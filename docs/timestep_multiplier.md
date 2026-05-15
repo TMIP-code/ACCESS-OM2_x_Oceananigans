@@ -35,6 +35,9 @@ NK pipeline and both failed (M=6 crashed mid-Φ-call; M=12 stalled
 with the residual blowing up). They weren't run as standalone
 `run1yr`, but the integrator path is the same.
 
+Currently in flight (`run1yr-plot1yr`, single-GPU gpuvolta):
+SRK2-M=12 (job 168365882) — targeting the 6× speedup called out below.
+
 **Recommendation — best tested speedup: 4×** (AB2-M=4 or SRK3-M=12,
 tied). M=12 is the largest valid divisor of `N_base=5844` below the
 practical 18-h cap, so the speedup ceiling is bounded by `M=12`. The
@@ -100,6 +103,15 @@ AB2-M=6 hit NaN at sim iter 600 (~17 model days). The CFL on OM2-01
 at Δt=40min is only ~0.24, so this was AB2's truncation-error
 instability rather than a CFL bound — by analogy with OM2-025, SRK3
 at the same M should fix it.
+
+> **OM2-01 testing on hold** pending the distributed-tracer seam bug
+> (see [next_probes_implicit_step.md](next_probes_implicit_step.md)).
+> OM2-01 requires `PARTITION≥1x2` to fit a single H200, and rank 1's
+> `implicit_step!` is currently producing a 4534-second seam-row
+> divergence vs CPU. Cancelled the speculative SRK2-M=27 / SRK3-M=18 /
+> SRK3-M=27 multi-GPU submissions (jobs 168365964–168365970) — they'd
+> have re-tripped the same bug. Once `implicit_step!` is sorted, the
+> full sweep returns.
 
 **Recommendation — no clean ✓ yet, so no measured speedup.** CFL on
 the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL = 1` at
