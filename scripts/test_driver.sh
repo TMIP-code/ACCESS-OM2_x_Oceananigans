@@ -38,6 +38,9 @@
 #   scattergather — partitioned 1D scatter/gather test (step 2c of partitioned-NK
 #                   plan): production permutation Scatterv/Gatherv vs Oceananigans
 #                   3D-field round-trip reference (CPU only, 2 ranks, express)
+#   trafftsrev — TRAF FTS time-reversal smoke test (load u/v/η/T/S/κV monthly
+#                FTS for the active TIME_WINDOW, compare reversed vs forward at
+#                24 clock times; OM2-1 only, runs per TIME_WINDOW; CPU, express)
 
 set -euo pipefail
 
@@ -62,7 +65,7 @@ JOB_CHAIN=${JOB_CHAIN:-}
 if [[ -z "$JOB_CHAIN" ]]; then
     echo "Usage: JOB_CHAIN=<step[-step...]> [GPU_QUEUE=...] [PARTITION=...] [PARENT_MODEL=...] bash scripts/test_driver.sh"
     echo ""
-    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial probetend probetendcpu compareprobe compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance pardisompi scattergather"
+    echo "Available test steps: halofill halofillcpu jld2 diag diagcpu diagcpuserial probetend probetendcpu compareprobe compare plotpartitions gridmetrics gridtest mpi reducedfield prediagw prediagwNK mkappaVNK tmsym partbalance pardisompi scattergather trafftsrev"
     echo ""
     echo "Examples:"
     echo "  GPU_QUEUE=gpuvolta PARTITION=2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh"
@@ -222,6 +225,11 @@ has_step scattergather && \
     submit_job scattergather 00:30:00 scripts/tests/run_partition_scatter_gather_test.sh \
         --queue express --ngpus 0 --ncpus "$RANKS" --mem 47GB \
         --vars "PARTITION=${PARTITION},LOAD_BALANCE=${LOAD_BALANCE}" > /dev/null
+
+# trafftsrev: TRAF FTS time-reversal smoke test (CPU, express)
+has_step trafftsrev && \
+    submit_job trafftsrev 00:30:00 scripts/tests/run_traf_fts_reversal_test.sh \
+        --queue express --ngpus 0 --ncpus 2 --mem 48GB > /dev/null
 
 # --- Summary ---
 print_summary "${PARENT_MODEL}"

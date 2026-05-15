@@ -2,7 +2,7 @@
 
 ## Context
 
-The companion to [IAF_simulations.md](IAF_simulations.md). Same 2×2 (PM × TW) grid, same model physics, **but with the Time-Reversed Adjoint Flow flag `TRAF=yes`** so we compute the adjoint age (a.k.a. "time to re-emergence", Holzer & Hall 2000 / Khatiwala 2003) under each circulation. Together with the forward NK ages from the IAF runs, this gives us surface ventilation fractions via `V↓ = A⁻¹ V (age_traf / sink_timescale)` (Pasquier *et al.* 2024, *JGR-Oceans*, doi:10.1029/2024JC021043).
+The companion to [IAF_simulations.md](IAF_simulations.md). Same 2×2 (PM × TW) grid, same model physics, **but with the Time-Reversed Adjoint Flow flag `TRAF=yes`** so we compute the adjoint age (a.k.a. "time to re-emergence", Holzer & Hall 2000 / Khatiwala 2003) under each circulation. Together with the forward NK ages from the IAF runs, this gives us the surface ventilation volume per unit area `𝒱ꜜ = A⁻¹ V (age_traf / sink_timescale)` (Pasquier *et al.* 2024, *JGR-Oceans*, doi:10.1029/2024JC021043). Units: m³/m² = m — without the `A⁻¹` factor, `V (age_traf / sink_timescale)` is the ocean volume ventilated per surface grid cell; `A⁻¹` converts that to a per-unit-area quantity. (File/variable name for downstream scripts: `calVdown`.)
 
 |              | TW=1968-1977 | TW=1999-2008 |
 |--------------|--------------|--------------|
@@ -44,6 +44,37 @@ The unified MODEL_CONFIG tag is `totaltransport_wdiagnosed_centered2_SRK3_mkappa
 | `GRID_HX/HY/HZ` | 7/7/2 | (same as IAF — grid + FTS already on disk from IAF preprocessing) |
 | `MLD_TIME_WINDOW` | (unset) | (same as IAF) |
 
+## Dependencies on IAF runs
+
+TRAF jobs read but do not (re)generate anything in the `preprocessed_inputs/` tree. Specifically, each TRAF (PM, TW) run reads:
+
+- **Forward `M.jld2`**: `outputs/{PM}/{EXP}/{TW}/TM/{MC}/const/M.jld2`, produced by IAF `TMbuild` (with `MC = totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12`, **no** `_traf` suffix). Required for `invVMtV` synthesis.
+- **Six monthly FTS files**, all under `preprocessed_inputs/{PM}/{EXP}/{TW}/monthly/`:
+  - `u_from_total_transport_monthly.jld2` (reversed and sign-flipped in memory)
+  - `v_from_total_transport_monthly.jld2` (reversed and sign-flipped in memory)
+  - `eta_monthly.jld2` (reversed only)
+  - `temp_monthly.jld2` (reversed only)
+  - `salt_monthly.jld2` (reversed only)
+  - `kappa_v_monthly.jld2` (reversed only)
+
+Within an IAF driver invocation the DAG `prep → grid → vel → clo → diagnose_w → TMbuild` makes all of these implicit `afterok` dependencies. But TRAF is a **separate driver invocation** that does not auto-inherit those PBS deps. Two coordination strategies (expanded under "Submission strategy" below):
+
+- **Option 1 — PBS deps**: pass `TMBUILD_JOB=<iaf-tmbuild-id>` to the TRAF driver invocation. This is sufficient: IAF's `TMbuild` has its own `afterok` dependency on `clo`+`diagw` (and transitively on `prep`/`grid`/`vel`), so all six monthly FTS files are guaranteed present whenever the TRAF `TMbuild` is allowed to start.
+- **Option 2 — wait**: confirm all four IAF `TMbuild` jobs have produced their forward `M.jld2`, then verify the six monthly FTS files exist on disk (one-liner below) before submitting TRAF.
+
+Pre-submission existence check (Option 2):
+```bash
+MC=totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12
+for PM in ACCESS-OM2-1 ACCESS-OM2-025; do
+  for TW in 1968-1977 1999-2008; do
+    for f in u_from_total_transport v_from_total_transport eta temp salt kappa_v; do
+      ls preprocessed_inputs/$PM/*/$TW/monthly/${f}_monthly.jld2
+    done
+    ls outputs/$PM/*/$TW/TM/$MC/const/M.jld2
+  done
+done
+```
+
 ## Pipeline (JOB_CHAIN per driver invocation)
 
 Each (PM, TW) needs: `TMbuild → TMsolve(const) → NK(const) → run1yrNK(const) → plotNK`. **No preprocessing, no `grid`/`vel`/`clo`/`diagnose_w` steps** — those are TRAF-agnostic and already on disk from the IAF runs. Encoded as:
@@ -81,6 +112,21 @@ bash scripts/driver.sh
 ```
 
 Repeat for the other three (PM, TW) combinations. Total: **4 driver invocations, 4 NK adjoint runs**.
+
+## Pre-submission validation — FTS reversal smoke test
+
+Before submitting any TRAF NK run, submit and pass the `trafftsrev` test driver step. This loads each of the six monthly FTS files that TRAF reads (u, v, η, T, S, κV) one by one, also loads the corresponding non-reversed FTS, applies `reverse_fts_time!` with the matching `flip_sign` choice, and at a dense sweep of 24 clock times (snapshot-aligned + mid-snapshot midpoints across the 1-year period) verifies `reversed_fts[Time(t)] ≈ sign · forward_fts[Time(T - t)]`.
+
+The test is OM2-1-only — `reverse_fts_time!` is grid-agnostic, so the OM2-1 run is sufficient as a smoke test for OM2-025 as well. Run once per TIME_WINDOW:
+
+```bash
+PARENT_MODEL=ACCESS-OM2-1 TIME_WINDOW=1968-1977 JOB_CHAIN=trafftsrev bash scripts/test_driver.sh
+PARENT_MODEL=ACCESS-OM2-1 TIME_WINDOW=1999-2008 JOB_CHAIN=trafftsrev bash scripts/test_driver.sh
+```
+
+Pass criterion: log under `logs/julia/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/{TW}/test/traf_fts_reversal_*.log` shows all `@test` passing (no `Test Failed`), and ends with `Done running test/test_traf_fts_reversal.jl`.
+
+If a test fails, do **not** submit any TRAF NK run — investigate the reversal helper or the FTS load path first.
 
 ## Critical files / paths
 
@@ -144,14 +190,13 @@ After all 4 invocations have completed:
 
 4. **plotNK output** — confirm `age_traf_*` PNGs/MP4s were produced under each `outputs/.../periodic/$MC_TRAF/NK/` with "TRAF age (time to re-emergence)" in the titles.
 
-5. **FTS reversal smoke test** (one-off, optional but recommended for first submission):
-   In a REPL after `setup_model.jl` runs under `TRAF=yes`, load the corresponding non-TRAF FTS in a sibling session and check `parent(u_ts_traf[m]) ≈ -parent(u_ts_fwd[N+1-m])` (and the analogous identities for v, η, T, S, κV) for a few snapshot indices `m`.
+5. **Cross-run deliverable** — once all four `age_Pardiso_LSprec.jld2` files exist under `…_traf/NK/`, plus the forward equivalents from IAF, derive the surface ventilation volume per unit area
+   ```
+   𝒱ꜜ = A⁻¹ V (age_traf / sink_timescale)
+   ```
+   (units m³/m² = m; `sink_timescale = 3Δt` from `age_parameters` in [setup_model.jl](../src/setup_model.jl)) in a notebook / small comparison script (suggested variable name `calVdown`). **Out of scope for this plan**; this is the downstream deliverable the runs feed.
 
-6. **Cross-run deliverable** — once all four `age_Pardiso_LSprec.jld2` files exist under `…_traf/NK/`, plus the forward equivalents from IAF, derive the surface ventilation fraction
-   ```
-   V↓ = A⁻¹ V (age_traf / sink_timescale)
-   ```
-   (sink_timescale = 3Δt from `age_parameters` in [setup_model.jl](../src/setup_model.jl)) in a notebook / small comparison script. **Out of scope for this plan**; this is the downstream deliverable the runs feed.
+(The previous bullet 5 — a REPL-style one-off FTS reversal smoke test — has been superseded by the automated `trafftsrev` test driver step under "Pre-submission validation" above.)
 
 ## Implementation done before submission
 
