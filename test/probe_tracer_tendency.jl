@@ -16,7 +16,8 @@ Dumps land in `{outputdir}/standardrun/{MC}/{px x py}/probe/`:
     probe_age_{cpu|gpu}_iter{N}_post_implicit{_rank{R}}{_noACM}.jld2 # after implicit_step!
 
 The full-state dumps now also include the vertical-diffusion `κ` field
-(`closure[2].κ`) and any non-nothing entries of `model.closure_fields`.
+(the `VerticalScalarDiffusivity` component of `model.closure`, if present)
+and any non-nothing entries of `model.closure_fields`.
 
 `PROBE_NSTEPS` controls how many manual-decomposed steps are run
 (default 1 — covers iter 0 → iter 1, the step in which the docs say the
@@ -46,7 +47,7 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels:
     correct_barotropic_mode!,
     mask_immersed_horizontal_velocities!,
     _ab2_step_tracer_field!
-using Oceananigans.TurbulenceClosures: implicit_step!
+using Oceananigans.TurbulenceClosures: implicit_step!, VerticalScalarDiffusivity
 using Oceananigans.OutputReaders: TimeSeriesInterpolation
 using Oceananigans.Architectures: architecture, on_architecture, child_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
@@ -85,12 +86,16 @@ dump_velocity(v) = v isa TimeSeriesInterpolation ?
 
 ug = model.grid isa ImmersedBoundaryGrid ? model.grid.underlying_grid : model.grid
 
-# Diffusivity field used by implicit vertical diffusion. closure ==
-# (horizontal_diffusion, implicit_vertical_diffusion) in this setup, so the
-# vertical one is closure[2] and its κ is the (per-tracer) field.
+# Diffusivity field used by implicit vertical diffusion. Search the closure
+# tuple for the VerticalScalarDiffusivity component (its position varies with
+# config: index 2 for (horizontal, implicit_vertical), index 1 for
+# (implicit_vertical, gm_redi); absent when IMPLICIT_KAPPAV=no).
 function dump_kappa_v!(f)
     closure = model.closure
-    vd = closure isa Tuple ? closure[2] : closure
+    closure_tuple = closure isa Tuple ? closure : (closure,)
+    vd_idx = findfirst(c -> c isa VerticalScalarDiffusivity, closure_tuple)
+    vd_idx === nothing && return nothing
+    vd = closure_tuple[vd_idx]
     if hasproperty(vd, :κ)
         κ = vd.κ
         if κ isa AbstractField
