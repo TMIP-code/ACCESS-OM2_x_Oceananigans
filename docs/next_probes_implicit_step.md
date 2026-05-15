@@ -4,6 +4,30 @@ Plan file for the next debugging session. The bug we are chasing is
 documented in [serial_vs_distributed_validation.md](serial_vs_distributed_validation.md);
 this file picks up where that one left off.
 
+## RESOLVED 2026-05-16 — fixed upstream in Oceananigans 0.107.7
+
+The bug isolated by Probes A/B/C (a CPU↔GPU divergence in
+`solve_batched_tridiagonal_system_kernel!` on the rank-1 fold-owning
+path) is fixed upstream and pulled in via the
+[`bp/offline_ACCESS-OM2_v3`](https://github.com/briochemc/Oceananigans.jl/tree/bp/offline_ACCESS-OM2_v3)
+fork bump from `0.107.6` to `0.107.7` (commit e5c4e36 here, Oceananigans
+tree-sha `8844e43`).
+
+End-to-end verification on the original failing case (OM2-1 1968-1977,
+`centered2_AB2`, gpuvolta):
+
+| run        | PBS job        | wallclock | notes                       |
+|------------|---------------:|----------:|-----------------------------|
+| serial 1×1 | 168447353      | 7:14      | 1-year, gpuvolta            |
+| dist 1×2   | 168447357      | 8:42      | 1-year, gpuvolta            |
+| compare    | 168447438      | 4:45      | `DURATION_TAG=1year`         |
+
+Visual end-of-year age plot from
+`scripts/plotting/compare_runs_across_architectures.sh` confirms the
+seam-row divergence is gone. Stop condition reached.
+
+The trail below is preserved for reference; sections are unchanged.
+
 ## TL;DR — what we know as of 2026-05-15
 
 **The bug is in `implicit_step!` (implicit vertical-diffusion tridiagonal
