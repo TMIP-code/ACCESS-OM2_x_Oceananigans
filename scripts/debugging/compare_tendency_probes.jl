@@ -56,6 +56,14 @@ function probe_path(device, iter, rank)
     )
 end
 
+function age_snapshot_path(device, iter, stage, rank)
+    suffix = rank < 0 ? "" : "_rank$(rank)"
+    return joinpath(
+        probe_root,
+        "probe_age_$(device)_iter$(iter)_$(stage)$(suffix)$(acm_suffix).jld2",
+    )
+end
+
 function open_keys(path)
     return jldopen(path, "r") do f
         return Dict(k => f[k] for k in keys(f) if !startswith(k, "meta"))
@@ -140,6 +148,45 @@ for iter in 0:nsteps, r in ranks
             @printf "  → Gn_age seam row (rank1 parent y=%d): max|diff|=%.6e  n_differ=%d / %d\n" (Hy + 1) seam.max_abs seam.n_differ seam.n_finite
         end
     end
+    if haskey(cpu, "age") && haskey(gpu, "age") && r == 1
+        seam = seam_row_diff(cpu["age"], gpu["age"])
+        if seam !== nothing
+            @printf "  → age seam row    (rank1 parent y=%d): max|diff|=%.6e  n_differ=%d / %d\n" (Hy + 1) seam.max_abs seam.n_differ seam.n_finite
+        end
+    end
+end
+
+# Intra-step age snapshots — one per step, two stages (post_explicit / post_implicit).
+# The story: if `post_explicit` already differs CPU vs GPU → bug is in
+# `_ab2_step_tracer_field!`. If only `post_implicit` differs → bug is in
+# `implicit_step!` (the vertical-diffusion tridiagonal solve).
+for step_iter in 0:(nsteps - 1), stage in ("post_explicit", "post_implicit"), r in ranks
+    cpu_path = age_snapshot_path("cpu", step_iter, stage, r)
+    gpu_path = age_snapshot_path("gpu", step_iter, stage, r)
+    if !isfile(cpu_path) || !isfile(gpu_path)
+        @warn "missing intra-step snapshot" stage step_iter rank = r cpu = cpu_path gpu = gpu_path
+        continue
+    end
+
+    rank_label = r < 0 ? "serial" : "rank$(r)"
+    println("\n──── step $step_iter→$(step_iter + 1), $stage, $rank_label ────")
+
+    cpu = open_keys(cpu_path)
+    gpu = open_keys(gpu_path)
+
+    any_diff = false
+    for k in sort(collect(intersect(keys(cpu), keys(gpu))))
+        a, b = cpu[k], gpu[k]
+        (a isa AbstractArray && b isa AbstractArray) || continue
+        size(a) == size(b) || continue
+        s = diff_summary(a, b)
+        if s.max_abs > 0
+            any_diff = true
+            @printf "  %-25s shape=%-22s max|diff|=%.6e  n_differ=%d / %d\n" k string(size(a)) s.max_abs s.n_differ s.n_finite
+        end
+    end
+    any_diff || println("  (age + Gn_age bit-identical CPU vs GPU at this stage)")
+
     if haskey(cpu, "age") && haskey(gpu, "age") && r == 1
         seam = seam_row_diff(cpu["age"], gpu["age"])
         if seam !== nothing

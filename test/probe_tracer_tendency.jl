@@ -1,26 +1,26 @@
 """
-Dump tracer-tendency `Gⁿ.age` + every input the tendency kernel reads, at
-iter 0 (pre-step) and iter 1 (post first Euler step). Compare CPU 1×2 vs
-GPU 1×2 dumps with `scripts/debugging/compare_tendency_probes.jl` to
-discriminate:
+Dump tracer-tendency `Gⁿ.age` + every input the tendency kernel reads, plus
+the intra-step age field at three points: before `ab2_step_tracers!`, after
+the explicit Euler kernel `_ab2_step_tracer_field!`, and after
+`implicit_step!` (the implicit vertical-diffusion solve).
 
-  - identical inputs at iter 0 + different `Gⁿ.age` at iter 1
-        → GPU-specific tendency-kernel bug
-  - inputs already differ at iter 0
-        → upstream bug (FTS loader, partition data, grid metrics, halos)
+Why these three: the previous round of comparison showed CPU 1×2 and GPU
+1×2 produce **bit-identical `Gⁿ.age`** but **different `age` after the full
+step** — so the bug is between Gⁿ-write and the final age. Splitting
+`ab2_step_tracers!` into its two halves isolates whether the divergence
+comes from the explicit AB2 update kernel or from `implicit_step!`.
 
-`Gⁿ.age` after `time_step!` still holds the tendency that was just
-computed and applied — `cache_previous_tendencies!` copies it to `G⁻`
-without zeroing `Gⁿ`, and nothing else writes to `Gⁿ.age` between the AB2
-step and the next `compute_tracer_tendencies!`. So a callback at the end
-of each iteration captures the same `Gⁿ.age` we would have captured with
-a manual `time_step!` decomposition.
+Dumps land in `{outputdir}/standardrun/{MC}/{px x py}/probe/`:
+    probe_tendency_{cpu|gpu}_iter{N}{_rank{R}}{_noACM}.jld2          # full state
+    probe_age_{cpu|gpu}_iter{N}_post_explicit{_rank{R}}{_noACM}.jld2 # after _ab2_step_tracer_field!
+    probe_age_{cpu|gpu}_iter{N}_post_implicit{_rank{R}}{_noACM}.jld2 # after implicit_step!
 
-Outputs land in `{outputdir}/standardrun/{MC}/{px x py}/probe/`:
-    probe_tendency_{cpu|gpu}_iter{N}{_rank{R}}{_noACM}.jld2
+The full-state dumps now also include the vertical-diffusion `κ` field
+(`closure[2].κ`) and any non-nothing entries of `model.closure_fields`.
 
-Set `PROBE_NSTEPS=10` to extend the dump to iter 0..10 (and watch the
-bell-shape build up on GPU+1×2).
+`PROBE_NSTEPS` controls how many manual-decomposed steps are run
+(default 1 — covers iter 0 → iter 1, the step in which the docs say the
+GPU seam bug first fires).
 
 Usage (via PBS):
   PARTITION=1x2 JOB_CHAIN=probetend    bash scripts/test_driver.sh   # GPU
@@ -30,9 +30,28 @@ Usage (via PBS):
 include("../src/setup_model.jl")
 include("../src/setup_simulation.jl")
 
+using Oceananigans.TimeSteppers:
+    update_state!,
+    cache_previous_tendencies!,
+    tick!,
+    step_closure_prognostics!
+using Oceananigans.Models.HydrostaticFreeSurfaceModels:
+    compute_tracer_tendencies!,
+    compute_momentum_flux_bcs!,
+    compute_free_surface_tendency!,
+    step_free_surface!,
+    compute_transport_velocities!,
+    ab2_step_velocities!,
+    ab2_step_grid!,
+    correct_barotropic_mode!,
+    mask_immersed_horizontal_velocities!,
+    _ab2_step_tracer_field!
+using Oceananigans.TurbulenceClosures: implicit_step!
 using Oceananigans.OutputReaders: TimeSeriesInterpolation
 using Oceananigans.Architectures: architecture, on_architecture, child_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
+using Oceananigans.Fields: AbstractField
+using Oceananigans.Utils: launch!
 
 if arch isa Distributed
     using MPI
@@ -61,21 +80,57 @@ rank_suffix = arch isa Distributed ? "_rank$(rank)" : ""
 
 host(x) = Array(on_architecture(CPU(), x))
 
-# u/v are TimeSeriesInterpolation (wrapping FTS); w is a materialised Field
-# from DiagnosticVerticalVelocity. The FTS buffer holds all loaded snapshots
-# (including halo cells), so we dump the whole thing — only ~Hy halo rows per
-# snapshot are actually consumed at iter 0, but we get the iter≥1 inputs for free.
 dump_velocity(v) = v isa TimeSeriesInterpolation ?
     host(parent(v.time_series.data)) : host(parent(v))
 
 ug = model.grid isa ImmersedBoundaryGrid ? model.grid.underlying_grid : model.grid
 
-function dump_state(model, n::Integer)
+# Diffusivity field used by implicit vertical diffusion. closure ==
+# (horizontal_diffusion, implicit_vertical_diffusion) in this setup, so the
+# vertical one is closure[2] and its κ is the (per-tracer) field.
+function dump_kappa_v!(f)
+    closure = model.closure
+    vd = closure isa Tuple ? closure[2] : closure
+    if hasproperty(vd, :κ)
+        κ = vd.κ
+        if κ isa AbstractField
+            f["κV"] = host(parent(κ))
+        elseif κ isa NamedTuple
+            for (name, fld) in pairs(κ)
+                fld isa AbstractField && (f["κV_$(name)"] = host(parent(fld)))
+            end
+        elseif κ isa Number
+            f["κV_scalar"] = Float64(κ)
+        end
+    end
+    return nothing
+end
+
+function dump_closure_fields!(f)
+    cf = model.closure_fields
+    cf === nothing && return nothing
+    iter_pairs = cf isa Tuple ? enumerate(cf) :
+        cf isa NamedTuple ? pairs(cf) :
+        [(1, cf)]
+    for (key, entry) in iter_pairs
+        entry === nothing && continue
+        if entry isa AbstractField
+            f["closure_fields/$key"] = host(parent(entry))
+        elseif entry isa NamedTuple
+            for (sub_key, fld) in pairs(entry)
+                fld isa AbstractField && (f["closure_fields/$key/$sub_key"] = host(parent(fld)))
+            end
+        end
+    end
+    return nothing
+end
+
+function dump_full_state(model, n::Integer)
     out_path = joinpath(
         probe_root,
         "probe_tendency_$(device_str)_iter$(n)$(rank_suffix)$(noACM_suffix()).jld2",
     )
-    @info "PROBE_TEND: rank=$rank dumping iter=$n to $out_path"
+    @info "PROBE_TEND: rank=$rank full dump iter=$n → $out_path"
 
     jldopen(out_path, "w") do f
         f["meta/iteration"] = model.clock.iteration
@@ -88,15 +143,12 @@ function dump_state(model, n::Integer)
         f["meta/chi"] = model.timestepper.χ
         f["meta/active_cells_map"] = active_cells_map_enabled()
 
-        # Tracer (parent: includes halos)
         f["age"] = host(parent(model.tracers.age))
 
-        # Velocities
         f["u_fts"] = dump_velocity(model.velocities.u)
         f["v_fts"] = dump_velocity(model.velocities.v)
         f["w"] = host(parent(model.velocities.w))
 
-        # Free-surface displacement (FTS-backed for our setup)
         eta_disp = model.free_surface.displacement
         if eta_disp isa TimeSeriesInterpolation
             f["eta_fts"] = host(parent(eta_disp.time_series.data))
@@ -105,11 +157,9 @@ function dump_state(model, n::Integer)
             f["eta_fts"] = host(parent(eta_disp))
         end
 
-        # AB2 tendency state
         f["Gn_age"] = host(parent(model.timestepper.Gⁿ.age))
         f["Gm_age"] = host(parent(model.timestepper.G⁻.age))
 
-        # z-star vertical-coordinate internals (MutableVerticalDiscretization)
         if hasproperty(ug.z, :σᶜᶜⁿ)
             f["sigma_cc"] = host(parent(ug.z.σᶜᶜⁿ))
         end
@@ -120,9 +170,6 @@ function dump_state(model, n::Integer)
             f["dt_sigma"] = host(parent(ug.z.∂t_σ))
         end
 
-        # Grid metrics (constructed at partition time — the docs flag these
-        # as candidates for a partition-construction off-by-one at the rank's
-        # south boundary).
         for (name, prop) in [
                 ("Dx_cca", :Δxᶜᶜᵃ), ("Dy_cca", :Δyᶜᶜᵃ), ("Az_cca", :Azᶜᶜᵃ),
                 ("Dx_fca", :Δxᶠᶜᵃ), ("Dy_fca", :Δyᶠᶜᵃ), ("Az_fca", :Azᶠᶜᵃ),
@@ -134,30 +181,125 @@ function dump_state(model, n::Integer)
             end
         end
 
-        # Immersed-boundary bottom topography
         if model.grid isa ImmersedBoundaryGrid
             ib = model.grid.immersed_boundary
             if hasproperty(ib, :bottom_height)
                 f["bottom_height"] = host(parent(ib.bottom_height.data))
             end
         end
+
+        dump_kappa_v!(f)
+        dump_closure_fields!(f)
     end
     flush(stdout); flush(stderr)
     return out_path
 end
 
-nsteps = parse(Int, get(ENV, "PROBE_NSTEPS", "1"))
-@info "PROBE_TEND: rank=$rank PROBE_NSTEPS=$nsteps (dumping iter 0..$nsteps)"
+# Lightweight mid-step dump: just age + Gⁿ (small files for quick diffing).
+function dump_age_snapshot(model, n::Integer, stage::AbstractString)
+    out_path = joinpath(
+        probe_root,
+        "probe_age_$(device_str)_iter$(n)_$(stage)$(rank_suffix)$(noACM_suffix()).jld2",
+    )
+    @info "PROBE_TEND: rank=$rank age snapshot iter=$n stage=$stage → $out_path"
+    jldopen(out_path, "w") do f
+        f["meta/iteration"] = model.clock.iteration
+        f["meta/clock_time"] = model.clock.time
+        f["meta/stage"] = stage
+        f["meta/Δt"] = Δt
+        f["age"] = host(parent(model.tracers.age))
+        f["Gn_age"] = host(parent(model.timestepper.Gⁿ.age))
+    end
+    flush(stdout); flush(stderr)
+    return out_path
+end
 
-# Initial state (pre any time_step!). update_state! has already run inside
-# the model constructor, so velocities, w-from-continuity, and tracer halos
-# are filled.
-dump_state(model, 0)
+"""
+Replicate `time_step!` for `HydrostaticFreeSurfaceModel + QAB2 +
+PrescribedVelocityFields + PrescribedFreeSurface`, but split
+`ab2_step_tracers!` into its explicit and implicit halves and dump the
+age field between them.
+"""
+function step_with_intra_dumps!(model, Δt, iter_n::Integer)
+    @info "PROBE_TEND: rank=$rank manual step iter $iter_n → $(iter_n + 1)"
+
+    FT = eltype(model.grid)
+    χ_orig = model.timestepper.χ
+    euler = (model.clock.iteration == 0) || (Δt != model.clock.last_Δt)
+    χ_step = euler ? convert(FT, -0.5) : χ_orig
+    model.timestepper.χ = χ_step
+
+    # maybe_prepare_first_time_step!: at iter 0, QAB2 calls update_state!.
+    if model.clock.iteration == 0
+        update_state!(model, [])
+    end
+
+    # Pre-tracer-tendency block of hydrostatic_ab2_step! — most no-ops for
+    # PrescribedVelocityFields + PrescribedFreeSurface, but we run them so
+    # the model state matches exactly what `compute_tracer_tendencies!`
+    # would normally see.
+    compute_momentum_flux_bcs!(model)
+    compute_free_surface_tendency!(model.grid, model, model.free_surface)
+    step_free_surface!(model.free_surface, model, model.timestepper, Δt)
+    compute_transport_velocities!(model, model.free_surface)
+    ab2_step_velocities!(model.velocities, model, Δt, χ_step)
+    mask_immersed_horizontal_velocities!(model.velocities)
+    let u = model.velocities.u, v = model.velocities.v
+        fill_halo_regions!((u, v), model.clock, fields(model); async = true)
+    end
+
+    compute_tracer_tendencies!(model)
+    ab2_step_grid!(model.grid, model, model.vertical_coordinate, Δt, χ_step)
+    correct_barotropic_mode!(model, Δt)
+
+    # Manual split of ab2_step_tracers!. Only `age` is in our setup.
+    tracer_index = 1
+    tracer_name = :age
+    Gⁿ = model.timestepper.Gⁿ[tracer_name]
+    G⁻ = model.timestepper.G⁻[tracer_name]
+    tracer_field = model.tracers[tracer_name]
+    grid = model.grid
+
+    launch!(
+        architecture(grid), grid, :xyz,
+        _ab2_step_tracer_field!, tracer_field, grid, convert(FT, Δt), χ_step, Gⁿ, G⁻
+    )
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+
+    dump_age_snapshot(model, iter_n, "post_explicit")
+
+    implicit_step!(
+        tracer_field,
+        model.timestepper.implicit_solver,
+        model.closure,
+        model.closure_fields,
+        Val(tracer_index),
+        model.clock,
+        fields(model),
+        Δt
+    )
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+
+    dump_age_snapshot(model, iter_n, "post_implicit")
+
+    # Finish time_step!: cache, tick, closure, update_state.
+    cache_previous_tendencies!(model)
+    tick!(model.clock, Δt)
+    step_closure_prognostics!(model, Δt)
+    update_state!(model, [])
+    model.clock.last_Δt = Δt
+    model.timestepper.χ = χ_orig
+    return nothing
+end
+
+nsteps = parse(Int, get(ENV, "PROBE_NSTEPS", "1"))
+@info "PROBE_TEND: rank=$rank PROBE_NSTEPS=$nsteps (full dumps at iter 0..$nsteps; intra dumps at each step)"
+
+dump_full_state(model, 0)
 
 for n in 1:nsteps
-    @info "PROBE_TEND: rank=$rank time_step!($n)"
-    time_step!(model, Δt)
-    dump_state(model, n)
+    step_with_intra_dumps!(model, Δt, n - 1)
+    dump_full_state(model, n)
 end
 
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
