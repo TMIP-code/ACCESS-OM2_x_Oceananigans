@@ -14,6 +14,8 @@ Dumps land in `{outputdir}/standardrun/{MC}/{px x py}/probe/`:
     probe_tendency_{cpu|gpu}_iter{N}{_rank{R}}{_noACM}.jld2          # full state
     probe_age_{cpu|gpu}_iter{N}_post_explicit{_rank{R}}{_noACM}.jld2 # after _ab2_step_tracer_field!
     probe_age_{cpu|gpu}_iter{N}_post_implicit{_rank{R}}{_noACM}.jld2 # after implicit_step!
+    probe_implicit_coeffs_{cpu|gpu}_iter{N}{_rank{R}}{_noACM}.jld2   # a/b/c LHS coefficients
+                                                                     # (Probe C, only when implicit_solver != nothing)
 
 The full-state dumps now also include the vertical-diffusion `κ` field
 (the `VerticalScalarDiffusivity` component of `model.closure`, if present)
@@ -47,12 +49,15 @@ using Oceananigans.Models.HydrostaticFreeSurfaceModels:
     correct_barotropic_mode!,
     mask_immersed_horizontal_velocities!,
     _ab2_step_tracer_field!
-using Oceananigans.TurbulenceClosures: implicit_step!, VerticalScalarDiffusivity
+using Oceananigans.TurbulenceClosures: implicit_step!, VerticalScalarDiffusivity,
+    VerticallyImplicitTimeDiscretization, time_discretization
 using Oceananigans.OutputReaders: TimeSeriesInterpolation
 using Oceananigans.Architectures: architecture, on_architecture, child_architecture
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
-using Oceananigans.Fields: AbstractField
+using Oceananigans.Fields: AbstractField, location
 using Oceananigans.Utils: launch!
+using Oceananigans.Solvers: get_coefficient
+using KernelAbstractions: @index, @kernel
 
 if arch isa Distributed
     using MPI
@@ -220,6 +225,95 @@ function dump_age_snapshot(model, n::Integer, stage::AbstractString)
 end
 
 """
+Dump the tridiagonal LHS coefficients (a, b, c) that `implicit_step!`
+would feed to `BatchedTridiagonalSolver` if it were called *right now*.
+
+The solver doesn't materialise a/b/c — it computes them per-cell inside
+the GPU kernel via `get_coefficient(i, j, k, grid, extractor, p, td, args...)`.
+We mirror exactly that call from a separate kernel and write the values
+into 3D arrays so we can compare CPU vs GPU side-by-side at the seam row.
+
+Skips silently when `implicit_solver === nothing` (IMPLICIT_KAPPAV=no).
+"""
+@kernel function _compute_ivd_coefficients_kernel!(
+        a_arr, b_arr, c_arr, grid,
+        solver_a, solver_b, solver_c, solver_p, td, args,
+    )
+    i, j, k = @index(Global, NTuple)
+    @inbounds begin
+        a_arr[i, j, k] = get_coefficient(i, j, k, grid, solver_a, solver_p, td, args...)
+        b_arr[i, j, k] = get_coefficient(i, j, k, grid, solver_b, solver_p, td, args...)
+        c_arr[i, j, k] = get_coefficient(i, j, k, grid, solver_c, solver_p, td, args...)
+    end
+end
+
+function dump_implicit_coefficients(model, n::Integer, Δt)
+    solver = model.timestepper.implicit_solver
+    solver === nothing && return nothing
+
+    tracer_index = 1
+    tracer_name = :age
+    tracer_field = model.tracers[tracer_name]
+    grid = model.grid
+    arch = architecture(grid)
+    FT = eltype(grid)
+
+    # Mirror implicit_step!'s closure filtering — only the vertically-implicit
+    # components survive.
+    closure = model.closure
+    closure_fields_ = model.closure_fields
+    if closure isa Tuple
+        N = length(closure)
+        keep = ntuple(n -> time_discretization(closure[n]) isa VerticallyImplicitTimeDiscretization, N)
+        vi_closure = Tuple(closure[n]        for n in 1:N if keep[n])
+        vi_closure_fields = Tuple(closure_fields_[n] for n in 1:N if keep[n])
+    else
+        vi_closure = closure
+        vi_closure_fields = closure_fields_
+    end
+
+    LX, LY, LZ = location(tracer_field)
+    Nx, Ny, Nz = size(grid)
+    a_arr = on_architecture(arch, zeros(FT, Nx, Ny, Nz))
+    b_arr = on_architecture(arch, zeros(FT, Nx, Ny, Nz))
+    c_arr = on_architecture(arch, zeros(FT, Nx, Ny, Nz))
+
+    args = (
+        vi_closure, vi_closure_fields, Val(tracer_index),
+        LX(), LY(), LZ(),
+        convert(FT, Δt), model.clock, fields(model),
+    )
+
+    launch!(
+        arch, grid, :xyz, _compute_ivd_coefficients_kernel!,
+        a_arr, b_arr, c_arr, grid,
+        solver.a, solver.b, solver.c, solver.parameters, solver.tridiagonal_direction, args,
+    )
+    arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
+
+    out_path = joinpath(
+        probe_root,
+        "probe_implicit_coeffs_$(device_str)_iter$(n)$(rank_suffix)$(noACM_suffix()).jld2",
+    )
+    @info "PROBE_TEND: rank=$rank implicit coeffs iter=$n → $out_path"
+    jldopen(out_path, "w") do f
+        f["meta/iteration"] = model.clock.iteration
+        f["meta/clock_time"] = model.clock.time
+        f["meta/Δt"] = Δt
+        f["meta/Nx"] = Nx
+        f["meta/Ny"] = Ny
+        f["meta/Nz"] = Nz
+        f["a"] = host(a_arr)
+        f["b"] = host(b_arr)
+        f["c"] = host(c_arr)
+        # The RHS (= tracer field post-explicit) is already captured in the
+        # post_explicit age snapshot — no need to re-dump it here.
+    end
+    flush(stdout); flush(stderr)
+    return out_path
+end
+
+"""
 Replicate `time_step!` for `HydrostaticFreeSurfaceModel + QAB2 +
 PrescribedVelocityFields + PrescribedFreeSurface`, but split
 `ab2_step_tracers!` into its explicit and implicit halves and dump the
@@ -272,6 +366,10 @@ function step_with_intra_dumps!(model, Δt, iter_n::Integer)
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 
     dump_age_snapshot(model, iter_n, "post_explicit")
+
+    # Dump the tri-diagonal LHS coefficients (a, b, c) the solver would build,
+    # for offline CPU↔GPU comparison at the seam row.
+    dump_implicit_coefficients(model, iter_n, Δt)
 
     implicit_step!(
         tracer_field,
