@@ -18,6 +18,8 @@ Environment variables:
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   GM_REDI          – no | diff | adv  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
   MONTHLY_KAPPAV   – yes | no  (default: no)  — use monthly time-varying vertical diffusivity from MLD
+  IMPLICIT_KAPPAV  – yes | no  (default: yes) — when "no", drop the implicit vertical-diffusion closure
+                                                (Probe B for the GPU seam tracer bug; outputs tagged _noKV)
 """
 
 @info "Loading packages and functions"
@@ -64,6 +66,9 @@ GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+IMPLICIT_KAPPAV_STR = lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes"))
+IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
+IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 @info "Run configuration"
@@ -74,6 +79,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- TIMESTEPPER       = $TIMESTEPPER"
 @info "- GM_REDI           = $GM_REDI"
 @info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
+@info "- IMPLICIT_KAPPAV   = $IMPLICIT_KAPPAV"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -247,15 +253,15 @@ if GM_REDI
         κ_skew = gm_κ_skew,
         κ_symmetric = gm_κ_symmetric,
     )
-    closure = (implicit_vertical_diffusion, gm_redi)
-    @info "Closures: vertical + GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
+    closure = IMPLICIT_KAPPAV ? (implicit_vertical_diffusion, gm_redi) : (gm_redi,)
+    @info "Closures: $(IMPLICIT_KAPPAV ? "vertical + " : "")GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
 else
     implicit_vertical_diffusion = VerticalScalarDiffusivity(
         VerticallyImplicitTimeDiscretization();
         κ = κVField,
     )
     horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
-    closure = (horizontal_diffusion, implicit_vertical_diffusion)
+    closure = IMPLICIT_KAPPAV ? (horizontal_diffusion, implicit_vertical_diffusion) : (horizontal_diffusion,)
 end
 
 @info "Closures created"

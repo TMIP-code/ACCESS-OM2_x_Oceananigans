@@ -50,6 +50,7 @@ INITIAL_AGE=${INITIAL_AGE:-TMage}                       # TMage | 0 | <path to .
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no
+IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
@@ -80,6 +81,11 @@ esac
 if [ "$MONTHLY_KAPPAV" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_mkappaV"
 fi
+case "$IMPLICIT_KAPPAV" in
+    yes) ;;
+    no)  MODEL_CONFIG="${MODEL_CONFIG}_noKV" ;;
+    *) echo "ERROR: IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV)" >&2; exit 1 ;;
+esac
 if [ "$TBLOCKING" != "no" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_TB${TBLOCKING}"
 fi
@@ -90,7 +96,7 @@ fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
-export GM_REDI MONTHLY_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
+export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -118,6 +124,7 @@ echo "INITIAL_AGE=$INITIAL_AGE"
 echo "TM_SOURCE=$TM_SOURCE"
 echo "GM_REDI=$GM_REDI"
 echo "MONTHLY_KAPPAV=$MONTHLY_KAPPAV"
+echo "IMPLICIT_KAPPAV=$IMPLICIT_KAPPAV"
 echo "TBLOCKING=$TBLOCKING"
 echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"
 echo "LOAD_BALANCE=$LOAD_BALANCE"
