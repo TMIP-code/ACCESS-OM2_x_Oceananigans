@@ -84,7 +84,12 @@ time_indexing = Cyclical(1year)
                 t_mirror = mod(T_period - t, T_period)
                 lhs = interior(rev[Time(t)])
                 rhs = sgn .* interior(fwd[Time(t_mirror)])
-                @test lhs ≈ rhs
+                ok = isapprox(lhs, rhs)
+                if !ok
+                    diff = lhs .- rhs
+                    @warn "Clock-time mismatch" name = spec.name k t t_mirror max_abs_diff = maximum(abs, diff) norm_diff = sqrt(sum(abs2, diff)) norm_rhs = sqrt(sum(abs2, rhs))
+                end
+                @test ok
             end
         end
 
