@@ -1,5 +1,68 @@
 # Timestep multiplier (`TIMESTEP_MULT`)
 
+## Stability summary
+
+What's been tested so far for the 1-year offline tracer simulation,
+per (parent model, timestepper, multiplier). `✓` = ran cleanly with
+max(age) ≲ a few years at t = 1 yr; `✗` = numerically unstable (NaN,
+overflow, or wildly nonphysical max(age)); blank = not tested.
+Untested cells are *not* claims about stability — many are valid
+divisors of `N_base` that simply haven't been exercised yet.
+
+### OM2-1 (Δt_base = 5400 s)
+
+| M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
+|---|---|---|---|---|---|---|
+| 1  | 1.5 h | ✓ |   |   |   |   |
+| 2  | 3 h   | ✓ |   |   |   |   |
+| 3  | 4.5 h |   |   |   |   |   |
+| 4  | 6 h   | ✓ |   | ✓ |   |   |
+| 6  | 9 h   | ✗ |   | ✓ |   |   |
+| 12 | 18 h  | ✗ |   | ✓ |   |   |
+
+AB2-M=6 and AB2-M=12 were exercised as the 1-year inner sim of the
+NK pipeline and both failed (M=6 crashed mid-Φ-call; M=12 stalled
+with the residual blowing up). They weren't run as standalone
+`run1yr`, but the integrator path is the same.
+
+### OM2-025 (Δt_base = 1800 s)
+
+| M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
+|---|---|---|---|---|---|---|
+| 1  | 30 min |   |   |   |   |   |
+| 2  | 1 h    |   |   |   |   |   |
+| 3  | 1.5 h  |   |   |   |   |   |
+| 4  | 2 h    | ✗ |   | ✓ |   |   |
+| 6  | 3 h    |   |   |   |   |   |
+| 9  | 4.5 h  |   |   |   |   |   |
+| 12 | 6 h    |   |   | ✓ |   |   |
+| 18 | 9 h    |   |   |   |   |   |
+| 36 | 18 h   |   |   | ✗ |   | ✗ |
+
+Currently queued (`run1yr-plot1yr`): SRK2-M=12 (168363327), SRK2-M=18
+(168363330), SRK3-M=18 (168363323), SRK5-M=12 (168363332), SRK5-M=18
+(168363335).
+
+### OM2-01 (Δt_base = 400 s)
+
+| M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
+|---|---|---|---|---|---|---|
+| 1   | 6.67 min |   |   |   |   |   |
+| 2   | 13.3 min |   |   |   |   |   |
+| 3   | 20 min   |   |   |   |   |   |
+| 6   | 40 min   | ✗ |   |   |   |   |
+| 9   | 1 h      |   |   |   |   |   |
+| 18  | 2 h      |   |   |   |   |   |
+| 27  | 3 h      |   |   |   |   |   |
+| 54  | 6 h      |   |   |   |   |   |
+| 81  | 9 h      |   |   |   |   |   |
+| 162 | 18 h     |   |   |   |   |   |
+
+AB2-M=6 hit NaN at sim iter 600 (~17 model days). The CFL on OM2-01
+at Δt=40min is only ~0.24, so this was AB2's truncation-error
+instability rather than a CFL bound — by analogy with OM2-025, SRK3
+at the same M should fix it.
+
 ## Intent
 
 The per-model `dt_seconds` values in [src/shared_utils/config.jl](../src/shared_utils/config.jl)
