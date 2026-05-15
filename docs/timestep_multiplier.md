@@ -28,23 +28,47 @@ ratio is the right way to compare regimes.
 | 3  | 4.5 h |   |   |   |   |   |
 | 4  | 6 h   | ✓ (4×) |   | ✓ (1.3×) |   |   |
 | 6  | 9 h   | ✗ |   | ✓ (2×) |   |   |
-| 12 | 18 h  | ✗ |   | ✓ (4×) |   |   |
+| 12 | 18 h  | ✗ | ✗ | ✓ (4×) |   |   |
 
 AB2-M=6 and AB2-M=12 were exercised as the 1-year inner sim of the
 NK pipeline and both failed (M=6 crashed mid-Φ-call; M=12 stalled
 with the residual blowing up). They weren't run as standalone
 `run1yr`, but the integrator path is the same.
 
-Currently in flight (`run1yr-plot1yr`, single-GPU gpuvolta):
-SRK2-M=12 (job 168365882) — targeting the 6× speedup called out below.
+SRK2-M=12 (job 168365882) returned exit 0 but the simulation went
+silently unstable: `max(age)` reached **3.4×10²³ yr** at t=1yr at
+`(332, 175, 42)`, with `mean(age) ≈ −1.4×10¹⁵ yr` — signed garbage
+(`validate_age_field`'s NaN/Inf-only check missed it). At Δt=18h on
+OM2-1, CFL is ~0.65, so this is **not** CFL-limited — it's SRK2's
+absolute-stability region being too small to reach Δt=18h for our
+centered-2 + surface-relaxation operator. SRK3 reaches it; SRK2
+doesn't.
 
 **Recommendation — best tested speedup: 4×** (AB2-M=4 or SRK3-M=12,
 tied). M=12 is the largest valid divisor of `N_base=5844` below the
-practical 18-h cap, so the speedup ceiling is bounded by `M=12`. The
-**untested combination most likely to beat 4× is SRK2-M=12 (6×)** —
-if SRK2 holds where AB2 doesn't, that's the win. Worth trying next.
-Beyond that, all other untested cells (AB2-M=3, SRK3-M=2/3, SRK4-M=*,
-SRK5-M=*) are ≤ 4× by construction and add nothing.
+practical 18-h cap, so the integer-divisor structure caps any
+speedup at `M=12 / stage_count`. With SRK2-M=12 now ruled out, the
+candidates at M=12 are:
+
+| Untested at M=12 | Speedup if ✓ |
+|---|---|
+| SRK4-M=12 | 3× — worse than current 4×, not worth it |
+| SRK5-M=12 | 2.4× — worse than current 4×, not worth it |
+
+**The 4× ceiling is real for OM2-1.** No untested combination on
+this model can beat it. To push past 4×, the options are:
+
+1. A *different operator* — e.g. `ADVECTION_SCHEME=weno5` may admit
+   a finer effective grid that lets a higher Δt survive, though it
+   also changes the answer; or
+2. A *different integrator class* — implicit / IMEX schemes (not
+   currently supported in this codebase) could push Δt past the
+   explicit absolute-stability bound.
+
+For now, both **AB2-M=4** and **SRK3-M=12** are the practical
+operating points; SRK3-M=12 is preferable for the NK pipeline since
+it's the only one stable at Δt=18h, which the NK *inner* loop can
+exploit (per-step I/O vanishes there).
 
 ### OM2-025 (Δt_base = 1800 s)
 
