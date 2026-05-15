@@ -561,9 +561,26 @@ OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
 |---|---|---|---|---|---|---|
 | 4  | 2 h  | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
 | 4  | 2 h  | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
+| 12 | 6 h  | SRK2 | ⏳ queued | — | — | 168363327 |
 | 12 | 6 h  | SRK3 | ✓ stable | 253 | 1.73 | 168283651 |
+| 12 | 6 h  | SRK5 | ⏳ queued | — | — | 168363332 |
+| 18 | 9 h  | SRK2 | ⏳ queued | — | — | 168363330 |
+| 18 | 9 h  | SRK3 | ⏳ queued | — | — | 168363323 |
+| 18 | 9 h  | SRK5 | ⏳ queued | — | — | 168363335 |
 | 36 | 18 h | SRK3 | ✗ exploded (max=5.2e+59 yr at sim iter 41, final = NaN) | 130 (DNF) | NaN | 168283653 |
 | 36 | 18 h | SRK5 | ✗ exploded (max=2.2e+70 yr at sim iter 41, final = NaN) | 137 (DNF) | NaN | 168286118 |
+
+Sweep design — fills the M=18 row and tests timestepper-order sensitivity
+at the two M's bracketing the SRK3 wall:
+
+- **M=18 across SRK{2,3,5}**: locates the CFL ceiling. CFL at Δt=9h is
+  ~1.3 (vs ~2.6 at M=36 and ~0.86 at M=12). If even SRK5 fails here,
+  centered-2's hard wall is M=12. If SRK3 survives, M=18 may be the new
+  ceiling.
+- **M=12 across SRK{2,3,5}**: probes whether the *order* of the SRK
+  method matters when CFL is in-bounds. Expectation: all three converge
+  to similar max(age), but per-step cost grows with stage count (SRK2 ≈
+  2× AB2, SRK3 ≈ 3.45× empirically, SRK5 ≈ ~6× extrapolated).
 
 **SRK3 fixes the OM2-025 M=4 instability** *and* extends cleanly to M=12
 — max age stays in the ~2 yr range across `M ∈ {4, 12}`, sim wall drops
