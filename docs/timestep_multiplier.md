@@ -80,33 +80,34 @@ exploit (per-step I/O vanishes there).
 | 4  | 2 h    | ✗ |   | ✓ (1.3×) |   |   |
 | 6  | 3 h    |   |   |   |   |   |
 | 9  | 4.5 h  |   |   |   |   |   |
-| 12 | 6 h    |   |   | ✓ (4×) |   |   |
-| 18 | 9 h    |   |   |   |   |   |
+| 12 | 6 h    |   | ✗ | ✓ (4×) |   | ✓ (2.4×) |
+| 18 | 9 h    |   | ✗ | ✗ |   | ✗ |
 | 36 | 18 h   |   |   | ✗ |   | ✗ |
 
-Currently queued (`run1yr-plot1yr`): SRK2-M=12 (168363327), SRK2-M=18
-(168363330), SRK3-M=18 (168363323), SRK5-M=12 (168363332), SRK5-M=18
-(168363335).
+**Recommendation — best tested speedup: 4×** (SRK3-M=12). Three
+findings from the SRK{2,3,5} × M ∈ {12, 18} sweep nailed the OM2-025
+ceiling:
 
-**Recommendation — best tested speedup: 4×** (SRK3-M=12). The M=36
-row is CFL-limited regardless of integrator (Δt=18h gives CFL≈2.6 on
-the prescribed velocity, centered-2 unstable for CFL > 1) so no SRK-N
-will fix it. Practical headroom sits at M=18 (CFL≈1.3) — every
-in-flight queued job targets this question. Best-case potentials:
+1. **SRK2 fails everywhere on OM2-025**, even at M=12 (CFL~0.86) where
+   SRK3 and SRK5 both succeed. SRK2's absolute-stability region is too
+   narrow for centered-2 + surface relaxation at any Δt > Δt_base
+   tested.
+2. **No SRK-N reaches Δt=9h on OM2-025** — SRK3-M=18, SRK5-M=18 both
+   blow up at the *same grid point* (1288, 1047, ~35), an equatorial-
+   jet region where local CFL exceeds the global average. Going from 3
+   stages to 5 stages doesn't help past this point.
+3. **M=12 is the universal wall.** SRK3-M=12 → 4×; SRK5-M=12 → 2.4×
+   (worse, more stages). No combination beats SRK3-M=12.
 
-| Queued | Speedup if ✓ |
-|---|---|
-| SRK2-M=18 | **9×** |
-| SRK3-M=18 | 6× |
-| SRK2-M=12 | 6× |
-| SRK5-M=18 | 3.6× |
-| SRK5-M=12 | 2.4× |
+**The 4× ceiling is real for OM2-025, same as for OM2-1** — the
+integer-divisor structure of `N_base=17532` (no divisor between 12 and
+18) combined with the integrator-independent stability wall at Δt=9h
+caps explicit speedup at `M_max_stable / stage_count_min = 12 / 3 =
+4×`. SRK4 isn't worth testing (M=12 → 3×, worse than current best;
+M=18 will fail like SRK3/SRK5).
 
-**SRK2-M=18 is the highest-leverage outcome — 9× over baseline if it
-holds, beating SRK3-M=12 by 2.25×.** SRK4 isn't being tested because
-SRK4-M=18 = 4.5× (no better than SRK3-M=12) and SRK4-M=36 will hit
-the same CFL wall. Other untested cells (AB2/SRK2/SRK3 at M=2, 3, 6,
-9) are ≤ 6× by construction; none beat the queued candidates.
+To push past 4×: same as OM2-1 — different operator (WENO5) or
+different integrator class (IMEX). Neither currently in tree.
 
 ### OM2-01 (Δt_base = 400 s)
 
