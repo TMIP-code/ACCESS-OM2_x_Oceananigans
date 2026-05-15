@@ -563,7 +563,7 @@ OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
 | 4  | 2 h  | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
 | 12 | 6 h  | SRK3 | ✓ stable | 253 | 1.73 | 168283651 |
 | 36 | 18 h | SRK3 | ✗ exploded (max=5.2e+59 yr at sim iter 41, final = NaN) | 130 (DNF) | NaN | 168283653 |
-| 36 | 18 h | SRK5 | ⏳ queued | — | — | 168286118 |
+| 36 | 18 h | SRK5 | ✗ exploded (max=2.2e+70 yr at sim iter 41, final = NaN) | 137 (DNF) | NaN | 168286118 |
 
 **SRK3 fixes the OM2-025 M=4 instability** *and* extends cleanly to M=12
 — max age stays in the ~2 yr range across `M ∈ {4, 12}`, sim wall drops
@@ -571,20 +571,40 @@ from 484 s (M=4) to 253 s (M=12) — almost the full 3× per-step speedup,
 since I/O is now a smaller fraction of total wall (~70 s).
 
 **OM2-025 SRK3 wall sits between M=12 and M=36** — M=36 (Δt=18h)
-diverges before t=0.1 yr. Two ways to push higher:
+diverges before t=0.1 yr.
 
-1. **Stay at SRK3, probe M=18 (Δt=9h)** — the only practical divisor of
-   `N_base=17532` between 12 and 36. If M=18 is stable, OM2-025 reaches
-   the same 9 h effective ceiling as OM2-1 SRK3-M=6.
-2. **Bump to SRK5 at M=36** — 5-stage Runge-Kutta has an even larger
-   absolute-stability region. Per-step cost ≈ 5/3 × SRK3 = 5× AB2, so
-   the wall only pays off if SRK5 reaches an M that drops the per-year
-   step count by > 5/3× over SRK3's ceiling. SRK5-M=36 vs SRK3-M=12 is
-   3× fewer steps, so even at 5/3× per-step it should be ~1.8× faster
-   if it converges.
+**SRK5 at M=36 also fails — and slightly worse**: max(age) = 2.2×10⁷⁰ yr
+at sim iter 41 (vs SRK3's 5.2×10⁵⁹ at the same iter, same location
+`(1288, 1047, ~35)`). The mode of failure is iteratively identical
+across SRK3 and SRK5. Bumping from a richer to an even-richer absolute-
+stability region didn't help.
 
-Currently queued: SRK5-M=36 (job 168286118). M=18-SRK3 still pending —
-will probe based on the SRK5 result.
+This rules out *timestepper-stability* as the bottleneck at Δt=18h on
+OM2-025 — the failure must be **tracer-advection CFL** on the
+prescribed (u, v, w) fields. For a 1/4° grid with Δx ≈ 25 km and peak
+surface speeds ~1 m/s, the CFL at Δt=18h is
+
+```
+CFL_x = u Δt / Δx ≈ 1 × 64800 / 25000 ≈ 2.6
+```
+
+Centered-2 advection is unconditionally unstable for CFL > 1 along
+*any* characteristic direction; SRK can't fix that. The ceiling is
+the velocity field, not the integrator.
+
+Two ways forward:
+
+1. **Probe `M=18 (Δt=9h)`** — the only practical divisor of
+   `N_base=17532` between 12 and 36. CFL drops to ~1.3, still > 1 but
+   smaller. May or may not survive (M=12 at CFL ≈ 0.86 worked); will
+   tell us how tight the centered-2 stability margin is.
+2. **Switch to an upwinded scheme (`ADVECTION_SCHEME=weno5`)** — WENO
+   is stable for moderate CFL > 1 thanks to numerical diffusion, at
+   the cost of higher per-step work. This would change the operator
+   we're solving, so it's a bigger design choice than just bumping
+   `TIMESTEPPER`.
+
+M=12 (SRK3, Δt=6h) remains the safe sweet spot for OM2-025 production.
 
 Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
 on `gpuhopper` (1×H200). Output lands at the separate
@@ -601,7 +621,7 @@ SRK3 *complete cleanly* (max age ≲ 5 yr at t=1yr) at `M=4`? If yes, try
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
 | 3   | 20 min    | 26298 | 2b | — | — | — | — | — | — |
-| 6   | 40 min    | 13149 | 2a | ⏳ queued (1×2) | — | — | — | — | 168280162 |
+| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days) | — | NaN | — | — | 168280162 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -633,6 +653,15 @@ are the only velocity inputs needed.
 
 Stability sanity check is the headline question — RMS Δ vs M=1 stays
 blank until a baseline lands.
+
+**OM2-01 M=6 AB2 (Δt=40min) is unstable**: NaN detected in age at sim
+iter 600 (~17 model days in), simulation auto-stopped via the existing
+NaN guard. Same pattern as OM2-025 M=4 AB2 — at finer resolution, the
+CFL bound tightens, so the AB2-stable Δt drops. By analogy with the
+OM2-025 → SRK3 fix, the natural retry is `TIMESTEPPER=SRK3` on OM2-01
+M=6. CFL on OM2-01 (Δx ≈ 10 km) at Δt=40min = 2400s is
+`CFL_x ≈ 1 × 2400 / 10000 ≈ 0.24` — well within centered-2 limits, so
+SRK3 should be enough.
 
 ### Conclusions
 
