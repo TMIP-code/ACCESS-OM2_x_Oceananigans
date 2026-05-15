@@ -9,21 +9,39 @@ overflow, or wildly nonphysical max(age)); blank = not tested.
 Untested cells are *not* claims about stability — many are valid
 divisors of `N_base` that simply haven't been exercised yet.
 
+After each `✓` the table shows the **theoretical speedup vs AB2 M=1
+baseline** = `M / stage_count`, where `stage_count` is the number of
+new RHS evaluations per step: AB2 = 1 (one new + one cached multistep
+tendency), SRK2 = 2, SRK3 = 3, SRK4 = 4, SRK5 = 5. This is the ideal
+the NK *inner* loop can reach (no per-step I/O). Empirically the
+SRK-N cost is slightly worse than the textbook ratio
+(`run1yr` measured SRK3 at 3.45× AB2 vs 3× theoretical) because of
+kernel-launch and halo-exchange overhead per stage, but the integer
+ratio is the right way to compare regimes.
+
 ### OM2-1 (Δt_base = 5400 s)
 
 | M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
 |---|---|---|---|---|---|---|
-| 1  | 1.5 h | ✓ |   |   |   |   |
-| 2  | 3 h   | ✓ |   |   |   |   |
+| 1  | 1.5 h | ✓ (1×) |   |   |   |   |
+| 2  | 3 h   | ✓ (2×) |   |   |   |   |
 | 3  | 4.5 h |   |   |   |   |   |
-| 4  | 6 h   | ✓ |   | ✓ |   |   |
-| 6  | 9 h   | ✗ |   | ✓ |   |   |
-| 12 | 18 h  | ✗ |   | ✓ |   |   |
+| 4  | 6 h   | ✓ (4×) |   | ✓ (1.3×) |   |   |
+| 6  | 9 h   | ✗ |   | ✓ (2×) |   |   |
+| 12 | 18 h  | ✗ |   | ✓ (4×) |   |   |
 
 AB2-M=6 and AB2-M=12 were exercised as the 1-year inner sim of the
 NK pipeline and both failed (M=6 crashed mid-Φ-call; M=12 stalled
 with the residual blowing up). They weren't run as standalone
 `run1yr`, but the integrator path is the same.
+
+**Recommendation — best tested speedup: 4×** (AB2-M=4 or SRK3-M=12,
+tied). M=12 is the largest valid divisor of `N_base=5844` below the
+practical 18-h cap, so the speedup ceiling is bounded by `M=12`. The
+**untested combination most likely to beat 4× is SRK2-M=12 (6×)** —
+if SRK2 holds where AB2 doesn't, that's the win. Worth trying next.
+Beyond that, all other untested cells (AB2-M=3, SRK3-M=2/3, SRK4-M=*,
+SRK5-M=*) are ≤ 4× by construction and add nothing.
 
 ### OM2-025 (Δt_base = 1800 s)
 
@@ -32,16 +50,36 @@ with the residual blowing up). They weren't run as standalone
 | 1  | 30 min |   |   |   |   |   |
 | 2  | 1 h    |   |   |   |   |   |
 | 3  | 1.5 h  |   |   |   |   |   |
-| 4  | 2 h    | ✗ |   | ✓ |   |   |
+| 4  | 2 h    | ✗ |   | ✓ (1.3×) |   |   |
 | 6  | 3 h    |   |   |   |   |   |
 | 9  | 4.5 h  |   |   |   |   |   |
-| 12 | 6 h    |   |   | ✓ |   |   |
+| 12 | 6 h    |   |   | ✓ (4×) |   |   |
 | 18 | 9 h    |   |   |   |   |   |
 | 36 | 18 h   |   |   | ✗ |   | ✗ |
 
 Currently queued (`run1yr-plot1yr`): SRK2-M=12 (168363327), SRK2-M=18
 (168363330), SRK3-M=18 (168363323), SRK5-M=12 (168363332), SRK5-M=18
 (168363335).
+
+**Recommendation — best tested speedup: 4×** (SRK3-M=12). The M=36
+row is CFL-limited regardless of integrator (Δt=18h gives CFL≈2.6 on
+the prescribed velocity, centered-2 unstable for CFL > 1) so no SRK-N
+will fix it. Practical headroom sits at M=18 (CFL≈1.3) — every
+in-flight queued job targets this question. Best-case potentials:
+
+| Queued | Speedup if ✓ |
+|---|---|
+| SRK2-M=18 | **9×** |
+| SRK3-M=18 | 6× |
+| SRK2-M=12 | 6× |
+| SRK5-M=18 | 3.6× |
+| SRK5-M=12 | 2.4× |
+
+**SRK2-M=18 is the highest-leverage outcome — 9× over baseline if it
+holds, beating SRK3-M=12 by 2.25×.** SRK4 isn't being tested because
+SRK4-M=18 = 4.5× (no better than SRK3-M=12) and SRK4-M=36 will hit
+the same CFL wall. Other untested cells (AB2/SRK2/SRK3 at M=2, 3, 6,
+9) are ≤ 6× by construction; none beat the queued candidates.
 
 ### OM2-01 (Δt_base = 400 s)
 
@@ -62,6 +100,28 @@ AB2-M=6 hit NaN at sim iter 600 (~17 model days). The CFL on OM2-01
 at Δt=40min is only ~0.24, so this was AB2's truncation-error
 instability rather than a CFL bound — by analogy with OM2-025, SRK3
 at the same M should fix it.
+
+**Recommendation — no clean ✓ yet, so no measured speedup.** CFL on
+the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL = 1` at
+Δt ≈ 10 000 s ≈ 2.8 h, so the CFL-safe band is `M ≤ 27` (Δt=3 h, CFL
+≈ 1.1) and beyond that we're in the same territory that bit OM2-025
+M=36. Highest theoretical speedups *that should be CFL-safe*:
+
+| Untested | Speedup if ✓ |
+|---|---|
+| SRK2-M=27 | **13.5×** |
+| SRK3-M=27 | 9× |
+| SRK2-M=18 | 9× |
+| SRK5-M=27 | 5.4× |
+| SRK3-M=18 | 6× |
+
+The natural starting sweep is **SRK3-M=6** (fix the AB2-M=6 failure,
+confirm the OM2-025 → OM2-01 transfer) → **SRK3-M=27** (target a 9×
+end-to-end win). SRK2-M=27 would be even better at 13.5× if SRK2's
+stability holds, but SRK3 is the safer bet given the CFL margin
+(SRK3 has a larger imaginary-axis stability footprint than SRK2 for
+this type of advection-dominated problem). M=54/81/162 hit CFL > 2.2
+and will almost certainly fail like OM2-025-M=36 did.
 
 ## Intent
 
