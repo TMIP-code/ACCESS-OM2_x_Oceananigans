@@ -123,29 +123,30 @@ available, so no scaling table — only the LB-at-1×2 view.
 | cell | 15m 28.7s | −0.2% | (regression) |
 | **surface** | **13m 0.2s** | **+15.7%** | _no 1×4 V100 data_ |
 | mix | 13m 29.4s | +12.6% | _no 1×4 V100 data_ |
-| minmax | _killed at 0.75 yr (611s) — resubmit w/ longer walltime_ | — | — |
+| minmax | 13m 29.8s | +12.6% | _no 1×4 V100 data_ |
 
 ### OM2-025 — H200
 
-Reference: 1×2 baseline (5m 34.6s). 1×2→1×4 baseline gain: 105.8 s.
+Reference: 1×1 baseline (7m 22.7s = 442.7s, job 168162236). 1×2→1×4 baseline gain: 105.8 s.
 
 **Baseline scaling**
 
-| Partition | walltime | speedup vs 1×2 | ideal | efficiency |
+| Partition | walltime | speedup vs 1×1 | ideal | efficiency |
 |---|---:|---:|---:|---:|
-| 1×2 | 5m 34.6s | 1.00× | 1× | 100% |
-| 1×4 | 3m 48.8s | 1.46× | 2× | 73% |
-| 1×8 | 3m 53.4s | 1.43× | 4× | 36% |
+| 1×1 | 7m 22.7s | 1.00× | 1× | 100% |
+| 1×2 | 5m 34.6s | 1.32× | 2× | 66% |
+| 1×4 | 3m 48.8s | 1.94× | 4× | 48% |
+| 1×8 | 3m 53.4s | 1.90× | 8× | 24% |
 
 **LB at 1×2**
 
-| LB | walltime | speedup vs base | recovery of 1×4 gain |
-|---|---:|---:|---:|
-| none | 5m 34.6s | 1.00× | 0% |
-| cell | 5m 40.1s | −1.6% | (regression) |
-| **surface** | **4m 21.1s** | **+22.0%** | **70%** |
-| mix | 4m 26.0s | +20.5% | 65% |
-| minmax | 4m 38.7s | +16.7% | 53% |
+| LB | walltime | speedup vs 1×2 base | efficiency vs 1×1 | recovery of 1×4 gain |
+|---|---:|---:|---:|---:|
+| none | 5m 34.6s | 1.00× | 66% | 0% |
+| cell | 5m 40.1s | −1.6% | 65% | (regression) |
+| **surface** | **4m 21.1s** | **+22.0%** | **85%** | **70%** |
+| mix | 4m 26.0s | +20.5% | 83% | 65% |
+| minmax | 4m 38.7s | +16.7% | 79% | 53% |
 
 ### OM2-01 — H200
 
@@ -166,8 +167,8 @@ Reference: 1×2 baseline (3h 1m 47s = 10907s). 1×2→1×4 baseline gain: 5028s.
 | none | 3h 1m 47s | 1.00× | 0% |
 | cell | 2h 55m 52s | +3.3% | 7% |
 | **surface** | **2h 43m 8s** | **+10.3%** | **22%** |
-| mix | _pending (168147665)_ | — | — |
-| minmax | _pending (168157808)_ | — | — |
+| mix | 2h 52m 1s | +5.4% | 12% |
+| minmax | 2h 50m 10s | +6.4% | 14% |
 
 ### Observations
 
@@ -186,21 +187,29 @@ Reference: 1×2 baseline (3h 1m 47s = 10907s). 1×2→1×4 baseline gain: 5028s.
 - **Cross-resolution surface LB recovery ranking**: OM2-025 H200 (70%) >
   OM2-1 V100 cell (41%) > OM2-01 H200 (22%). Less efficient baseline → more
   room for LB to close the gap.
-- **Minmax does NOT beat surface on H200** (where the comparison is real).
-  OM2-025 H200 1×2: +LBS +22.0% > +LBmix +20.5% > **+LBminmax +16.7%** > +LB
-  −1.6%. This is the opposite of what the static-imbalance analysis in
-  [partition_balance.md](partition_balance.md) predicted. Interpretation: the
-  static `max%` metric weights cells and surface equally, but the actual
-  wall-time bottleneck is per-column work (implicit vertical diffusion +
-  halo + column-major bookkeeping). `:surface` drives that imbalance to
-  ~0, which matters more than the 8.8% 3D-cell imbalance it accepts. The
-  bisected mixed metric trades column balance for cell balance, but the
-  cell-side gains don't pay off.
-- **Pending**:
-  - OM2-025 V100 +LBminmax was killed at the PBS 30 min walltime cap
-    (reached 0.75 yr) — resubmit with 45 min budget.
-  - OM2-01 +LBmix and +LBminmax (jobs 168147665, 168157808 — both
-    queued on gpuhopper).
+- **Minmax does NOT beat surface anywhere.** Static-imbalance theory in
+  [partition_balance.md](partition_balance.md) predicted minmax would win,
+  but on wall time the order is consistently:
+
+  | model / GPU | LBS (surface) | LBmix | LBminmax | LB (cell) |
+  |---|---:|---:|---:|---:|
+  | OM2-025 V100 | **+15.7%** | +12.6% | +12.6% | −0.2% |
+  | OM2-025 H200 | **+22.0%** | +20.5% | +16.7% | −1.6% |
+  | OM2-01 H200 | **+10.3%** | +5.4% | +6.4% | +3.3% |
+
+  Interpretation: the static `max%` metric weights cells and surface
+  equally, but the actual wall-time bottleneck is per-column work
+  (implicit vertical diffusion + halo + column-major bookkeeping).
+  `:surface` drives that imbalance to ~0%, which matters more than
+  the 8.8% 3D-cell imbalance it accepts. Bisecting on `max%` trades
+  column balance for cell balance, but the cell-side savings don't pay off.
+- **Efficiency vs 1×1 H200 on OM2-025**: now that we have the 1×1
+  reference (442.7s), baseline 1×2 is only 66% strong-scaling efficient.
+  +LBS pushes that to **85%** — the most useful comparison. Even +LBminmax
+  at 79% is much better than baseline 1×2.
+- **OM2-01 is the toughest target for LB.** Baseline 1×2→1×4 is already
+  93% efficient, so there's much less room. +LBS only recovers 22% of
+  the 1×4 gain; +LBmix/+LBminmax recover 12–14%; +LB cell 7%.
 
 ---
 
