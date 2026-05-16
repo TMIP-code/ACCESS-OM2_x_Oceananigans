@@ -219,17 +219,30 @@ Unlike the IAF plan (which only needed small driver fixes), TRAF required a feat
 
 ## Submitted runs
 
-Submitted 2026-05-16. `GIT_COMMIT=cd80157` (head at submission). Each driver invocation submits a 6-job chain `TMbuild → {TMslv_c, TMslv_cG, NK_c} → run1yrNK_c → plotNK` (TMslv_c and TMslv_cG run in parallel as CPU/GPU comparisons; NK_c depends only on TMbuild via the invVMtV short-circuit). 24 PBS jobs total.
+### Attempt 1 — `GIT_COMMIT=cd80157` (2026-05-16, all 4 NK_c failed Exit 1)
+
+All four NK_c jobs hit `Scalar indexing is disallowed` at setup. Root cause: `reverse_fts_time!` used a `@simd` scalar-indexed pairwise-swap loop, which works on CPU (the `trafftsrev` test architecture) but errors on GPU (the production architecture). OM2-025 NK_c (still queued) and the downstream run1yrNK_c/plotNK (held) were cancelled to save H200 SU. Fix landed in commit f26fadc (broadcast `.=` swap with a `similar(parent(fts[1]))` temp buffer).
+
+| (PM, TW) | TMbuild | NK_c | Outcome |
+|---|---|---|---|
+| OM2-1, 1968-1977 | 168464264 | 168464267 | NK_c Exit 1 (scalar indexing) |
+| OM2-1, 1999-2008 | 168464274 | 168464277 | NK_c Exit 1 (scalar indexing) |
+| OM2-025, 1968-1977 | 168464308 | 168464311 | NK_c cancelled while queued |
+| OM2-025, 1999-2008 | 168464316 | 168464319 | NK_c cancelled while queued |
+
+### Attempt 2 — `GIT_COMMIT=f26fadc` (2026-05-16)
+
+Resubmitted after the GPU-safe `reverse_fts_time!` fix. Same 6-job chain per (PM, TW); 24 PBS jobs total.
 
 | (PM, TW) | GPU queue | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c | plotNK |
 |---|---|---|---|---|---|---|---|
-| OM2-1, 1968-1977 | gpuvolta | 168464264 | 168464265 | 168464266 | 168464267 | 168464268 | 168464270 |
-| OM2-1, 1999-2008 | gpuvolta | 168464274 | 168464275 | 168464276 | 168464277 | 168464278 | 168464279 |
-| OM2-025, 1968-1977 | gpuhopper | 168464308 | 168464309 | 168464310 | 168464311 | 168464312 | 168464313 |
-| OM2-025, 1999-2008 | gpuhopper | 168464316 | 168464317 | 168464318 | 168464319 | 168464320 | 168464321 |
+| OM2-1, 1968-1977 | gpuvolta | 168481391 | 168481392 | 168481393 | 168481394 | 168481395 | 168481396 |
+| OM2-1, 1999-2008 | gpuvolta | 168481406 | 168481407 | 168481408 | 168481409 | 168481411 | 168481412 |
+| OM2-025, 1968-1977 | gpuhopper | 168481413 | 168481414 | 168481415 | 168481416 | 168481417 | 168481418 |
+| OM2-025, 1999-2008 | gpuhopper | 168482434 | 168482435 | 168482436 | 168482437 | 168482438 | 168482439 |
 
 Manifests:
-- OM2-1 / 1968-1977 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T095315_748363.toml`
-- OM2-1 / 1999-2008 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T095401_753307.toml`
-- OM2-025 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T095620_766478.toml`
-- OM2-025 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T095646_769552.toml`
+- OM2-1 / 1968-1977 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T220607_1879521.toml`
+- OM2-1 / 1999-2008 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T220758_1883576.toml`
+- OM2-025 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T220819_1884908.toml`
+- OM2-025 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T221502_1904462.toml`
