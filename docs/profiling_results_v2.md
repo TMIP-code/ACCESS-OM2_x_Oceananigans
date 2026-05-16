@@ -138,6 +138,7 @@ No 1×1 (doesn't fit on H200).
 | 1×2 +LBmix | 2h 52m 1s | 1.06× |
 | 1×2 +LBminmax | 2h 50m 10s | 1.07× |
 | 1×4 baseline | 1h 37m 59s | 1.85× |
+| 1×4 +LBS (surface) | _pending (168483652)_ | — |
 | 1×8 baseline | 1h 38m 27s | 1.85× |
 | 1×8 +LBS (surface) | _pending (168482551)_ | — |
 
