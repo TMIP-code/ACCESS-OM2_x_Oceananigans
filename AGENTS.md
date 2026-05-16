@@ -131,7 +131,9 @@ Tests use a separate driver:
 GPU_RESOURCES=gpuvolta-2x2 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=halofill bash scripts/test_driver.sh
 PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=diag bash scripts/test_driver.sh
 ```
-Test steps: `halofill` (halo fill MWE), `diag` (10-step diagnostic), `mpi` (MPI smoke test)
+Test steps: `halofill` (halo fill MWE), `diag` (10-step diagnostic), `mpi` (MPI smoke test), `scattergather` (1D wet-cell scatter/gather MWE on CPU MPI), `pardisompi` (Pardiso under MPI sweep on gpuvolta)
+
+Newton-Krylov serial-vs-partitioned correctness: `test/compare_NK_traces.jl` walks per-Φ!-call trace JLD2 files from two `solve_periodic_NK.jl` runs (typically serial + 1×2) and prints/plots first divergence. Submit via [scripts/tests/run_compare_NK_traces.sh](../Projects/TMIP/ACCESS-OM2_x_Oceananigans/scripts/tests/run_compare_NK_traces.sh) — see [docs/serial_vs_distributed_validation.md § Newton-Krylov](docs/serial_vs_distributed_validation.md).
 
 ### PBS Pro monitoring
 

@@ -101,6 +101,50 @@ Console output includes a per-snapshot table:
 iter  time(yr)  vol_norm(yr)  max|diff|(yr)
 ```
 
+## Newton-Krylov: per-Φ!-call validation
+
+The diag/1-year tooling above validates the *forward* operator
+(`run!(simulation)` for 1 year). The Newton-Krylov solver
+([src/solve_periodic_NK.jl](../src/solve_periodic_NK.jl)) wraps that
+operator into `Φ!` and calls it many times per Newton iteration; a small
+per-call seam discrepancy compounds across `Φ!` calls and prevents the
+solver from converging.
+
+| Script | What it does |
+|---|---|
+| [test/compare_NK_traces.jl](../test/compare_NK_traces.jl) | Walks per-Φ!-call age trace JLD2 files from two `solve_periodic_NK.jl` runs (typically serial + 1×2). Strips halos, stitches per-rank slabs, prints a per-call table (`max\|·\|`, `vol_rms\|·\|`, `argmax(i,j,k)`), writes a `divergence_scan.png`, and runs `plot_age_diagnostics` on the first divergent call. |
+| [scripts/tests/run_compare_NK_traces.sh](../scripts/tests/run_compare_NK_traces.sh) | PBS wrapper. CPU only, express queue. |
+| [test/test_partition_scatter_gather.jl](../test/test_partition_scatter_gather.jl) | Bitwise validates the production 1D wet-cell `MPI.Scatterv!`/`Gatherv!` path used by partitioned NK against an MPI-only 3D-buffer reference. Run via `JOB_CHAIN=scattergather bash scripts/test_driver.sh`. |
+| [test/test_pardiso_mpi.jl](../test/test_pardiso_mpi.jl) | Sweep `MKLPardisoIterate` thread count under `mpiexec --bind-to socket --map-by socket -n 2` on `gpuvolta`; verifies Pardiso runs correctly (and with `nprocs=24`) under MPI. Run via `JOB_CHAIN=pardisompi bash scripts/test_driver.sh`. |
+
+Workflow to validate partitioned NK against serial NK on the same model
+config (preserves traces under `outputs/.../periodic/{MC}/[GPU_TAG/]NK/`):
+
+```bash
+# Pre-req: TMbuild + (optional) TMsolve for warm start INITIAL_AGE=TMage.
+
+GPU_QUEUE=gpuvolta TIMESTEP_MULT=4 LUMP_AND_SPRAY=yes \
+    TRACE_SOLVER_HISTORY=yes NK_MAXITERS=2 \
+    JOB_CHAIN=NK bash scripts/driver.sh                  # serial 1×1
+
+GPU_QUEUE=gpuvolta TIMESTEP_MULT=4 LUMP_AND_SPRAY=yes \
+    PARTITION=1x2 TRACE_SOLVER_HISTORY=yes NK_MAXITERS=2 \
+    JOB_CHAIN=NK bash scripts/driver.sh                  # partitioned 1×2
+
+# After both finish:
+qsub -v "REF_JOB_ID=<serial_id>,CMP_JOB_ID=<part_id>,GPU_TAG=1x2,TIMESTEP_MULT=4,DIVERGE_TOL_YR=1e-3" \
+     scripts/tests/run_compare_NK_traces.sh
+```
+
+The compare output writes to `…/periodic/{MC}/{GPU_TAG}/NK/compare_vs_serial_{REF_JOB_ID}_vs_{CMP_JOB_ID}/`.
+
+**Known requirement.** Distributed NK requires Oceananigans **0.107.7+**
+— the 0.107.6 `BatchedTridiagonalSolver` GPU Thomas-algorithm kernel
+silently produced wrong values on the rank-1 path of a tripolar
+y-partition (only 1×N where rank 1 owns the fold), making `Φ!` differ
+from serial by O(0.1 yr) in seam cells on call 1. Tracked + resolved in
+[next_probes_implicit_step.md](next_probes_implicit_step.md).
+
 ## Open hypotheses for the rank-seam signal
 
 We previously hit a serial-vs-distributed divergence that grew at MPI rank
