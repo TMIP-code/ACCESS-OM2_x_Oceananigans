@@ -100,11 +100,17 @@ Used by the TRAF (Time-Reversed Adjoint Flow) feature: under `TRAF=yes`,
 """
 function reverse_fts_time!(fts; flip_sign::Bool = false)
     N = length(fts.times)
-    for i in 1:(N ÷ 2)
-        j = N + 1 - i
-        pi_, pj_ = parent(fts[i]), parent(fts[j])
-        @inbounds @simd for idx in eachindex(pi_)
-            pi_[idx], pj_[idx] = pj_[idx], pi_[idx]
+    if N ≥ 2
+        # Use a single temp buffer (allocated on the same architecture as the
+        # FTS data) and broadcast .= for the swap, so this works on GPU too —
+        # scalar indexing into CuArrays is disallowed.
+        tmp = similar(parent(fts[1]))
+        for i in 1:(N ÷ 2)
+            j = N + 1 - i
+            pi_, pj_ = parent(fts[i]), parent(fts[j])
+            tmp .= pi_
+            pi_ .= pj_
+            pj_ .= tmp
         end
     end
     if flip_sign
