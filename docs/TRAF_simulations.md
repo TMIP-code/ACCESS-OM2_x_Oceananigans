@@ -238,8 +238,8 @@ Resubmitted after the GPU-safe `reverse_fts_time!` fix. Same 6-job chain per (PM
 |---|---|---|---|---|---|---|---|
 | OM2-1, 1968-1977 | gpuvolta | 168481391 ✓ | 168481392 ✓ | 168481393 ✗ | 168481394 ✓ | 168481395 ✓ | 168481396 ✓ |
 | OM2-1, 1999-2008 | gpuvolta | 168481406 ✓ | 168481407 ✓ | 168481408 ✗ | 168481409 ✓ | 168481411 ✓ | 168481412 ✓ |
-| OM2-025, 1968-1977 | gpuhopper | 168481413 ✓ | 168481414 ✓ | 168481415 ✗ | 168481416 (Q) | 168481417 (H) | 168481418 (H) |
-| OM2-025, 1999-2008 | gpuhopper | 168482434 ✓ | 168482435 ✓ | 168482436 ✗ | 168482437 (Q) | 168482438 (H) | 168482439 (H) |
+| OM2-025, 1968-1977 | gpuhopper | 168481413 ✓ | 168481414 ✓ | 168481415 ✗ | 168481416 (R) | 168481417 (H) | 168481418 (H) |
+| OM2-025, 1999-2008 | gpuhopper | 168482434 ✓ | 168482435 ✓ | 168482436 ✗ | 168482437 (R) | 168482438 (H) | 168482439 (H) |
 
 **OM2-1 — converged.**
 
@@ -248,9 +248,16 @@ Resubmitted after the GPU-safe `reverse_fts_time!` fix. Same 6-job chain per (PM
 | OM2-1, 1968-1977 | 67 | 25:29 | **839.12** | `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12_traf/NK/age_Pardiso_LSprec.jld2` |
 | OM2-1, 1999-2008 | 70 | 25:53 | **886.39** | `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/periodic/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12_traf/NK/age_Pardiso_LSprec.jld2` |
 
-**OM2-025 — TMbuild + TMslv_c (CPU) done; NK_c queued on gpuhopper.**
+**OM2-025 — NK_c running on gpuhopper.** Both jobs started; in-flight progress as of last status check:
 
-**Known orthogonal failure — `TMslv_cG` (GPU TMsolve comparison):** all four `TMslv_cG` jobs failed Exit 1 with `ArgumentError: No file exists at given path: …/TM/…_traf/const/M.jld2`. Root cause: [src/solve_matrix_age_gpu.jl:126](../src/solve_matrix_age_gpu.jl#L126) hardcodes `M.jld2` rather than dispatching via `M_basename` like its CPU sibling [src/solve_matrix_age.jl](../src/solve_matrix_age.jl) — under `TRAF=yes & TRAF_TM_SOURCE=invVMtV` the only file in the `_traf/const/` dir is `invVMtV.jld2`. Does **not** block the NK chain (NK_c only `afterok`s TMbuild, and reads `invVMtV.jld2` via its own `M_basename` dispatch). Fix is a small follow-up: mirror the `M_basename` branch from `solve_matrix_age.jl` into `solve_matrix_age_gpu.jl`.
+| (PM, TW) | NK_c | Φ! calls done | Wall elapsed | Approx ETA (assuming ~67-70 Φ! to converge at ~7 min/call) |
+|---|---|---:|---:|---|
+| OM2-025, 1968-1977 | 168481416 | 5 | ~34 min | ~7-8 h |
+| OM2-025, 1999-2008 | 168482437 | 1 | ~18 min | ~8 h |
+
+48 h walltime requested, so comfortable margin. `run1yrNK_c` and `plotNK` are held (H) and will release when each `NK_c` finishes.
+
+**Known orthogonal failure — `TMslv_cG` (GPU TMsolve comparison) — FIXED in commit 5ad89c3 for future runs:** all four `TMslv_cG` jobs failed Exit 1 with `ArgumentError: No file exists at given path: …/TM/…_traf/const/M.jld2`. Root cause: [src/solve_matrix_age_gpu.jl](../src/solve_matrix_age_gpu.jl) hardcoded `M.jld2` rather than dispatching via `M_basename` like its CPU sibling [src/solve_matrix_age.jl](../src/solve_matrix_age.jl) — under `TRAF=yes & TRAF_TM_SOURCE=invVMtV` the only file in the `_traf/const/` dir is `invVMtV.jld2`. Did **not** block the NK chain (NK_c only `afterok`s TMbuild, and reads `invVMtV.jld2` via its own `M_basename` dispatch). Commit 5ad89c3 mirrors the `TRAF`/`TRAF_TM_SOURCE`/`M_basename` block into `solve_matrix_age_gpu.jl`; will take effect on the next TRAF rerun.
 
 Manifests:
 - OM2-1 / 1968-1977 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T220607_1879521.toml`
