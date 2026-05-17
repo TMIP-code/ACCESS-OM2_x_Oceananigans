@@ -116,9 +116,9 @@ different integrator class (IMEX). Neither currently in tree.
 | 1   | 6.67 min |   |   |   |   |   |
 | 2   | 13.3 min |   |   |   |   |   |
 | 3   | 20 min   | ✗ |   | ✓ (1×) |   |   |
-| 6   | 40 min   | ✗ (rerun ⏳) |   | ⏳ |   |   |
-| 9   | 1 h      |   |   | ⏳ |   |   |
-| 18  | 2 h      |   |   | ⏳ |   |   |
+| 6   | 40 min   | ✗ |   | ✗ (NaN at iter 12900 ≈ 0.97 yr) |   |   |
+| 9   | 1 h      |   |   | ✗ (NaN at iter 500 ≈ 21 days) |   |   |
+| 18  | 2 h      |   |   | ✗ (NaN at iter 200 ≈ 17 days) |   |   |
 | 27  | 3 h      |   |   |   |   |   |
 | 54  | 6 h      |   |   |   |   |   |
 | 81  | 9 h      |   |   |   |   |   |
@@ -133,17 +133,47 @@ with OM2-025, SRK3 at the same M should fix it. SRK3-M=3 confirms
 this (✓ exit 0, sim wall = 3.085 h = 11106 s on 2×H200, job
 168482506).
 
-> **OM2-01 distributed seam bug appears fixed** — SRK3-M=3 on
-> `PARTITION=1x2` (job 168482506) completed cleanly with exit 0 and
-> no seam-row divergence. The full SRK3 stability sweep at M=6 / 9 /
-> 18 (jobs 168482512 / 168482517 / 168482520) plus the AB2-M=6 retry
-> (job 168482509) is now in flight.
+> **OM2-01 distributed seam bug fixed** — SRK3-M=3 (job 168482506) and
+> the AB2-M=6 retry (job 168482509, which reproduced the prior NaN at
+> iter 600) both ran without seam-row divergence on `PARTITION=1x2`.
+> The seam fix is confirmed; the M=6 NaN is real integrator
+> instability, not the old distributed bug.
 
-**Recommendation — no clean ✓ yet, so no measured speedup.** CFL on
-the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL = 1` at
-Δt ≈ 10 000 s ≈ 2.8 h, so the CFL-safe band is `M ≤ 27` (Δt=3 h, CFL
-≈ 1.1) and beyond that we're in the same territory that bit OM2-025
-M=36. Highest theoretical speedups *that should be CFL-safe*:
+**SRK3 ceiling on OM2-01 sits between M=3 and M=6.** SRK3-M=6 nearly
+survived — got to iter 12900 (≈ 0.97 yr, i.e. nearly a full year)
+before NaN — but it still failed. SRK3-M=9 (NaN at iter 500 ≈ 21
+days) and SRK3-M=18 (NaN at iter 200 ≈ 17 days) fail much earlier,
+in the same explosive-divergence pattern as OM2-025 SRK3-M=36. The
+M=6 "almost made it" behavior suggests we're right at the edge of
+SRK3's absolute-stability region for this finer-resolution operator;
+M=9 and beyond are firmly outside it.
+
+**Recommendation — best tested speedup: 1×** (SRK3-M=3, the only
+clean ✓). That's no win over a hypothetical AB2-M=1 baseline (which
+hasn't been run yet, since AB2 is unstable for any tested M > 1).
+The most useful untested cells are now low-M variants where SRK3 has
+plenty of stability margin:
+
+| Untested low-M | Speedup if ✓ |
+|---|---|
+| SRK3-M=2 (Δt=13.3 min) | 0.67× (worse than SRK3-M=3) |
+| AB2-M=2 (Δt=13.3 min) | 2× (only useful if AB2 stable at Δt < 20min) |
+
+Past the AB2-OM2-025 → SRK3-OM2-025 → SRK3-OM2-01 chain it's clear
+the AB2-stable Δt shrinks with resolution: OM2-1 OK at M ∈ {2,4};
+OM2-025 needs SRK3 at M=4; OM2-01 needs SRK3 *and* fails for M ≥ 6.
+The original optimistic untested table (next block) is left for
+reference but most of those rows can be expected to fail like
+SRK3-M=18 did.
+
+CFL on the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL
+= 1` at Δt ≈ 10 000 s ≈ 2.8 h, so the CFL-safe band is `M ≤ 27`
+(Δt=3 h, CFL ≈ 1.1). But SRK3-M=9 (Δt=1h, CFL ≈ 0.36) failed early,
+so the bottleneck here is *not* advection CFL — it's the surface /
+implicit-κV operator absolute stability tightening with finer Δx,
+same as the AB2 failures. Untested *high*-M speedups (the table
+below) are retained as the original theoretical ceiling but should
+be regarded as very unlikely to succeed:
 
 | Untested | Speedup if ✓ |
 |---|---|
@@ -801,7 +831,7 @@ AB2 table (post-distributed-fix retry of M=6, plus new M=3):
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
 | 3   | 20 min    | 26298 | 2b | ⚠ NaN at iter 1600 (~22 model days) | — | NaN | — | — | 168482446 |
-| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days); retry ⏳ | — | NaN | — | — | 168280162 / 168482509 |
+| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days; confirmed post-fix retry) | — | NaN | — | — | 168280162 / 168482509 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -836,10 +866,10 @@ blank until a baseline lands.
 
 **OM2-01 AB2 is unstable even at M=3 (Δt=20 min)** — NaN at sim iter
 1600 (~22 model days, job 168482446), in addition to the prior M=6
-failure at iter 600. AB2 retry of M=6 (job 168482509) is in flight post
-distributed-seam fix to confirm the failure mode (it's still expected
-to fail — the bug fix doesn't change the integrator's stability
-region). CFL on OM2-01 (Δx ≈ 10 km) at Δt=20min = 1200s is
+failure at iter 600. The AB2-M=6 retry post distributed-seam fix
+(job 168482509) reproduced the *same* NaN at iter 600 — confirming
+the failure is integrator instability, not the old seam bug. CFL on
+OM2-01 (Δx ≈ 10 km) at Δt=20min = 1200s is
 `CFL_x ≈ 1 × 1200 / 10000 ≈ 0.12` — well within centered-2 limits, so
 this is *not* a CFL bound but AB2's narrow absolute-stability region
 biting at the finer-resolution operator (same pattern as OM2-025 M=4
@@ -850,17 +880,50 @@ AB2). The natural fix is `TIMESTEPPER=SRK3`.
 Same approach as the OM2-025 section above — AB2 fails on OM2-01 at
 the smallest tested M's, so we sweep SRK3 across `M ∈ {3, 6, 9, 18}`
 to (a) confirm SRK3 fixes the M=3 and M=6 AB2 instabilities and (b)
-find the SRK3 stability ceiling. M=27 (Δt=3h, CFL ≈ 1.1) and beyond
-are deferred until M=18 is known to pass.
+find the SRK3 stability ceiling.
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|---|
-| 3  | 20 min | AB2  | ⚠ NaN at iter 1600 (~22 model days)            | — (walltime hang) | NaN | 168482446 |
-| 3  | 20 min | SRK3 | ✓ exit 0 (max/mean from post-hoc TBD)         | 11106 (3.085 h)   | —   | 168482506 |
-| 6  | 40 min | AB2  | ⏳ retry running                              | — | — | 168482509 |
-| 6  | 40 min | SRK3 | ⏳ running                                    | — | — | 168482512 |
-| 9  | 1 h    | SRK3 | ⏳ running                                    | — | — | 168482517 |
-| 18 | 2 h    | SRK3 | ⏳ running                                    | — | — | 168482520 |
+| 3  | 20 min | AB2  | ⚠ NaN at iter 1600 (~22 model days)                       | — (walltime hang) | NaN | 168482446 |
+| 3  | 20 min | SRK3 | ✓ exit 0 (max/mean from post-hoc TBD)                    | 11106 (3.085 h)   | —   | 168482506 |
+| 6  | 40 min | AB2  | ⚠ NaN at iter 600 (~17 model days; reproduced post-fix)   | — (walltime hang) | NaN | 168482509 |
+| 6  | 40 min | SRK3 | ⚠ NaN at iter 12900 (≈ 0.97 yr — nearly survived)         | ≈ 1.5 h before NaN | NaN | 168482512 |
+| 9  | 1 h    | SRK3 | ⚠ NaN at iter 500 (~21 model days)                        | — (walltime hang) | NaN | 168482517 |
+| 18 | 2 h    | SRK3 | ⚠ NaN at iter 200 (~17 model days)                        | — (walltime hang) | NaN | 168482520 |
+
+##### Verdict — SRK3 stability sweep on OM2-01
+
+**Stability ceiling sits between M=3 and M=6.** SRK3-M=3 completed
+cleanly; SRK3-M=6 *almost* did — running stably for ≈ 0.97 yr (12 056
+clean prints, NaN between iter 12 056 and 12 900) — and SRK3-M=9 /
+SRK3-M=18 both fail early in the same explosive-divergence pattern as
+OM2-025 SRK3-M=36. The "near miss" at SRK3-M=6 suggests the operator's
+absolute-stability footprint on OM2-01 is *barely* outside the SRK3
+region at Δt=40min, then well outside at Δt ≥ 1h.
+
+**Note on the NaN-hang.** Four of these runs ate the full 4-hour
+walltime even though the NaN guard fired early. The Julia process
+seems to deadlock after the NaN-stop on distributed runs — worth
+filing as a follow-up. Until then, set a shorter walltime for OM2-01
+stability probes, or run them on a single GPU once OM2-01 fits.
+
+**Production sweet spot — SRK3-M=3 (Δt = 20 min)** is the only
+clean ✓ on OM2-01 so far. That's only 1× theoretical speedup vs
+AB2-M=1 (3 stages × M=3 = 3 RHS evals/yr per AB2 step), but AB2
+itself is unstable at every tested M > 1, so SRK3-M=3 is the
+*only* known-stable Δt > Δt_base for this model.
+
+**Next probes worth running**:
+- `AB2 M=2` (Δt=13.3 min): the only finer AB2 step worth trying, to
+  see whether AB2 is salvageable for an OM2-01 baseline at all.
+- `SRK3 M=4` (would be 1.33× theoretical, but M=4 is *not* a valid
+  divisor of `N_base = 2 · 3⁴ · 487` — skip).
+- `SRK4 M=6` or `SRK5 M=6` (Δt=40min): if a richer stability region
+  recovers the iter-12900 near-miss, this would be 1.5× / 1.2×
+  theoretical. SRK3-M=6 *almost* made it, so it's a reasonable bet.
+- Alternative operator: `ADVECTION_SCHEME=weno5` (numerical
+  diffusion enlarges effective stability region; bigger design
+  change than swapping integrator).
 
 Submission:
 ```bash
