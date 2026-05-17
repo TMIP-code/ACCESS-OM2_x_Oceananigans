@@ -46,29 +46,16 @@ doesn't.
 
 **Recommendation — best tested speedup: 4×** (AB2-M=4 or SRK3-M=12,
 tied). M=12 is the largest valid divisor of `N_base=5844` below the
-practical 18-h cap, so the integer-divisor structure caps any
-speedup at `M=12 / stage_count`. With SRK2-M=12 now ruled out, the
-candidates at M=12 are:
+practical 18-h cap, so the divisor structure caps any speedup at
+`M=12 / stage_count`. SRK4-M=12 (3×) and SRK5-M=12 (2.4×) can't beat
+that and aren't worth testing.
 
-| Untested at M=12 | Speedup if ✓ |
-|---|---|
-| SRK4-M=12 | 3× — worse than current 4×, not worth it |
-| SRK5-M=12 | 2.4× — worse than current 4×, not worth it |
+Use **SRK3-M=12** for the NK pipeline (only one stable at Δt=18h,
+which the NK *inner* loop exploits with no per-step I/O); use
+**AB2-M=4** for standalone runs.
 
-**The 4× ceiling is real for OM2-1.** No untested combination on
-this model can beat it. To push past 4×, the options are:
-
-1. A *different operator* — e.g. `ADVECTION_SCHEME=weno5` may admit
-   a finer effective grid that lets a higher Δt survive, though it
-   also changes the answer; or
-2. A *different integrator class* — implicit / IMEX schemes (not
-   currently supported in this codebase) could push Δt past the
-   explicit absolute-stability bound.
-
-For now, both **AB2-M=4** and **SRK3-M=12** are the practical
-operating points; SRK3-M=12 is preferable for the NK pipeline since
-it's the only one stable at Δt=18h, which the NK *inner* loop can
-exploit (per-step I/O vanishes there).
+To push past 4×: a different operator (`ADVECTION_SCHEME=weno5`) or
+an implicit / IMEX integrator (not currently in tree).
 
 ### OM2-025 (Δt_base = 1800 s)
 
@@ -84,111 +71,76 @@ exploit (per-step I/O vanishes there).
 | 18 | 9 h    |   | ✗ | ✗ |   | ✗ |
 | 36 | 18 h   |   |   | ✗ |   | ✗ |
 
-**Recommendation — best tested speedup: 4×** (SRK3-M=12). Three
-findings from the SRK{2,3,5} × M ∈ {12, 18} sweep nailed the OM2-025
-ceiling:
+**Recommendation — best tested speedup: 4×** (SRK3-M=12). Key
+findings from the SRK{2,3,5} × M ∈ {12, 18} sweep:
 
-1. **SRK2 fails everywhere on OM2-025**, even at M=12 (CFL~0.86) where
-   SRK3 and SRK5 both succeed. SRK2's absolute-stability region is too
-   narrow for centered-2 + surface relaxation at any Δt > Δt_base
-   tested.
-2. **No SRK-N reaches Δt=9h on OM2-025** — SRK3-M=18, SRK5-M=18 both
-   blow up at the *same grid point* (1288, 1047, ~35), an equatorial-
-   jet region where local CFL exceeds the global average. Going from 3
-   stages to 5 stages doesn't help past this point.
-3. **M=12 is the universal wall.** SRK3-M=12 → 4×; SRK5-M=12 → 2.4×
-   (worse, more stages). No combination beats SRK3-M=12.
-
-**The 4× ceiling is real for OM2-025, same as for OM2-1** — the
-integer-divisor structure of `N_base=17532` (no divisor between 12 and
-18) combined with the integrator-independent stability wall at Δt=9h
-caps explicit speedup at `M_max_stable / stage_count_min = 12 / 3 =
-4×`. SRK4 isn't worth testing (M=12 → 3×, worse than current best;
-M=18 will fail like SRK3/SRK5).
+- **SRK2 fails everywhere** even at M=12 (CFL ~0.86); SRK2's
+  absolute-stability region is too narrow for centered-2 + surface
+  relaxation at any Δt > Δt_base.
+- **No SRK-N reaches Δt=9h** — SRK3-M=18 and SRK5-M=18 both blow up
+  at the same grid point (1288, 1047, ~35), an equatorial-jet region
+  where local CFL exceeds the global average. More stages don't
+  help past this point.
+- **M=12 is the universal wall.** `N_base=17532` has no divisor
+  between 12 and 18, so the integer-divisor structure plus the
+  integrator-independent Δt=9h wall caps explicit speedup at
+  `M_max_stable / stage_count_min = 12 / 3 = 4×`. SRK4-M=12 (3×)
+  isn't worth testing.
 
 To push past 4×: same as OM2-1 — different operator (WENO5) or
-different integrator class (IMEX). Neither currently in tree.
+implicit / IMEX integrator (not currently in tree).
 
 ### OM2-01 (Δt_base = 400 s)
 
 | M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
 |---|---|---|---|---|---|---|
 | 1   | 6.67 min |   |   |   |   |   |
-| 2   | 13.3 min |   |   |   |   |   |
+| 2   | 13.3 min | ⏳ |   |   |   |   |
 | 3   | 20 min   | ✗ |   | ✓ (1×) |   |   |
-| 6   | 40 min   | ✗ |   | ✗ (NaN at iter 12900 ≈ 0.97 yr) |   |   |
-| 9   | 1 h      |   |   | ✗ (NaN at iter 500 ≈ 21 days) |   |   |
-| 18  | 2 h      |   |   | ✗ (NaN at iter 200 ≈ 17 days) |   |   |
+| 6   | 40 min   | ✗ |   | ✗ |   | ⏳ |
+| 9   | 1 h      |   |   | ✗ |   | ⏳ |
+| 18  | 2 h      |   |   | ✗ |   |   |
 | 27  | 3 h      |   |   |   |   |   |
 | 54  | 6 h      |   |   |   |   |   |
 | 81  | 9 h      |   |   |   |   |   |
 | 162 | 18 h     |   |   |   |   |   |
 
-AB2-M=6 hit NaN at sim iter 600 (~17 model days) and AB2-M=3 hit NaN
-at sim iter 1600 (~22 model days), so **AB2 is unstable on OM2-01
-even at the smallest tested Δt > Δt_base**. The CFL on OM2-01 at
-Δt=20min is only ~0.12, so this is AB2's truncation-error /
-absolute-stability instability rather than a CFL bound — by analogy
-with OM2-025, SRK3 at the same M should fix it. SRK3-M=3 confirms
-this (✓ exit 0, sim wall = 3.085 h = 11106 s on 2×H200, job
-168482506).
-
-> **OM2-01 distributed seam bug fixed** — SRK3-M=3 (job 168482506) and
-> the AB2-M=6 retry (job 168482509, which reproduced the prior NaN at
-> iter 600) both ran without seam-row divergence on `PARTITION=1x2`.
-> The seam fix is confirmed; the M=6 NaN is real integrator
-> instability, not the old distributed bug.
-
-**SRK3 ceiling on OM2-01 sits between M=3 and M=6.** SRK3-M=6 nearly
-survived — got to iter 12900 (≈ 0.97 yr, i.e. nearly a full year)
-before NaN — but it still failed. SRK3-M=9 (NaN at iter 500 ≈ 21
-days) and SRK3-M=18 (NaN at iter 200 ≈ 17 days) fail much earlier,
-in the same explosive-divergence pattern as OM2-025 SRK3-M=36. The
-M=6 "almost made it" behavior suggests we're right at the edge of
-SRK3's absolute-stability region for this finer-resolution operator;
-M=9 and beyond are firmly outside it.
-
 **Recommendation — best tested speedup: 1×** (SRK3-M=3, Δt = 20 min,
-the only clean ✓ on OM2-01 so far). That's no measured win over
-AB2-M=1 yet, but AB2 is unstable for every tested M > 1, so SRK3-M=3
-is the *only* known-stable Δt > Δt_base for this model. **Use
-SRK3-M=3 for OM2-01 production runs and as the NK 1-year forward map.**
+the only clean ✓). AB2 is unstable for every tested M > 1 (M=3 and
+M=6 both NaN early) and SRK3 fails at M ≥ 6, so SRK3-M=3 is the only
+known-stable Δt > Δt_base. Use it for production runs and as the NK
+1-year forward map.
 
-CFL is *not* the bottleneck — SRK3-M=9 (Δt=1h, CFL_x ≈ 0.36) fails
-early despite CFL ≪ 1, so what's killing M ≥ 6 is the
-surface/implicit-κV absolute-stability footprint tightening at finer
-Δx, same as the AB2 failures. As a result the original theoretical
-"CFL-safe band M ≤ 27" overestimates what's achievable: the
-*empirical* ceiling is between M=3 and M=6.
+CFL is not the bottleneck — SRK3-M=9 (Δt=1h, CFL_x ≈ 0.36) still
+fails. The ceiling is the surface / implicit-κV absolute-stability
+footprint tightening with finer Δx, same as the AB2 failures on
+OM2-025.
 
 The pattern across resolutions:
 
 | Model | AB2-stable M | SRK3-stable M | Effective speedup |
 |---|---|---|---|
-| OM2-1   | {1, 2, 4}        | {4, 6, 12}     | 4×  (AB2-M=4 or SRK3-M=12) |
-| OM2-025 | none > 1         | {4, 12}        | 4×  (SRK3-M=12) |
-| OM2-01  | none > 1 (tested)| **{3}**        | **1×** (SRK3-M=3) |
+| OM2-1   | {1, 2, 4}         | {4, 6, 12}     | 4×  (AB2-M=4 or SRK3-M=12) |
+| OM2-025 | none > 1          | {4, 12}        | 4×  (SRK3-M=12) |
+| OM2-01  | none > 1 (tested) | **{3}**        | **1×** (SRK3-M=3) |
 
-The AB2-stable Δt shrinks rapidly with resolution; the SRK3-stable Δt
-also shrinks but less fast. By the time we hit OM2-01, the explicit
-operating point has collapsed to a single divisor.
+By the time we hit OM2-01, the explicit operating point has collapsed
+to a single divisor.
 
-**Probes worth running to firm up the OM2-01 ceiling**:
+**Probes in flight to firm up the OM2-01 ceiling**:
 
-| Probe | Δt | Speedup if ✓ | Why it might work |
+| Probe | Δt | Speedup if ✓ | Rationale |
 |---|---|---|---|
-| AB2 M=2  | 13.3 min | 2×   | AB2 failed at M=3; finer Δt may re-enter AB2's stability region |
-| SRK4 M=6 | 40 min   | 1.5× | SRK3-M=6 NaN'd late; SRK4's broader stability region may save it |
-| SRK5 M=6 | 40 min   | 1.2× | Even broader region than SRK4, but 5 stages — only worth it if SRK4-M=6 also fails |
+| AB2 M=2  | 13.3 min | 2×   | finer Δt may re-enter AB2's stability region |
+| SRK5 M=6 | 40 min   | 1.2× | SRK5's broader stability region may admit Δt=40min |
+| SRK5 M=9 | 1 h      | 1.8× | only if SRK5-M=6 passes |
 
-M=4 and M=8 are *not* valid divisors of `N_base = 2 · 3⁴ · 487` so
-they're unavailable. M ≥ 9 has been shown to fail with SRK3 and is
-unlikely to be rescued by SRK{4,5} given the SRK3-M=6 / SRK3-M=9 gap.
+M=4 and M=8 are not valid divisors of `N_base = 2 · 3⁴ · 487`.
 
 For a step-change speedup, an operator change is needed:
-`ADVECTION_SCHEME=weno5` adds numerical diffusion (effectively
-enlarging the stable region), or an implicit / IMEX integrator (not
-in tree today) would push past the explicit absolute-stability bound.
+`ADVECTION_SCHEME=weno5` adds numerical diffusion (enlarging the
+stable region), or an implicit / IMEX integrator (not currently in
+tree) would push past the explicit absolute-stability bound.
 
 ## Intent
 
@@ -621,23 +573,11 @@ the Newton-Krylov use case.
 
 #### Timestepper comparison: SRK3 stability sweep
 
-The NK pipeline at M=6 / M=12 with the default `AB2` timestepper failed
-([NK doc](timestep_multiplier_NK.md#failure-modes)) — M=6 crashed
-inside the 1-year forward map (max age jumped to 1e4 yr within the first
-year), M=12 stalled. Stability of the 1-year forward map is a
-*necessary* precondition for the NK pipeline at those M's. Hypothesis:
-a richer absolute-stability region (multi-stage RK) lets the forward
-map survive at larger Δt. SRK3 (3-stage Split Runge-Kutta) is the natural
-first try.
-
-Per-step *new* tendency-evaluation count is **3 for SRK3 vs 1 for AB2**
-(AB2 caches `G(t_{n-1})` from the previous step, so it does only 1 new
-RHS eval per step). So SRK3 step cost is roughly 3× AB2. The net win
-needs the SRK3 wall to push to an M that drops the per-year step count
-by more than 3× — i.e. M ≥ 12 on OM2-1 — to beat AB2 at M=4.
-
-This sweep tests stability only — RMS Δ vs AB2-M=1 left blank since the
-goal is "does it complete cleanly".
+The NK pipeline at M=6 / M=12 with the default AB2 timestepper failed
+([NK doc](timestep_multiplier_NK.md#failure-modes)). SRK3's richer
+absolute-stability region is the natural retry. Per-step cost is 3× AB2
+(3 stages vs 1 cached tendency), so the net win needs M ≥ 12 to beat
+AB2-M=4.
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Mean age (yr) | Job ID |
 |---|---|---|---|---|---|---|---|
@@ -673,28 +613,11 @@ previous step, SRK3 does 3 fresh stages).
 
 ##### Verdict — SRK3 stability sweep on OM2-1
 
-**Stability**: SRK3 completed cleanly at all three M's, including the
-M=6 and M=12 cases where AB2 inside the NK pipeline blew up
-([see NK doc](timestep_multiplier_NK.md#failure-modes)). Max age at
-t=1yr stays in the ~1.6–1.9 yr range across `M ∈ {4, 6, 12}` — no sign
-of the explosive divergence seen in AB2-OM2-025 M=4.
-
-**Wall time**: SRK3 sim wall **drops monotonically** with M (100.4 →
-90.1 → 79.4 s) — at M=12 it's essentially **tied with AB2 M=4** (79.4 s
-vs 78.1 s). So SRK3-M=12 is a "free upgrade": same wall as the
-fastest-stable AB2 config, but with the larger Δt the *NK inner loop*
-can use (where the I/O cost vanishes and the M-speedup is felt fully).
-
-**Next step for the NK pipeline**: re-run the NK sweep with
-`TIMESTEPPER=SRK3 TIMESTEP_MULT=12 INITIAL_AGE=TMage` and compare to
-the AB2-M=4 baseline. The win is twofold:
-
-1. The 1-year forward map is *known stable* at SRK3-M=12 (this sweep).
-2. The NK inner loop has no per-step I/O, so the per-step speedup of
-   M=12 vs M=4 (3× fewer steps) directly translates to wall reduction
-   — and the SRK3 step cost penalty (3.45× per step) is the cost.
-   Net: SRK3-M=12 NK wall ≈ AB2-M=4 NK wall = (52/2.61) ≈ 20 min,
-   but with the *known* convergence in the SRK3-M=12 regime.
+SRK3 completed cleanly at M ∈ {4, 6, 12}, including the M=6 and M=12
+cases where AB2 inside the NK pipeline blew up. Sim wall drops
+monotonically with M (100.4 → 90.1 → 79.4 s); SRK3-M=12 is tied with
+AB2-M=4 on wall (79.4 vs 78.1 s) but Δt=18h, so it's a free upgrade
+for the NK inner loop where per-step I/O vanishes.
 
 ### OM2-025 (Δt = 1800 s baseline)
 
@@ -710,127 +633,59 @@ the AB2-M=4 baseline. The win is twofold:
 | 18 | 9 h    | 974   | 2b | — | — | — | — | — | — |
 | 36 | 18 h   | 487   | 2b | — | — | — | — | — | — |
 
-Submission: `PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
-on `gpuhopper` (1×H200, 256 GB) — single-GPU; monthly velocity preprocessing
-already complete (no `vel` step needed). M=1 baseline still pending, so RMS Δ
-will be left blank until a baseline run lands.
+Submission: `PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=<M> [TIMESTEPPER=<TS>] JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
+on `gpuhopper` (1×H200, 256 GB). M=1 baseline still pending, so RMS Δ
+stays blank until that lands.
 
-**Stability — M=4 (Δt=2h) is not safe on OM2-025**: the run returned exit 0
-but `max(age)` blew up to **3.9×10⁸ yr** at sim iter 3294 (t=0.75 yr) at
-`(i, j, k) = (143, 464, 45)` (subsurface western Pacific), then partially
-"recovered" to a final `max(age) = 889 yr` — still wildly non-physical for
-a passive tracer initialised at zero over a single year. The `mean` stays
-near 0.24 yr because the explosion is spatially local. `validate_age_field`
-catches NaN/Inf but not absurd magnitudes, so this run *was not caught* —
-future work should add a magnitude sanity check (e.g. fail if `max(age)
-> 100 yr` at t=1 yr). Julia-internal sim wall: 6m 42s.
+**AB2-M=4 is not safe on OM2-025**: returned exit 0 but `max(age)`
+blew up to 3.9×10⁸ yr at sim iter 3294 then partially "recovered" to a
+final 889 yr — still wildly non-physical. `validate_age_field` catches
+NaN/Inf but not absurd magnitudes, so this slipped through — future
+work should add a magnitude sanity check (e.g. fail if `max(age) > 100
+yr` at t=1 yr).
 
-The first plot job (168276372) hit the 30-min `WALLTIME_PLOT` after writing
-10 PNGs + 4 of 10 MP4s; slice-depth animations were dropped. Initial
-resubmit (168280065) was cancelled because `model_configs/ACCESS-OM2-025.sh:46`
-hardcoded `WALLTIME_PLOT=00:30:00` and ignored the env override; the
-config has since been fixed to use `${WALLTIME_PLOT:-00:30:00}`. Plot
-resubmitted as **168280430** with `WALLTIME_PLOT=01:00:00`.
-
-#### Timestepper comparison at M=4
-
-The AB2 result above is unstable at `M=4` on OM2-025. Hypothesis: a
-larger-stability-region timestepper might let us push Δt further before
-the explosion. AB2 is 2nd-order multistep with a small absolute-stability
-region tangent to the imaginary axis — barely stable for the
-mildly-diffusive offline-tracer operator at large Δt. Split Runge-Kutta
-methods (`SRK{N}`, N=2..5) have richer stability regions; SRK3 is the
-natural first try.
-
-Trade-off: each SRK3 step does ~3× the per-step work of AB2 (3 stages
-per step). The win is only real if SRK3 stays stable at an `M` that
-makes the per-year step count drop by > 3× — i.e., at `M ≥ 12` on
-OM2-025. Otherwise SRK3 is slower than AB2 at `M=1`.
+#### Timestepper comparison
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|---|
-| 4  | 2 h  | AB2  | ⚠ unstable (max=8.9e+02 yr at t=1yr; peak 3.9e+08 mid-run) | 402 | 8.89e+02 | 168276371 |
-| 4  | 2 h  | SRK3 | ✓ stable | 484 | 1.97 | 168280609 |
-| 12 | 6 h  | SRK2 | ⏳ queued | — | — | 168363327 |
-| 12 | 6 h  | SRK3 | ✓ stable | 253 | 1.73 | 168283651 |
-| 12 | 6 h  | SRK5 | ⏳ queued | — | — | 168363332 |
-| 18 | 9 h  | SRK2 | ⏳ queued | — | — | 168363330 |
-| 18 | 9 h  | SRK3 | ⏳ queued | — | — | 168363323 |
-| 18 | 9 h  | SRK5 | ⏳ queued | — | — | 168363335 |
-| 36 | 18 h | SRK3 | ✗ exploded (max=5.2e+59 yr at sim iter 41, final = NaN) | 130 (DNF) | NaN | 168283653 |
-| 36 | 18 h | SRK5 | ✗ exploded (max=2.2e+70 yr at sim iter 41, final = NaN) | 137 (DNF) | NaN | 168286118 |
+| 4  | 2 h  | AB2  | ✗ unstable (max=8.9e+02 yr) | 402 | 8.89e+02 | 168276371 |
+| 4  | 2 h  | SRK3 | ✓                            | 484 | 1.97 | 168280609 |
+| 12 | 6 h  | SRK2 | ✗                            | —   | —    | 168363327 |
+| 12 | 6 h  | SRK3 | ✓                            | 253 | 1.73 | 168283651 |
+| 12 | 6 h  | SRK5 | ✓                            | —   | —    | 168363332 |
+| 18 | 9 h  | SRK2 | ✗                            | —   | —    | 168363330 |
+| 18 | 9 h  | SRK3 | ✗                            | —   | —    | 168363323 |
+| 18 | 9 h  | SRK5 | ✗                            | —   | —    | 168363335 |
+| 36 | 18 h | SRK3 | ✗                            | 130 (DNF) | NaN | 168283653 |
+| 36 | 18 h | SRK5 | ✗                            | 137 (DNF) | NaN | 168286118 |
 
-Sweep design — fills the M=18 row and tests timestepper-order sensitivity
-at the two M's bracketing the SRK3 wall:
+SRK3 fixes the M=4 AB2 instability and extends cleanly to M=12 — max
+age stays in the ~2 yr range across M ∈ {4, 12}, sim wall drops from
+484 s (M=4) to 253 s (M=12) — almost the full 3× per-step speedup, I/O
+overhead ~70 s.
 
-- **M=18 across SRK{2,3,5}**: locates the CFL ceiling. CFL at Δt=9h is
-  ~1.3 (vs ~2.6 at M=36 and ~0.86 at M=12). If even SRK5 fails here,
-  centered-2's hard wall is M=12. If SRK3 survives, M=18 may be the new
-  ceiling.
-- **M=12 across SRK{2,3,5}**: probes whether the *order* of the SRK
-  method matters when CFL is in-bounds. Expectation: all three converge
-  to similar max(age), but per-step cost grows with stage count (SRK2 ≈
-  2× AB2, SRK3 ≈ 3.45× empirically, SRK5 ≈ ~6× extrapolated).
+The SRK3 wall sits between M=12 and M=36. SRK5-M=36 also fails (same
+grid point as SRK3-M=36), ruling out *timestepper stability* as the
+bottleneck at Δt=18h. CFL at Δt=18h is ~2.6 — centered-2 is
+unconditionally unstable for CFL > 1, so the ceiling is the velocity
+field, not the integrator. SRK3-M=18 and SRK5-M=18 also fail (CFL
+~1.3) at the same equatorial-jet grid point.
 
-**SRK3 fixes the OM2-025 M=4 instability** *and* extends cleanly to M=12
-— max age stays in the ~2 yr range across `M ∈ {4, 12}`, sim wall drops
-from 484 s (M=4) to 253 s (M=12) — almost the full 3× per-step speedup,
-since I/O is now a smaller fraction of total wall (~70 s).
-
-**OM2-025 SRK3 wall sits between M=12 and M=36** — M=36 (Δt=18h)
-diverges before t=0.1 yr.
-
-**SRK5 at M=36 also fails — and slightly worse**: max(age) = 2.2×10⁷⁰ yr
-at sim iter 41 (vs SRK3's 5.2×10⁵⁹ at the same iter, same location
-`(1288, 1047, ~35)`). The mode of failure is iteratively identical
-across SRK3 and SRK5. Bumping from a richer to an even-richer absolute-
-stability region didn't help.
-
-This rules out *timestepper-stability* as the bottleneck at Δt=18h on
-OM2-025 — the failure must be **tracer-advection CFL** on the
-prescribed (u, v, w) fields. For a 1/4° grid with Δx ≈ 25 km and peak
-surface speeds ~1 m/s, the CFL at Δt=18h is
-
-```
-CFL_x = u Δt / Δx ≈ 1 × 64800 / 25000 ≈ 2.6
-```
-
-Centered-2 advection is unconditionally unstable for CFL > 1 along
-*any* characteristic direction; SRK can't fix that. The ceiling is
-the velocity field, not the integrator.
-
-Two ways forward:
-
-1. **Probe `M=18 (Δt=9h)`** — the only practical divisor of
-   `N_base=17532` between 12 and 36. CFL drops to ~1.3, still > 1 but
-   smaller. May or may not survive (M=12 at CFL ≈ 0.86 worked); will
-   tell us how tight the centered-2 stability margin is.
-2. **Switch to an upwinded scheme (`ADVECTION_SCHEME=weno5`)** — WENO
-   is stable for moderate CFL > 1 thanks to numerical diffusion, at
-   the cost of higher per-step work. This would change the operator
-   we're solving, so it's a bigger design choice than just bumping
-   `TIMESTEPPER`.
-
-M=12 (SRK3, Δt=6h) remains the safe sweet spot for OM2-025 production.
-
-Submission: `TIMESTEPPER=SRK3 PARENT_MODEL=ACCESS-OM2-025 TIMESTEP_MULT=4 WALLTIME_PLOT=01:00:00 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
-on `gpuhopper` (1×H200). Output lands at the separate
-`{MC}_DTx4` path where `{MC} = cgridtransports_wdiagnosed_centered2_SRK3`,
-so it doesn't collide with the AB2 result above. Headline question: does
-SRK3 *complete cleanly* (max age ≲ 5 yr at t=1yr) at `M=4`? If yes, try
-`M=6 / M=12` to find the SRK3 wall and see if the speedup overcomes the
-3× per-step cost.
+**M=12 (SRK3, Δt=6h) is the OM2-025 production sweet spot.** To push
+past 4× the operator must change: `ADVECTION_SCHEME=weno5` (WENO's
+numerical diffusion stabilizes CFL > 1) or an IMEX integrator (not in
+tree).
 
 ### OM2-01 (Δt = 400 s baseline)
 
-AB2 table (post-distributed-fix retry of M=6, plus new M=3):
+AB2 table:
 
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
-| 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
-| 3   | 20 min    | 26298 | 2b | ⚠ NaN at iter 1600 (~22 model days) | — | NaN | — | — | 168482446 |
-| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days; confirmed post-fix retry) | — | NaN | — | — | 168280162 / 168482509 |
+| 2   | 13.3 min  | 39447 | 2a | ⏳ running             | — | — | — | — | TBD |
+| 3   | 20 min    | 26298 | 2b | ✗ NaN at iter 1600     | — | NaN | — | — | 168482446 |
+| 6   | 40 min    | 13149 | 2a | ✗ NaN at iter 600      | — | NaN | — | — | 168280162 / 168482509 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -838,104 +693,44 @@ AB2 table (post-distributed-fix retry of M=6, plus new M=3):
 | 81  | 9 h       | 974   | 2b | — | — | — | — | — | — |
 | 162 | 18 h      | 487   | 2b | — | — | — | — | — | — |
 
-Submission: `PARTITION=1x2 PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=6 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh`
-on `gpuhopper` (2×H200, 512 GB total). plot1yr = 168280163 chains afterok
-run1yr. `W_FORMULATION=wdiagnosed` (default) means `w` is computed online
-via continuity in [setup_model.jl:173-220](../src/setup_model.jl#L173-L220)
-— no precomputed `w_diagnosed_monthly.jld2` is read, so
-`u/v_from_mass_transport_monthly.jld2` + `eta_monthly.jld2` (all present)
-are the only velocity inputs needed.
+OM2-01 requires `PARTITION=1x2` (won't fit on a single H200).
+Submission template:
 
-> **Submission history for this row** —
-> 1. `diagnose_w-run1yr-plot1yr` (jobs 168276434/168276435/168276437):
->    cancelled mid-flight after clarification — `diagnose_w` is only
->    needed for `W_FORMULATION=wprescribed` + `PRESCRIBED_W_SOURCE=diagnosed`,
->    a different code path.
-> 2. `run1yr-plot1yr` at `PARTITION=1x1` (jobs 168277463/168277464):
->    failed with **GPU OOM** — tried to allocate 79.3 GiB on top of
->    84 GiB already used on a single 140 GiB H200. OM2-01's 3600×2700×75
->    grid (729M cells) needs more than a single device. The driver default
->    of `PARTITION=1x1` is wrong for OM2-01 — it should default to at
->    least 1x2 for this model. Filed as a follow-up.
-> 3. `run1yr-plot1yr` at `PARTITION=1x2` (jobs 168280162/168280163):
->    current attempt.
+```bash
+PARTITION=1x2 PARENT_MODEL=ACCESS-OM2-01 TIMESTEPPER=<TS> TIMESTEP_MULT=<M> \
+  JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
+```
 
-Stability sanity check is the headline question — RMS Δ vs M=1 stays
-blank until a baseline lands.
-
-**OM2-01 AB2 is unstable even at M=3 (Δt=20 min)** — NaN at sim iter
-1600 (~22 model days, job 168482446), in addition to the prior M=6
-failure at iter 600. The AB2-M=6 retry post distributed-seam fix
-(job 168482509) reproduced the *same* NaN at iter 600 — confirming
-the failure is integrator instability, not the old seam bug. CFL on
-OM2-01 (Δx ≈ 10 km) at Δt=20min = 1200s is
-`CFL_x ≈ 1 × 1200 / 10000 ≈ 0.12` — well within centered-2 limits, so
-this is *not* a CFL bound but AB2's narrow absolute-stability region
-biting at the finer-resolution operator (same pattern as OM2-025 M=4
-AB2). The natural fix is `TIMESTEPPER=SRK3`.
+RMS Δ vs M=1 stays blank until a baseline lands.
 
 #### Timestepper comparison
 
-Same approach as the OM2-025 section above — AB2 fails on OM2-01 at
-the smallest tested M's, so we sweep SRK3 across `M ∈ {3, 6, 9, 18}`
-to (a) confirm SRK3 fixes the M=3 and M=6 AB2 instabilities and (b)
-find the SRK3 stability ceiling.
+AB2 fails on OM2-01 at every tested M > 1, so the focus is the SRK
+sweep across `M ∈ {3, 6, 9, 18}` plus the in-flight AB2-M=2 / SRK5
+probes.
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|---|
-| 3  | 20 min | AB2  | ⚠ NaN at iter 1600 (~22 model days)                       | — (walltime hang) | NaN | 168482446 |
-| 3  | 20 min | SRK3 | ✓ exit 0 (max/mean from post-hoc TBD)                    | 11106 (3.085 h)   | —   | 168482506 |
-| 6  | 40 min | AB2  | ⚠ NaN at iter 600 (~17 model days; reproduced post-fix)   | — (walltime hang) | NaN | 168482509 |
-| 6  | 40 min | SRK3 | ⚠ NaN at iter 12900 (≈ 0.97 yr — nearly survived)         | ≈ 1.5 h before NaN | NaN | 168482512 |
-| 9  | 1 h    | SRK3 | ⚠ NaN at iter 500 (~21 model days)                        | — (walltime hang) | NaN | 168482517 |
-| 18 | 2 h    | SRK3 | ⚠ NaN at iter 200 (~17 model days)                        | — (walltime hang) | NaN | 168482520 |
+| 2  | 13.3 min | AB2  | ⏳ running             | — | — | TBD |
+| 3  | 20 min   | AB2  | ✗ NaN at iter 1600     | — | NaN | 168482446 |
+| 3  | 20 min   | SRK3 | ✓ exit 0               | 11106 (3.085 h)   | — | 168482506 |
+| 6  | 40 min   | AB2  | ✗ NaN at iter 600      | — | NaN | 168482509 |
+| 6  | 40 min   | SRK3 | ✗ NaN at iter 12900    | — | NaN | 168482512 |
+| 6  | 40 min   | SRK5 | ⏳ running             | — | — | TBD |
+| 9  | 1 h      | SRK3 | ✗ NaN at iter 500      | — | NaN | 168482517 |
+| 9  | 1 h      | SRK5 | ⏳ running             | — | — | TBD |
+| 18 | 2 h      | SRK3 | ✗ NaN at iter 200      | — | NaN | 168482520 |
 
-##### Verdict — SRK3 stability sweep on OM2-01
+##### Verdict
 
-**Stability ceiling sits between M=3 and M=6.** SRK3-M=3 completed
-cleanly; SRK3-M=6 *almost* did — running stably for ≈ 0.97 yr (12 056
-clean prints, NaN between iter 12 056 and 12 900) — and SRK3-M=9 /
-SRK3-M=18 both fail early in the same explosive-divergence pattern as
-OM2-025 SRK3-M=36. The "near miss" at SRK3-M=6 suggests the operator's
-absolute-stability footprint on OM2-01 is *barely* outside the SRK3
-region at Δt=40min, then well outside at Δt ≥ 1h.
+SRK3-M=3 is the only clean ✓ on OM2-01. AB2 fails at every tested
+M > 1; SRK3 fails at every M > 3. Use SRK3-M=3 for production runs
+and as the NK 1-year forward map until SRK5 probes return or an
+operator change (WENO5, IMEX) is wired in.
 
-**Note on the NaN-hang.** Four of these runs ate the full 4-hour
-walltime even though the NaN guard fired early. The Julia process
-seems to deadlock after the NaN-stop on distributed runs — worth
-filing as a follow-up. Until then, set a shorter walltime for OM2-01
-stability probes, or run them on a single GPU once OM2-01 fits.
-
-**Production sweet spot — SRK3-M=3 (Δt = 20 min)** is the only
-clean ✓ on OM2-01 so far. That's only 1× theoretical speedup vs
-AB2-M=1 (3 stages × M=3 = 3 RHS evals/yr per AB2 step), but AB2
-itself is unstable at every tested M > 1, so SRK3-M=3 is the
-*only* known-stable Δt > Δt_base for this model.
-
-**Next probes worth running**:
-- `AB2 M=2` (Δt=13.3 min): the only finer AB2 step worth trying, to
-  see whether AB2 is salvageable for an OM2-01 baseline at all.
-- `SRK3 M=4` (would be 1.33× theoretical, but M=4 is *not* a valid
-  divisor of `N_base = 2 · 3⁴ · 487` — skip).
-- `SRK4 M=6` or `SRK5 M=6` (Δt=40min): if a richer stability region
-  recovers the iter-12900 near-miss, this would be 1.5× / 1.2×
-  theoretical. SRK3-M=6 *almost* made it, so it's a reasonable bet.
-- Alternative operator: `ADVECTION_SCHEME=weno5` (numerical
-  diffusion enlarges effective stability region; bigger design
-  change than swapping integrator).
-
-Submission:
-```bash
-for cfg in "AB2 3" "SRK3 3" "AB2 6" "SRK3 6" "SRK3 9" "SRK3 18"; do
-  set -- $cfg
-  PARTITION=1x2 PARENT_MODEL=ACCESS-OM2-01 TIMESTEPPER=$1 TIMESTEP_MULT=$2 \
-    JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
-done
-```
-on `gpuhopper` (2×H200, 512 GB total). The M=3 SRK3 result on
-distributed (1×2) is also the first **clean post-fix confirmation
-that the rank-1 seam-row divergence is resolved** — no NaN, no
-seam-row blow-up across 26 304 sim iters.
+**Note on the NaN-hang**: NaN-stopped distributed runs deadlock and
+eat the full walltime. Filed as a follow-up; set a shorter walltime
+for stability probes in the meantime.
 
 ### Conclusions
 
