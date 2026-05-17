@@ -78,6 +78,24 @@ coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
+TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+if TRAF
+    TM_SOURCE == "const" || error(
+        "TRAF=yes is only supported with TM_SOURCE=const in the first cut (got TM_SOURCE=$TM_SOURCE). " *
+            "Snapshot/avg-matrix support for TRAF is a follow-up.",
+    )
+    TRAF_TM_SOURCE in ("invVMtV", "M_traf") ||
+        error("TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)")
+end
+M_basename = if !TRAF
+    "M.jld2"
+elseif TRAF_TM_SOURCE == "invVMtV"
+    "invVMtV.jld2"
+else  # "M_traf"
+    "M_traf.jld2"
+end
+
 output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
@@ -95,6 +113,8 @@ mkpath(matrix_plots_dir)
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
 @info "- TM_SOURCE         = $TM_SOURCE"
+@info "- TRAF              = $TRAF"
+TRAF && @info "- TRAF_TM_SOURCE    = $TRAF_TM_SOURCE  → M_basename = $M_basename"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
 @info "- M_dir             = $M_dir"
@@ -120,7 +140,7 @@ flush(stdout); flush(stderr)
 # Load transport matrix M
 ################################################################################
 
-M_file = joinpath(M_dir, "M.jld2")
+M_file = joinpath(M_dir, M_basename)
 @info "Loading transport matrix from $M_file"
 flush(stdout); flush(stderr)
 M = load(M_file, "M")
