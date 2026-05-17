@@ -138,9 +138,9 @@ No 1×1 (doesn't fit on H200).
 | 1×2 +LBmix | 2h 52m 1s | 1.06× |
 | 1×2 +LBminmax | 2h 50m 10s | 1.07× |
 | 1×4 baseline | 1h 37m 59s | 1.85× |
-| 1×4 +LBS (surface) | _pending (168483652)_ | — |
+| **1×4 +LBS (surface)** | **1h 25m 27s** | **2.13×** |
 | 1×8 baseline | 1h 38m 27s | 1.85× |
-| 1×8 +LBS (surface) | _pending (168482551)_ | — |
+| 1×8 +LBS (surface) | 1h 36m 43s | 1.88× |
 
 ### Observations
 
@@ -159,6 +159,17 @@ No 1×1 (doesn't fit on H200).
   (1.11×) only gets ~13% of the way (1×4 is 1.85×) — because OM2-01
   1×2→1×4 baseline already scales at 93% efficiency, leaving little
   for LB to chip away at.
+- **+LBS at larger partitions (OM2-01 H200) is a mixed story.** At 1×4
+  +LBS gives **2.13× vs 1×2 baseline** — *super-linear* against the
+  ideal 2× for 1×4. That's the strongest scaling result in the whole
+  matrix: surface-balancing actively repartitions work in a way that
+  also helps memory locality on each rank. At 1×8, +LBS only delivers
+  1.88× (vs 1.85× without LB) — the 1×4→1×8 wall plateau is barely
+  budged. Suggests the 1×8 plateau is not primarily an imbalance
+  problem; halo/MPI overhead or another bottleneck dominates there.
+  Net: **LBS scales the 1×2→1×4 doubling from 73% to 86% efficiency**
+  on OM2-01 H200 (and pushes past nominal 2× because reduced per-rank
+  working sets seem to help cache).
 - **Surface LB consistently wins** every tested (model, GPU):
   +LBS > +LBmix ≈ +LBminmax > +LB cell:
 
