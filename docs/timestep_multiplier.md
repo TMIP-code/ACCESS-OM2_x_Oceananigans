@@ -148,48 +148,47 @@ M=6 "almost made it" behavior suggests we're right at the edge of
 SRK3's absolute-stability region for this finer-resolution operator;
 M=9 and beyond are firmly outside it.
 
-**Recommendation — best tested speedup: 1×** (SRK3-M=3, the only
-clean ✓). That's no win over a hypothetical AB2-M=1 baseline (which
-hasn't been run yet, since AB2 is unstable for any tested M > 1).
-The most useful untested cells are now low-M variants where SRK3 has
-plenty of stability margin:
+**Recommendation — best tested speedup: 1×** (SRK3-M=3, Δt = 20 min,
+the only clean ✓ on OM2-01 so far). That's no measured win over
+AB2-M=1 yet, but AB2 is unstable for every tested M > 1, so SRK3-M=3
+is the *only* known-stable Δt > Δt_base for this model. **Use
+SRK3-M=3 for OM2-01 production runs and as the NK 1-year forward map.**
 
-| Untested low-M | Speedup if ✓ |
-|---|---|
-| SRK3-M=2 (Δt=13.3 min) | 0.67× (worse than SRK3-M=3) |
-| AB2-M=2 (Δt=13.3 min) | 2× (only useful if AB2 stable at Δt < 20min) |
+CFL is *not* the bottleneck — SRK3-M=9 (Δt=1h, CFL_x ≈ 0.36) fails
+early despite CFL ≪ 1, so what's killing M ≥ 6 is the
+surface/implicit-κV absolute-stability footprint tightening at finer
+Δx, same as the AB2 failures. As a result the original theoretical
+"CFL-safe band M ≤ 27" overestimates what's achievable: the
+*empirical* ceiling is between M=3 and M=6.
 
-Past the AB2-OM2-025 → SRK3-OM2-025 → SRK3-OM2-01 chain it's clear
-the AB2-stable Δt shrinks with resolution: OM2-1 OK at M ∈ {2,4};
-OM2-025 needs SRK3 at M=4; OM2-01 needs SRK3 *and* fails for M ≥ 6.
-The original optimistic untested table (next block) is left for
-reference but most of those rows can be expected to fail like
-SRK3-M=18 did.
+The pattern across resolutions:
 
-CFL on the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL
-= 1` at Δt ≈ 10 000 s ≈ 2.8 h, so the CFL-safe band is `M ≤ 27`
-(Δt=3 h, CFL ≈ 1.1). But SRK3-M=9 (Δt=1h, CFL ≈ 0.36) failed early,
-so the bottleneck here is *not* advection CFL — it's the surface /
-implicit-κV operator absolute stability tightening with finer Δx,
-same as the AB2 failures. Untested *high*-M speedups (the table
-below) are retained as the original theoretical ceiling but should
-be regarded as very unlikely to succeed:
+| Model | AB2-stable M | SRK3-stable M | Effective speedup |
+|---|---|---|---|
+| OM2-1   | {1, 2, 4}        | {4, 6, 12}     | 4×  (AB2-M=4 or SRK3-M=12) |
+| OM2-025 | none > 1         | {4, 12}        | 4×  (SRK3-M=12) |
+| OM2-01  | none > 1 (tested)| **{3}**        | **1×** (SRK3-M=3) |
 
-| Untested | Speedup if ✓ |
-|---|---|
-| SRK2-M=27 | **13.5×** |
-| SRK3-M=27 | 9× |
-| SRK2-M=18 | 9× |
-| SRK5-M=27 | 5.4× |
-| SRK3-M=18 | 6× |
+The AB2-stable Δt shrinks rapidly with resolution; the SRK3-stable Δt
+also shrinks but less fast. By the time we hit OM2-01, the explicit
+operating point has collapsed to a single divisor.
 
-The natural starting sweep is **SRK3-M=6** (fix the AB2-M=6 failure,
-confirm the OM2-025 → OM2-01 transfer) → **SRK3-M=27** (target a 9×
-end-to-end win). SRK2-M=27 would be even better at 13.5× if SRK2's
-stability holds, but SRK3 is the safer bet given the CFL margin
-(SRK3 has a larger imaginary-axis stability footprint than SRK2 for
-this type of advection-dominated problem). M=54/81/162 hit CFL > 2.2
-and will almost certainly fail like OM2-025-M=36 did.
+**Probes worth running to firm up the OM2-01 ceiling**:
+
+| Probe | Δt | Speedup if ✓ | Why it might work |
+|---|---|---|---|
+| AB2 M=2  | 13.3 min | 2×   | AB2 failed at M=3; finer Δt may re-enter AB2's stability region |
+| SRK4 M=6 | 40 min   | 1.5× | SRK3-M=6 NaN'd late; SRK4's broader stability region may save it |
+| SRK5 M=6 | 40 min   | 1.2× | Even broader region than SRK4, but 5 stages — only worth it if SRK4-M=6 also fails |
+
+M=4 and M=8 are *not* valid divisors of `N_base = 2 · 3⁴ · 487` so
+they're unavailable. M ≥ 9 has been shown to fail with SRK3 and is
+unlikely to be rescued by SRK{4,5} given the SRK3-M=6 / SRK3-M=9 gap.
+
+For a step-change speedup, an operator change is needed:
+`ADVECTION_SCHEME=weno5` adds numerical diffusion (effectively
+enlarging the stable region), or an implicit / IMEX integrator (not
+in tree today) would push past the explicit absolute-stability bound.
 
 ## Intent
 
