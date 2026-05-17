@@ -683,7 +683,7 @@ AB2 table:
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
-| 2   | 13.3 min  | 39447 | 2a | ⏳ running             | — | — | — | — | TBD |
+| 2   | 13.3 min  | 39447 | 2a | ⏳ running             | — | — | — | — | 168574394 |
 | 3   | 20 min    | 26298 | 2b | ✗ NaN at iter 1600     | — | NaN | — | — | 168482446 |
 | 6   | 40 min    | 13149 | 2a | ✗ NaN at iter 600      | — | NaN | — | — | 168280162 / 168482509 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
@@ -711,14 +711,14 @@ probes.
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|---|
-| 2  | 13.3 min | AB2  | ⏳ running             | — | — | TBD |
+| 2  | 13.3 min | AB2  | ⏳ running             | — | — | 168574394 |
 | 3  | 20 min   | AB2  | ✗ NaN at iter 1600     | — | NaN | 168482446 |
-| 3  | 20 min   | SRK3 | ✓ exit 0               | 11106 (3.085 h)   | — | 168482506 |
+| 3  | 20 min   | SRK3 | ✓ exit 0               | 11106 (3.085 h) | — | 168482506 |
 | 6  | 40 min   | AB2  | ✗ NaN at iter 600      | — | NaN | 168482509 |
 | 6  | 40 min   | SRK3 | ✗ NaN at iter 12900    | — | NaN | 168482512 |
-| 6  | 40 min   | SRK5 | ⏳ running             | — | — | TBD |
+| 6  | 40 min   | SRK5 | ⏳ running             | — | — | 168574437 |
 | 9  | 1 h      | SRK3 | ✗ NaN at iter 500      | — | NaN | 168482517 |
-| 9  | 1 h      | SRK5 | ⏳ running             | — | — | TBD |
+| 9  | 1 h      | SRK5 | ⏳ running             | — | — | 168574832 |
 | 18 | 2 h      | SRK3 | ✗ NaN at iter 200      | — | NaN | 168482520 |
 
 ##### Verdict
