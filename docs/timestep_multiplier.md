@@ -115,28 +115,29 @@ different integrator class (IMEX). Neither currently in tree.
 |---|---|---|---|---|---|---|
 | 1   | 6.67 min |   |   |   |   |   |
 | 2   | 13.3 min |   |   |   |   |   |
-| 3   | 20 min   |   |   |   |   |   |
-| 6   | 40 min   | ✗ |   |   |   |   |
-| 9   | 1 h      |   |   |   |   |   |
-| 18  | 2 h      |   |   |   |   |   |
+| 3   | 20 min   | ✗ |   | ✓ (1×) |   |   |
+| 6   | 40 min   | ✗ (rerun ⏳) |   | ⏳ |   |   |
+| 9   | 1 h      |   |   | ⏳ |   |   |
+| 18  | 2 h      |   |   | ⏳ |   |   |
 | 27  | 3 h      |   |   |   |   |   |
 | 54  | 6 h      |   |   |   |   |   |
 | 81  | 9 h      |   |   |   |   |   |
 | 162 | 18 h     |   |   |   |   |   |
 
-AB2-M=6 hit NaN at sim iter 600 (~17 model days). The CFL on OM2-01
-at Δt=40min is only ~0.24, so this was AB2's truncation-error
-instability rather than a CFL bound — by analogy with OM2-025, SRK3
-at the same M should fix it.
+AB2-M=6 hit NaN at sim iter 600 (~17 model days) and AB2-M=3 hit NaN
+at sim iter 1600 (~22 model days), so **AB2 is unstable on OM2-01
+even at the smallest tested Δt > Δt_base**. The CFL on OM2-01 at
+Δt=20min is only ~0.12, so this is AB2's truncation-error /
+absolute-stability instability rather than a CFL bound — by analogy
+with OM2-025, SRK3 at the same M should fix it. SRK3-M=3 confirms
+this (✓ exit 0, sim wall = 3.085 h = 11106 s on 2×H200, job
+168482506).
 
-> **OM2-01 testing on hold** pending the distributed-tracer seam bug
-> (see [next_probes_implicit_step.md](next_probes_implicit_step.md)).
-> OM2-01 requires `PARTITION≥1x2` to fit a single H200, and rank 1's
-> `implicit_step!` is currently producing a 4534-second seam-row
-> divergence vs CPU. Cancelled the speculative SRK2-M=27 / SRK3-M=18 /
-> SRK3-M=27 multi-GPU submissions (jobs 168365964–168365970) — they'd
-> have re-tripped the same bug. Once `implicit_step!` is sorted, the
-> full sweep returns.
+> **OM2-01 distributed seam bug appears fixed** — SRK3-M=3 on
+> `PARTITION=1x2` (job 168482506) completed cleanly with exit 0 and
+> no seam-row divergence. The full SRK3 stability sweep at M=6 / 9 /
+> 18 (jobs 168482512 / 168482517 / 168482520) plus the AB2-M=6 retry
+> (job 168482509) is now in flight.
 
 **Recommendation — no clean ✓ yet, so no measured speedup.** CFL on
 the prescribed velocity (Δx ≈ 10 km, peak ~1 m/s) gives `CFL = 1` at
@@ -793,12 +794,14 @@ SRK3 *complete cleanly* (max age ≲ 5 yr at t=1yr) at `M=4`? If yes, try
 
 ### OM2-01 (Δt = 400 s baseline)
 
+AB2 table (post-distributed-fix retry of M=6, plus new M=3):
+
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
 | 2   | 13.3 min  | 39447 | 2a | — | — | — | — | — | — |
-| 3   | 20 min    | 26298 | 2b | — | — | — | — | — | — |
-| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days) | — | NaN | — | — | 168280162 |
+| 3   | 20 min    | 26298 | 2b | ⚠ NaN at iter 1600 (~22 model days) | — | NaN | — | — | 168482446 |
+| 6   | 40 min    | 13149 | 2a | ⚠ NaN at iter 600 (~17 model days); retry ⏳ | — | NaN | — | — | 168280162 / 168482509 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
 | 18  | 2 h       | 4383  | 2b | — | — | — | — | — | — |
 | 27  | 3 h       | 2922  | 2b | — | — | — | — | — | — |
@@ -831,14 +834,46 @@ are the only velocity inputs needed.
 Stability sanity check is the headline question — RMS Δ vs M=1 stays
 blank until a baseline lands.
 
-**OM2-01 M=6 AB2 (Δt=40min) is unstable**: NaN detected in age at sim
-iter 600 (~17 model days in), simulation auto-stopped via the existing
-NaN guard. Same pattern as OM2-025 M=4 AB2 — at finer resolution, the
-CFL bound tightens, so the AB2-stable Δt drops. By analogy with the
-OM2-025 → SRK3 fix, the natural retry is `TIMESTEPPER=SRK3` on OM2-01
-M=6. CFL on OM2-01 (Δx ≈ 10 km) at Δt=40min = 2400s is
-`CFL_x ≈ 1 × 2400 / 10000 ≈ 0.24` — well within centered-2 limits, so
-SRK3 should be enough.
+**OM2-01 AB2 is unstable even at M=3 (Δt=20 min)** — NaN at sim iter
+1600 (~22 model days, job 168482446), in addition to the prior M=6
+failure at iter 600. AB2 retry of M=6 (job 168482509) is in flight post
+distributed-seam fix to confirm the failure mode (it's still expected
+to fail — the bug fix doesn't change the integrator's stability
+region). CFL on OM2-01 (Δx ≈ 10 km) at Δt=20min = 1200s is
+`CFL_x ≈ 1 × 1200 / 10000 ≈ 0.12` — well within centered-2 limits, so
+this is *not* a CFL bound but AB2's narrow absolute-stability region
+biting at the finer-resolution operator (same pattern as OM2-025 M=4
+AB2). The natural fix is `TIMESTEPPER=SRK3`.
+
+#### Timestepper comparison
+
+Same approach as the OM2-025 section above — AB2 fails on OM2-01 at
+the smallest tested M's, so we sweep SRK3 across `M ∈ {3, 6, 9, 18}`
+to (a) confirm SRK3 fixes the M=3 and M=6 AB2 instabilities and (b)
+find the SRK3 stability ceiling. M=27 (Δt=3h, CFL ≈ 1.1) and beyond
+are deferred until M=18 is known to pass.
+
+| `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
+|---|---|---|---|---|---|---|
+| 3  | 20 min | AB2  | ⚠ NaN at iter 1600 (~22 model days)            | — (walltime hang) | NaN | 168482446 |
+| 3  | 20 min | SRK3 | ✓ exit 0 (max/mean from post-hoc TBD)         | 11106 (3.085 h)   | —   | 168482506 |
+| 6  | 40 min | AB2  | ⏳ retry running                              | — | — | 168482509 |
+| 6  | 40 min | SRK3 | ⏳ running                                    | — | — | 168482512 |
+| 9  | 1 h    | SRK3 | ⏳ running                                    | — | — | 168482517 |
+| 18 | 2 h    | SRK3 | ⏳ running                                    | — | — | 168482520 |
+
+Submission:
+```bash
+for cfg in "AB2 3" "SRK3 3" "AB2 6" "SRK3 6" "SRK3 9" "SRK3 18"; do
+  set -- $cfg
+  PARTITION=1x2 PARENT_MODEL=ACCESS-OM2-01 TIMESTEPPER=$1 TIMESTEP_MULT=$2 \
+    JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
+done
+```
+on `gpuhopper` (2×H200, 512 GB total). The M=3 SRK3 result on
+distributed (1×2) is also the first **clean post-fix confirmation
+that the rank-1 seam-row divergence is resolved** — no NaN, no
+seam-row blow-up across 26 304 sim iters.
 
 ### Conclusions
 
