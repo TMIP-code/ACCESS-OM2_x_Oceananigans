@@ -95,52 +95,48 @@ implicit / IMEX integrator (not currently in tree).
 | M | Δt | AB2 | SRK2 | SRK3 | SRK4 | SRK5 |
 |---|---|---|---|---|---|---|
 | 1   | 6.67 min |   |   |   |   |   |
-| 2   | 13.3 min | ⏳ |   |   |   |   |
+| 2   | 13.3 min | ✓ (2×) |   |   |   |   |
 | 3   | 20 min   | ✗ |   | ✓ (1×) |   |   |
-| 6   | 40 min   | ✗ |   | ✗ |   | ⏳ |
-| 9   | 1 h      |   |   | ✗ |   | ⏳ |
+| 6   | 40 min   | ✗ |   | ✗ |   | ✓ (1.2×) |
+| 9   | 1 h      |   |   | ✗ |   | ✗ |
 | 18  | 2 h      |   |   | ✗ |   |   |
 | 27  | 3 h      |   |   |   |   |   |
 | 54  | 6 h      |   |   |   |   |   |
 | 81  | 9 h      |   |   |   |   |   |
 | 162 | 18 h     |   |   |   |   |   |
 
-**Recommendation — best tested speedup: 1×** (SRK3-M=3, Δt = 20 min,
-the only clean ✓). AB2 is unstable for every tested M > 1 (M=3 and
-M=6 both NaN early) and SRK3 fails at M ≥ 6, so SRK3-M=3 is the only
-known-stable Δt > Δt_base. Use it for production runs and as the NK
-1-year forward map.
+**Recommendation — best tested speedup: 2×** (AB2-M=2, Δt = 13.3 min).
+Each integrator has exactly one stable M on OM2-01 (AB2: M=2; SRK3:
+M=3; SRK5: M=6) — moving up one valid divisor blows up every time —
+and AB2-M=2 wins on per-step efficiency:
 
-CFL is not the bottleneck — SRK3-M=9 (Δt=1h, CFL_x ≈ 0.36) still
-fails. The ceiling is the surface / implicit-κV absolute-stability
-footprint tightening with finer Δx, same as the AB2 failures on
-OM2-025.
+| Integrator | Stable M | Speedup = M / stage_count |
+|---|---|---|
+| AB2  | 2 | **2×** |
+| SRK3 | 3 | 1× |
+| SRK5 | 6 | 1.2× |
+
+Use AB2-M=2 for production runs and as the NK 1-year forward map.
+
+CFL is not the bottleneck — SRK3-M=9 (Δt=1h, CFL_x ≈ 0.36) and SRK5-M=9
+both fail. The ceiling is the surface / implicit-κV absolute-stability
+footprint tightening with finer Δx; stage-count increases buy roughly
+one factor of Δt each (M=2 → 3 → 6) but not more.
 
 The pattern across resolutions:
 
-| Model | AB2-stable M | SRK3-stable M | Effective speedup |
-|---|---|---|---|
-| OM2-1   | {1, 2, 4}         | {4, 6, 12}     | 4×  (AB2-M=4 or SRK3-M=12) |
-| OM2-025 | none > 1          | {4, 12}        | 4×  (SRK3-M=12) |
-| OM2-01  | none > 1 (tested) | **{3}**        | **1×** (SRK3-M=3) |
-
-By the time we hit OM2-01, the explicit operating point has collapsed
-to a single divisor.
-
-**Probes in flight to firm up the OM2-01 ceiling**:
-
-| Probe | Δt | Speedup if ✓ | Rationale |
-|---|---|---|---|
-| AB2 M=2  | 13.3 min | 2×   | finer Δt may re-enter AB2's stability region |
-| SRK5 M=6 | 40 min   | 1.2× | SRK5's broader stability region may admit Δt=40min |
-| SRK5 M=9 | 1 h      | 1.8× | only if SRK5-M=6 passes |
-
-M=4 and M=8 are not valid divisors of `N_base = 2 · 3⁴ · 487`.
+| Model | Best stable point | Effective speedup |
+|---|---|---|
+| OM2-1   | AB2-M=4 or SRK3-M=12 | 4× |
+| OM2-025 | SRK3-M=12            | 4× |
+| OM2-01  | **AB2-M=2**          | **2×** |
 
 For a step-change speedup, an operator change is needed:
 `ADVECTION_SCHEME=weno5` adds numerical diffusion (enlarging the
 stable region), or an implicit / IMEX integrator (not currently in
 tree) would push past the explicit absolute-stability bound.
+
+M=4 and M=8 are not valid divisors of `N_base = 2 · 3⁴ · 487`.
 
 ## Intent
 
@@ -683,7 +679,7 @@ AB2 table:
 | `M` | Δt | Steps/yr | Stage | Status | Wall time (s) | Max age (yr) | Mean age (yr) | RMS Δ vs M=1 (yr) | Job ID |
 |---|---|---|---|---|---|---|---|---|---|
 | 1   | 6.67 min  | 78894 | 2a | — | — | — | — | 0 | — |
-| 2   | 13.3 min  | 39447 | 2a | ⏳ running             | — | — | — | — | 168574394 |
+| 2   | 13.3 min  | 39447 | 2a | ✓ exit 0               | 6124 (1.701 h) | — | — | — | 168574394 |
 | 3   | 20 min    | 26298 | 2b | ✗ NaN at iter 1600     | — | NaN | — | — | 168482446 |
 | 6   | 40 min    | 13149 | 2a | ✗ NaN at iter 600      | — | NaN | — | — | 168280162 / 168482509 |
 | 9   | 1 h       | 8766  | 2b | — | — | — | — | — | — |
@@ -711,22 +707,22 @@ probes.
 
 | `M` | Δt | TIMESTEPPER | Status | Sim wall (s) | Max age (yr) | Job ID |
 |---|---|---|---|---|---|---|
-| 2  | 13.3 min | AB2  | ⏳ running             | — | — | 168574394 |
+| 2  | 13.3 min | AB2  | ✓ exit 0               | 6124 (1.701 h)  | — | 168574394 |
 | 3  | 20 min   | AB2  | ✗ NaN at iter 1600     | — | NaN | 168482446 |
 | 3  | 20 min   | SRK3 | ✓ exit 0               | 11106 (3.085 h) | — | 168482506 |
 | 6  | 40 min   | AB2  | ✗ NaN at iter 600      | — | NaN | 168482509 |
 | 6  | 40 min   | SRK3 | ✗ NaN at iter 12900    | — | NaN | 168482512 |
-| 6  | 40 min   | SRK5 | ⏳ running             | — | — | 168574437 |
+| 6  | 40 min   | SRK5 | ✓ exit 0               | 9320 (2.589 h)  | — | 168574437 |
 | 9  | 1 h      | SRK3 | ✗ NaN at iter 500      | — | NaN | 168482517 |
-| 9  | 1 h      | SRK5 | ⏳ running             | — | — | 168574832 |
+| 9  | 1 h      | SRK5 | ✗ NaN at iter 800      | — | NaN | 168574832 |
 | 18 | 2 h      | SRK3 | ✗ NaN at iter 200      | — | NaN | 168482520 |
 
 ##### Verdict
 
-SRK3-M=3 is the only clean ✓ on OM2-01. AB2 fails at every tested
-M > 1; SRK3 fails at every M > 3. Use SRK3-M=3 for production runs
-and as the NK 1-year forward map until SRK5 probes return or an
-operator change (WENO5, IMEX) is wired in.
+Each integrator has one stable M and fails at the next valid divisor:
+AB2-M=2 ✓ / AB2-M=3 ✗; SRK3-M=3 ✓ / SRK3-M=6 ✗; SRK5-M=6 ✓ / SRK5-M=9 ✗.
+AB2-M=2 (2× theoretical speedup) is the production sweet spot and the
+recommended NK 1-year forward map.
 
 **Note on the NaN-hang**: NaN-stopped distributed runs deadlock and
 eat the full walltime. Filed as a follow-up; set a shorter walltime
