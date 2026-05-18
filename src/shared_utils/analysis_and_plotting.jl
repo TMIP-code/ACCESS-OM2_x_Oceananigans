@@ -460,6 +460,278 @@ function animate_depth_slices(
     return nothing
 end
 
+################################################################################
+# A vs B comparison plots (used by docs/IAF_NK_age_comparison_plan.md driver)
+################################################################################
+
+"""
+    plot_age_comparison_slice(A_3D, B_3D, grid, wet3D, out_dir;
+                              label_A, label_B, depth_m,
+                              colorrange=:auto, diff_range=:auto,
+                              colormap=:viridis,
+                              value_label="Age (years)", diff_label="Δ Age (years)",
+                              filename=nothing)
+
+A | B | (B−A) horizontal slice at `depth_m`. A and B share a colourbar; the
+diff uses `:balance` with a symmetric range. Dry cells (via `wet3D`) are
+plotted as `nan_color`.
+
+`colorrange=:auto` ⇒ 2nd–98th percentile of valid A/B values; pass a tuple
+to override. `diff_range=:auto` ⇒ ±0.9·maxabs(B−A).
+"""
+function plot_age_comparison_slice(
+        A_3D, B_3D, grid, wet3D, out_dir;
+        label_A, label_B,
+        depth_m,
+        colorrange = :auto,
+        diff_range = :auto,
+        colormap = :viridis,
+        value_label = "Age (years)",
+        diff_label = "Δ Age (years)",
+        filename = nothing,
+    )
+    mkpath(out_dir)
+
+    k = find_nearest_depth_index(grid, depth_m)
+    A_slice = Float64.(A_3D[:, :, k])
+    B_slice = Float64.(B_3D[:, :, k])
+    wet_k = wet3D[:, :, k]
+    A_slice[.!wet_k] .= NaN
+    B_slice[.!wet_k] .= NaN
+    diff_slice = B_slice .- A_slice
+
+    cr = if colorrange === :auto
+        valid = vcat(filter(!isnan, vec(A_slice)), filter(!isnan, vec(B_slice)))
+        isempty(valid) ? (0.0, 1.0) :
+            (Float64(quantile(valid, 0.02)), Float64(quantile(valid, 0.98)))
+    else
+        colorrange
+    end
+
+    dr = if diff_range === :auto
+        valid = filter(!isnan, vec(diff_slice))
+        m = isempty(valid) ? 1.0 : 0.9 * maximum(abs, valid)
+        (-m, m)
+    else
+        diff_range
+    end
+
+    fig = Figure(; size = (1700, 500))
+    ax_A = Axis(fig[1, 1]; title = label_A)
+    ax_B = Axis(fig[1, 2]; title = label_B)
+    ax_D = Axis(fig[1, 4]; title = "$label_B − $label_A")
+    hm_A = heatmap!(ax_A, A_slice; colorrange = cr, colormap, nan_color = :lightgray)
+    heatmap!(ax_B, B_slice; colorrange = cr, colormap, nan_color = :lightgray)
+    hm_D = heatmap!(ax_D, diff_slice; colorrange = dr, colormap = :balance, nan_color = :lightgray)
+    Colorbar(fig[1, 3], hm_A; label = value_label)
+    Colorbar(fig[1, 5], hm_D; label = diff_label)
+
+    fname = filename === nothing ? "slice_$(Int(round(depth_m)))m.png" : filename
+    outpath = joinpath(out_dir, fname)
+    @info "Saving $outpath"
+    save(outpath, fig)
+    return outpath
+end
+
+"""
+    plot_age_comparison_zonal(A_3D, B_3D, grid, wet3D, vol_3D,
+                              basin_mask, basin_label, out_dir;
+                              label_A, label_B,
+                              colorrange=:auto, diff_range=:auto,
+                              colormap=:viridis,
+                              value_label="Age (years)", diff_label="Δ Age (years)",
+                              filename=nothing)
+
+A | B | (B−A) basin zonal-average (vol-weighted) plotted as heatmap of
+(lat, depth). Auto ranges use the zonal-averaged data (not pre-zonal).
+"""
+function plot_age_comparison_zonal(
+        A_3D, B_3D, grid, wet3D, vol_3D,
+        basin_mask, basin_label, out_dir;
+        label_A, label_B,
+        colorrange = :auto,
+        diff_range = :auto,
+        colormap = :viridis,
+        value_label = "Age (years)",
+        diff_label = "Δ Age (years)",
+        filename = nothing,
+    )
+    mkpath(out_dir)
+
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′, _ = size(wet3D)
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z
+    lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
+
+    # Mask dry cells to NaN before averaging
+    A_masked = Float64.(A_3D)
+    B_masked = Float64.(B_3D)
+    A_masked[.!wet3D] .= NaN
+    B_masked[.!wet3D] .= NaN
+
+    za_A = zonalaverage(A_masked, vol_3D, basin_mask)
+    za_B = zonalaverage(B_masked, vol_3D, basin_mask)
+    za_D = za_B .- za_A
+
+    cr = if colorrange === :auto
+        valid = vcat(filter(!isnan, vec(za_A)), filter(!isnan, vec(za_B)))
+        isempty(valid) ? (0.0, 1.0) :
+            (Float64(quantile(valid, 0.02)), Float64(quantile(valid, 0.98)))
+    else
+        colorrange
+    end
+
+    dr = if diff_range === :auto
+        valid = filter(!isnan, vec(za_D))
+        m = isempty(valid) ? 1.0 : 0.9 * maximum(abs, valid)
+        (-m, m)
+    else
+        diff_range
+    end
+
+    fig = Figure(; size = (1700, 500))
+    axkw = (
+        xlabel = "Latitude", ylabel = "Depth (m)",
+        backgroundcolor = :lightgray,
+        xgridvisible = false, ygridvisible = false,
+    )
+    ax_A = Axis(fig[1, 1]; title = "$label_A — $basin_label", axkw...)
+    ax_B = Axis(fig[1, 2]; title = "$label_B — $basin_label", axkw...)
+    ax_D = Axis(fig[1, 4]; title = "$label_B − $label_A — $basin_label", axkw...)
+
+    hm_A = heatmap!(ax_A, lat_repr, depth_vals, za_A; colorrange = cr, colormap, nan_color = :lightgray)
+    heatmap!(ax_B, lat_repr, depth_vals, za_B; colorrange = cr, colormap, nan_color = :lightgray)
+    hm_D = heatmap!(ax_D, lat_repr, depth_vals, za_D; colorrange = dr, colormap = :balance, nan_color = :lightgray)
+    for ax in (ax_A, ax_B, ax_D)
+        xlims!(ax, -90, 90)
+        ylims!(ax, maximum(depth_vals), 0)
+    end
+    Colorbar(fig[1, 3], hm_A; label = value_label)
+    Colorbar(fig[1, 5], hm_D; label = diff_label)
+
+    fname = filename === nothing ? "zonal_$(basin_label).png" : filename
+    outpath = joinpath(out_dir, fname)
+    @info "Saving $outpath"
+    save(outpath, fig)
+    return outpath
+end
+
+"""
+    compute_basin_profile(age_3D, vol_3D, basin_mask, grid; wet3D=nothing)
+        -> (depths, profile_years)
+
+Volume-weighted vertical profile of `age_3D` restricted to `basin_mask`.
+`basin_mask` may be 2D (broadcast over depth) or 3D. Returns depths in metres
+(positive downward) and the vol-weighted profile per depth level.
+"""
+function compute_basin_profile(age_3D, vol_3D, basin_mask, grid; wet3D = nothing)
+    Nx′, Ny′, Nz′ = size(age_3D)
+    m3 = ndims(basin_mask) == 2 ? reshape(basin_mask, Nx′, Ny′, 1) : basin_mask
+    num = zeros(Float64, Nz′)
+    den = zeros(Float64, Nz′)
+    @inbounds for k in 1:Nz′, j in 1:Ny′, i in 1:Nx′
+        mij = m3[i, j, ndims(basin_mask) == 2 ? 1 : k]
+        mij || continue
+        wet3D !== nothing && !wet3D[i, j, k] && continue
+        a = age_3D[i, j, k]
+        isnan(a) && continue
+        v = vol_3D[i, j, k]
+        num[k] += a * v
+        den[k] += v
+    end
+    prof = @. ifelse(den > 0, num / den, NaN)
+    z = znodes(grid, Center(), Center(), Center())
+    return -z, prof
+end
+
+"""
+    plot_age_profiles_basins(profiles, out_dir;
+                             filename="profiles_basins.png",
+                             value_label="Age (years)")
+
+Overlay basin profiles from multiple pipelines on a single 1×4 figure
+(Global | ATL | PAC | IND).
+
+`profiles` is a Vector of NamedTuples with fields
+`(; label, age_3D, grid, wet3D, vol_3D)` — one per pipeline. Each pipeline
+may have its own grid/vol (e.g. Phase 2 overlays native OM2-1 with native
+OM2-025), provided depths are comparable.
+"""
+function plot_age_profiles_basins(
+        profiles, out_dir;
+        filename = "profiles_basins.png",
+        value_label = "Age (years)",
+    )
+    mkpath(out_dir)
+
+    basin_names = ["Global", "ATL", "PAC", "IND"]
+    fig = Figure(; size = (1600, 500))
+    axes = [
+        Axis(
+                fig[1, i];
+                title = basin_names[i],
+                xlabel = value_label,
+                ylabel = i == 1 ? "Depth (m)" : "",
+            ) for i in 1:4
+    ]
+
+    for p in profiles
+        bm = compute_ocean_basin_masks(p.grid, p.wet3D)
+        Nx′, Ny′ = size(p.wet3D)[1:2]
+        masks = [trues(Nx′, Ny′), bm.ATL, bm.PAC, bm.IND]
+        for (i, m) in enumerate(masks)
+            depths, prof = compute_basin_profile(p.age_3D, p.vol_3D, m, p.grid; wet3D = p.wet3D)
+            lines!(axes[i], prof, depths; label = p.label, linewidth = 2)
+        end
+    end
+
+    axislegend(axes[1]; position = :rb)
+    for ax in axes
+        ylims!(ax, 6000, 0)
+    end
+
+    outpath = joinpath(out_dir, filename)
+    @info "Saving $outpath"
+    save(outpath, fig)
+    return outpath
+end
+
+
+################################################################################
+# Seasonality helpers
+################################################################################
+
+"""
+    seasonal_range(fts::FieldTimeSeries; wet3D=nothing) -> Array{Float64,3}
+
+Per-cell `max − min` of `interior(fts[t])` across `t = 1:Nt`, in years
+(divides by 365.25·86400). Streams snapshots so it works with `OnDisk()` FTS.
+If `wet3D` is given, dry cells in the result are set to 0.
+"""
+function seasonal_range(fts; wet3D = nothing)
+    year_s = 365.25 * 86400
+    Nt = length(fts.times)
+    first_snap = Array(interior(fts[1]))
+    age_min = Float64.(first_snap) ./ year_s
+    age_max = copy(age_min)
+    for t in 2:Nt
+        snap = Array(interior(fts[t]))
+        @inbounds for i in eachindex(age_min)
+            v = Float64(snap[i]) / year_s
+            v < age_min[i] && (age_min[i] = v)
+            v > age_max[i] && (age_max[i] = v)
+        end
+    end
+    res = age_max .- age_min
+    if wet3D !== nothing
+        @. res = ifelse(wet3D, res, 0.0)
+    end
+    return res
+end
+
+
 """
     colormap_for_field(name)
 

@@ -15,7 +15,11 @@ set -euo pipefail
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
 #   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
-#   plot1yr plot10yr plot100yr plotMOC
+#   plot1yr plot10yr plot100yr plotMOC compareNK
+#
+# compareNK: cross-resolution NK age comparison — see docs/IAF_NK_age_comparison_plan.md.
+#   Standalone (does not consume PARENT_MODEL/EXPERIMENT/TIME_WINDOW).
+#   Honors RUN_PHASE1/2/3/3B and REGRID_DIRECTION env vars.
 #
 # Shortcuts:
 #   preprocessing  = prep-grid-vel-clo
@@ -137,7 +141,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -601,6 +605,14 @@ has_step plotgrid && \
     submit_job plotgrid "$WALLTIME_PLOT" \
         scripts/plotting/plot_grid_metrics.sh \
         --deps "${GRID_JOB:-}" > /dev/null
+
+# compareNK: cross-resolution NK age comparison
+# Standalone step — reads all 4 (PM × TW) periodic-NK FTS files that must
+# already exist. Independent of the current PARENT_MODEL/EXPERIMENT/TIME_WINDOW.
+has_step compareNK && \
+    submit_job compareNK "${WALLTIME_COMPARE_NK:-03:00:00}" \
+        scripts/plotting/compare_NK_ages.sh \
+        --vars "RUN_PHASE1=${RUN_PHASE1:-yes},RUN_PHASE2=${RUN_PHASE2:-yes},RUN_PHASE3=${RUN_PHASE3:-yes},RUN_PHASE3B=${RUN_PHASE3B:-no},REGRID_DIRECTION=${REGRID_DIRECTION:-fine2coarse}" > /dev/null
 
 # plotMOC (depends on: prep + grid — needs ty_trans_monthly.nc and grid.jld2)
 if has_step plotMOC; then
