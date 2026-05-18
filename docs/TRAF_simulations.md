@@ -350,3 +350,29 @@ Manifests:
 - OM2-1 / 1999-2008 (3e) — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T160200_1161827.toml`
 - OM2-025 / 1968-1977 (3e) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T160632_1204052.toml`
 - OM2-025 / 1999-2008 (3e) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T160803_1217302.toml`
+
+#### Attempt 3e outcomes — 3/4 converged, OM2-025/1999-2008 stalled again
+
+All 4 chains' NK Exit 0, but the OM2-025/1999-2008 NK is `ReturnCode.Stalled` (huge residual). All 4 NK runs **successfully loaded the TMage warm-start** for the first time in the campaign (ed4c140 fix worked — TM age loaded log line visible, max ~2700-3200 yr, mean ~420-440 yr across all 4).
+
+| (PM, TW) | NK retcode | Φ! | NK_c walltime | Mean TRAF age | SRK3+M=12 (prior) |
+|---|---|---:|---:|---:|---:|
+| OM2-1, 1968-1977 | ✓ Success | 65 | 25:11 | **786.39 yr** | 839.12 yr |
+| OM2-1, 1999-2008 | ✓ Success | 68 | 26:05 | **841.00 yr** | 886.39 yr |
+| OM2-025, 1968-1977 | ✓ Success | 120 | 5:41:09 | **872.01 yr** | 892.89 yr |
+| OM2-025, 1999-2008 | ⚠ Stalled | 105 | 5:02:53 | 1048.87 yr (untrusted) | — (garbage) |
+
+AB2+M=4 values are 2-6% lower than SRK3+M=12 — likely the more-accurate answer (smaller Δt, less numerical diffusion). All 3 converged chains had matching residual trajectory: initial `~3e+10` → final `~1e+03` (7 orders of magnitude reduction).
+
+**OM2-025/1999-2008 still hits the same fold-region instability.** Δt = 2.28e-04 yr (7200 s, 3× smaller than SRK3+M=12's 6.84e-04 yr) was not enough. By sim iter 366 (0.083 yr in) of Φ! call #1, max(age) hits `3.7e+40` at `(1288, 1047, 34)` — the same high-latitude region as before. Reaches `2.5e+106` at iter 4392 (end of year). NK initial residual `7.89e+113`, final `2.08e+107` — never gets close to convergence. The Volume-weighted mean age of `1048.87 yr` is suspicious — it's in the right physical range but the residual norm is `1e+107` so this is not a periodic-steady solution.
+
+Likely root cause: CFL violation at cells where the tripolar-grid spacing shrinks to meters near j=Ny+1=1080. With local Δx ~1 m and `v ~0.5 m/s`, CFL = `0.5 × 7200 / 1 = 3600`. AB2 is unconditionally unstable above CFL=1; SRK3 has a ~√3 wider stability region but still nowhere near 3600. The forward (IAF) integration at the same (PM, TW) succeeded — possibly because the IAF circulation at this cell happens to advect tracer away rather than create a recirculation that compounds the instability under TRAF (time-reversed).
+
+Three options for the OM2-025/1999-2008 NK:
+1. **Drop to AB2+M=2 or AB2+M=1** for just this one chain (halve or quarter Δt again). Costs 2-4× more NK wall time.
+2. **Mask velocities to zero near the j=Ny fold** for both the IAF and TRAF runs (clean physics fix; ~1 cell strip below the fold).
+3. **Use only the (steady) matrix solution** for this (PM, TW) — `invVMtV \ -1` already gave a sensible mean age (1063 yr from TMslv_c) — and skip the periodic NK. Loses the seasonal cycle but gives a usable adjoint-age field.
+
+Other 3 chains have produced full deliverables (10 PNG + 10 MP4 each at AB2+M=4 MC tag):
+- OM2-1/{1968-1977,1999-2008} plotNK F Exit 0 (~7 min each)
+- OM2-025/1968-1977 plotNK 168658577 still R (~38 min so far; on the bumped 02:00:00 walltime); OM2-025/1999-2008 plotNK F under the budget.
