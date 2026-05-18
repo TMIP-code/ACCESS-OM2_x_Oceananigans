@@ -238,8 +238,8 @@ Resubmitted after the GPU-safe `reverse_fts_time!` fix. Same 6-job chain per (PM
 |---|---|---|---|---|---|---|---|
 | OM2-1, 1968-1977 | gpuvolta | 168481391 ✓ | 168481392 ✓ | 168481393 ✗ | 168481394 ✓ | 168481395 ✓ | 168481396 ✓ |
 | OM2-1, 1999-2008 | gpuvolta | 168481406 ✓ | 168481407 ✓ | 168481408 ✗ | 168481409 ✓ | 168481411 ✓ | 168481412 ✓ |
-| OM2-025, 1968-1977 | gpuhopper | 168481413 ✓ | 168481414 ✓ | 168481415 ✗ | 168481416 (R) | 168481417 (H) | 168481418 (H) |
-| OM2-025, 1999-2008 | gpuhopper | 168482434 ✓ | 168482435 ✓ | 168482436 ✗ | 168482437 (R) | 168482438 (H) | 168482439 (H) |
+| OM2-025, 1968-1977 | gpuhopper | 168481413 ✓ | 168481414 ✓ | 168481415 ✗ | 168481416 ✓ | 168481417 ✓ | 168481418 ⚠ |
+| OM2-025, 1999-2008 | gpuhopper | 168482434 ✓ | 168482435 ✓ | 168482436 ✗ | 168482437 ⚠ | 168482438 ✓ | 168482439 ⚠ |
 
 **OM2-1 — converged.**
 
@@ -248,14 +248,20 @@ Resubmitted after the GPU-safe `reverse_fts_time!` fix. Same 6-job chain per (PM
 | OM2-1, 1968-1977 | 67 | 25:29 | **839.12** | `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/periodic/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12_traf/NK/age_Pardiso_LSprec.jld2` |
 | OM2-1, 1999-2008 | 70 | 25:53 | **886.39** | `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/periodic/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12_traf/NK/age_Pardiso_LSprec.jld2` |
 
-**OM2-025 — NK_c running on gpuhopper.** Both jobs started; in-flight progress as of last status check:
+**OM2-025 — 3/4 deliverables in place; 1 NK stalled.**
 
-| (PM, TW) | NK_c | Φ! calls done | Wall elapsed | Approx ETA (assuming ~67-70 Φ! to converge at ~7 min/call) |
-|---|---|---:|---:|---|
-| OM2-025, 1968-1977 | 168481416 | 5 | ~34 min | ~7-8 h |
-| OM2-025, 1999-2008 | 168482437 | 1 | ~18 min | ~8 h |
+| (PM, TW) | NK_c | Φ! calls | Wall | retcode | Volume-weighted mean TRAF age (yr) |
+|---|---|---:|---:|---|---:|
+| OM2-025, 1968-1977 | 168481416 | 120 | 05:05:48 | Success | **892.89** |
+| OM2-025, 1999-2008 | 168482437 | 102 | 04:19:10 | **Stalled** | 2.4e-18 (garbage) |
 
-48 h walltime requested, so comfortable margin. `run1yrNK_c` and `plotNK` are held (H) and will release when each `NK_c` finishes.
+### Issues to address before declaring the campaign complete
+
+1. **OM2-025 / 1999-2008 NK stalled — forward simulation blew up in Φ! call #1**: starting from `age = 0` (because the warm-start file was missing — see issue 3 below), Φ! call #1 went numerically unstable at cell `(i=1288, j=1047, k=36)` (high latitude, near but not at the j=Ny=1080 tripolar fold). `max(age)` exploded to `6.8e+25` yr by sim iter 122 (0.083 yr in), then bounced through `1e+44`, `1e+45`, `1e+68` across the rest of the year. NK never recovered (initial residual `1.0e+76`, final `2.4e+70` after 102 outer iterations, retcode `Stalled`). The corresponding IAF run at the same (PM, TW) converged (see [IAF_simulations.md](IAF_simulations.md)), so the velocities are sound — the issue is TRAF-specific. Plausible root causes to investigate: a single bad cell in the time-reversed `(u, v, η)` that breaks the diagnosed-`w` continuity at that location; or a stability margin that's tight enough for `1999-2008` velocities under TRAF at OM2-025 resolution that the AB2/SRK3 step needs a smaller `TIMESTEP_MULT`. **Likely next step**: probe `(u, v, η)` at `(1288, 1047, 36)` and neighbours for the reversed FTS to look for NaNs / huge values, and/or rerun with `TIMESTEP_MULT=6` for this one (PM, TW).
+
+2. **`plotNK` killed at walltime (-29) for both OM2-025 chains** (168481418, 168482439): wall request was `01:00:00` but each actually needed 01:00:15 / 01:00:51. The 1968-1977 chain's `age_Pardiso_LSprec.jld2` exists and is plottable; just bump `WALLTIME_PLOTNK` in [model_configs/ACCESS-OM2-025.sh](../model_configs/ACCESS-OM2-025.sh) (e.g. to `02:00:00`) and rerun `JOB_CHAIN=plotNK` for the converged chain.
+
+3. **`TMage` warm-start was not used in ANY of the 4 chains**: each NK log shows the warning `INITIAL_AGE=TMage but no matrix age file found in …/TM/…_traf/const — starting from zeros`. Root cause: NK_c only `afterok`s TMbuild, not TMslv_c, so it can (and did) start before TMslv_c finished writing the warm-start file. For OM2-1 (TMslv_c ~3-6 min vs NK_c ~25 min) this happened to work out fine — NK converged from zeros. For OM2-025/1999-2008 it may have been the difference between convergence and divergence (a sensible warm-start would have kept the iterate in a stable region). Fix: add `TMslv_c` (or `TMslv_c + TMslv_cG` once 5ad89c3 lands) to NK_c's `afterok` dependency list in [scripts/driver.sh](../scripts/driver.sh).
 
 **Known orthogonal failure — `TMslv_cG` (GPU TMsolve comparison) — FIXED in commit 5ad89c3 for future runs:** all four `TMslv_cG` jobs failed Exit 1 with `ArgumentError: No file exists at given path: …/TM/…_traf/const/M.jld2`. Root cause: [src/solve_matrix_age_gpu.jl](../src/solve_matrix_age_gpu.jl) hardcoded `M.jld2` rather than dispatching via `M_basename` like its CPU sibling [src/solve_matrix_age.jl](../src/solve_matrix_age.jl) — under `TRAF=yes & TRAF_TM_SOURCE=invVMtV` the only file in the `_traf/const/` dir is `invVMtV.jld2`. Did **not** block the NK chain (NK_c only `afterok`s TMbuild, and reads `invVMtV.jld2` via its own `M_basename` dispatch). Commit 5ad89c3 mirrors the `TRAF`/`TRAF_TM_SOURCE`/`M_basename` block into `solve_matrix_age_gpu.jl`; will take effect on the next TRAF rerun.
 
