@@ -499,15 +499,28 @@ fi
 NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION}"
 
 if has_step NK; then
+    # NK depends on TMbuild (the matrix). When TMsolve is also in the chain we
+    # additionally afterok-depend on the CPU TM age solver so its warm-start
+    # file (steady_age_*.jld2) is on disk before NK opens it under
+    # INITIAL_AGE=TMage. Without this dep NK could start before TMslv_c finishes
+    # and fall back to age=0 (see TRAF_simulations.md, attempt 2 — all 4 NK_c
+    # logs warned `INITIAL_AGE=TMage but no matrix age file found`).
+    # We do not add TMslv_cG (GPU) since the GPU solver is more flaky and we
+    # don't want NK gated on it.
+    NK_CONST_DEPS="${TMBUILD_JOB:-}"
+    [ -n "${TMSOLVE_CONST_CPU:-}" ] && NK_CONST_DEPS="${NK_CONST_DEPS}${NK_CONST_DEPS:+:}${TMSOLVE_CONST_CPU}"
+    NK_AVG_DEPS="${TMSNAP_JOB:-}"
+    [ -n "${TMSOLVE_AVG_CPU:-}" ] && NK_AVG_DEPS="${NK_AVG_DEPS}${NK_AVG_DEPS:+:}${TMSOLVE_AVG_CPU}"
+
     run_const && \
         NK_CONST=$(submit_job NK_c "$WALLTIME_NK" \
             scripts/solvers/solve_periodic_NK.sh \
-            --gpu --deps "${TMBUILD_JOB:-}" --vars "TM_SOURCE=const,${NK_VARS}")
+            --gpu --deps "$NK_CONST_DEPS" --vars "TM_SOURCE=const,${NK_VARS}")
 
     run_avg && \
         NK_AVG=$(submit_job NK_a "$WALLTIME_NK" \
             scripts/solvers/solve_periodic_NK.sh \
-            --gpu --deps "${TMSNAP_JOB:-}" --vars "TM_SOURCE=avg,${NK_VARS}")
+            --gpu --deps "$NK_AVG_DEPS" --vars "TM_SOURCE=avg,${NK_VARS}")
 fi
 
 # ============================================================
@@ -553,11 +566,15 @@ if has_step plotTM; then
     done
 fi
 
-has_step plotNK && \
+if has_step plotNK; then
+    plotNK_overrides=()
+    [ -n "${PLOT_NK_NCPUS:-}" ] && plotNK_overrides+=(--ncpus "$PLOT_NK_NCPUS")
+    [ -n "${PLOT_NK_MEM:-}" ] && plotNK_overrides+=(--mem "$PLOT_NK_MEM")
     submit_job plotNK "$WALLTIME_PLOT_NK" \
         scripts/plotting/plot_1year_from_periodic_sol.sh \
-        --deps "${RUNNK_CONST:-${NK_CONST:-}}" \
+        --deps "${RUNNK_CONST:-${NK_CONST:-}}" "${plotNK_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
+fi
 
 has_step plotNKtrace && \
     submit_job plotNKtrace "$WALLTIME_PLOT" \

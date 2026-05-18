@@ -44,6 +44,14 @@ WALLTIME_TM_SOLVE=00:30:00
 
 # --- Plotting ---
 WALLTIME_PLOT=${WALLTIME_PLOT:-00:30:00}
-WALLTIME_PLOT_NK=${WALLTIME_PLOT_NK:-01:00:00}
+# plotNK on OM2-025 ran out of the 01:00:00 wall (used 01:00:15 / 01:00:51
+# under TRAF; killed with -29). OM2-1 plotNK takes ~6–19 min, and OM2-025 is
+# ~4× the cell count for the same per-cell plotting work, so 02:00:00 gives
+# comfortable margin. Resources also doubled (24 CPU / 94 GB), keeping the
+# per-CPU memory constant at ~3.9 GB so the plot scripts that load multiple
+# fields into memory have headroom at this resolution.
+WALLTIME_PLOT_NK=${WALLTIME_PLOT_NK:-02:00:00}
+PLOT_NK_NCPUS=${PLOT_NK_NCPUS:-24}
+PLOT_NK_MEM=${PLOT_NK_MEM:-96GB}      # 4 GB/CPU on express (NCI charges max(ncpus, ⌈mem/4⌉))
 PLOT_TM_NCPUS=24
 PLOT_TM_MEM=96GB
