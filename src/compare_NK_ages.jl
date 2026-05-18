@@ -148,14 +148,14 @@ end
 
 @info "Loading OM2-1 grid"
 grid1 = load_tripolar_grid(grid_path(PM1, EXP1), CPU())
-(; wet3D = wet3D_1) = compute_wet_mask(grid1)
+wet3D_1 = compute_wet_mask(grid1).wet3D
 vol_3D_1 = Array(interior(compute_volume(grid1)))
 basins_1 = compute_ocean_basin_masks(grid1, wet3D_1)
 z1 = znodes(grid1, Center(), Center(), Center())
 
 @info "Loading OM2-025 grid"
 grid025 = load_tripolar_grid(grid_path(PM025, EXP025), CPU())
-(; wet3D = wet3D_025) = compute_wet_mask(grid025)
+wet3D_025 = compute_wet_mask(grid025).wet3D
 vol_3D_025 = Array(interior(compute_volume(grid025)))
 basins_025 = compute_ocean_basin_masks(grid025, wet3D_025)
 z025 = znodes(grid025, Center(), Center(), Center())
