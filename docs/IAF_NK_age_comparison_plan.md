@@ -284,6 +284,26 @@ becomes the new MC for `compareNK` — point the driver at it by
 editing the `MC` constant in [src/compare_NK_ages.jl](../src/compare_NK_ages.jl)
 or by exposing an env-var override.
 
+### compareNK PBS history (2026-05-18)
+
+All `compareNK` attempts to date have run on `normal-exec` with
+`24 ncpus / 96 GB mem / 03:00:00 walltime`:
+
+| Job | Time | Exit | Wall | Mem used | Where it died |
+|---|---|---|---|---|---|
+| `168619879` | (earlier) | (see log) | — | — | log in `logs/julia/comparisons/NK_age/` |
+| `168646023` | (earlier) | (see log) | — | — | log in `logs/julia/comparisons/NK_age/` |
+| `168662289` | 16:31 | **1**   | 8:24  | 50.84 GB | CairoMakie heatmap render crash inside `plot_age_comparison_slice` ([analysis_and_plotting.jl:553](../src/shared_utils/analysis_and_plotting.jl#L553)) on first cross-resolution / OM2-025 slice. Almost certainly downstream of the 1.74e61 yr unphysical values overflowing Makie's `Float32` colourmap scaling. |
+| `168666777` | 17:09 | (none) | —     | —        | `qdel`'d before PBS recorded an exit; reconcile shows `exit=?`. |
+| `168667386` | 17:15 | **271** | 6:02 | 40.50 GB | `Linux Signal 15 SIGTERM Termination` — *not* an OOM-kill (that would be 137 / SIGKILL), and PBS-side memory was well under the 96 GB cap. Stack trace: `Array(interior(fts[t]))` in `time_mean_years` ([compare_NK_ages.jl:109](../src/compare_NK_ages.jl#L109)) while loading the `025 / 1968-1977` FTS. Consistent with a `qdel` mid-load. |
+
+**Memory note**: `get_time_mean` and `get_seasonal_range` in [src/compare_NK_ages.jl:270, :290](../src/compare_NK_ages.jl#L270) hard-code `backend = InMemory()`. For OM2-025 that's 25 snapshots × 1440 × 1080 × 50 × 8 B ≈ **15 GB per FTS, just for the array data**, plus the per-snapshot `Array(interior(fts[t]))` copy (~620 MB) on each loop iter before GC. Two FTS held simultaneously during Phase 2 cross-resolution diff = ~30 GB. Phase 3 then loads them again. Total peak fits within 96 GB but cuts close.
+
+**Mitigations to consider before the next `compareNK` submit**:
+- Switch the two `InMemory()` calls to `OnDisk()` and let the loop stream snapshots from disk (per the original plan's intent — see [Inputs](#inputs)). The OnDisk path lets PBS report a much lower peak.
+- Or bump the queue to `hugemem` (192 GB+ baseline) and keep `InMemory()` — faster wall time, more SU.
+- Independent of memory, **wait for the OM2-025 / 1999-2008 re-runs to converge** before re-running `compareNK`. Once a sane MC is identified, point the driver at it (env var or constant edit, see line above this section).
+
 ## Critical files / paths summary
 
 | Purpose | Path |
