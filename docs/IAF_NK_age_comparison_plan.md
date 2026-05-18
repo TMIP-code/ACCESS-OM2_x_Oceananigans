@@ -266,22 +266,23 @@ turns out to sit too close to the absolute-stability boundary for the
 1968-1977. The notes in [docs/timestep_multiplier_NK.md](timestep_multiplier_NK.md)
 and [docs/timestep_multiplier.md](timestep_multiplier.md) flag this.
 
-### Planned re-runs (OM2-025 / 1999-2008)
+### Re-runs queued (OM2-025 / 1999-2008, 2026-05-18)
 
 To unblock phase 1 OM2-025, phase 2, and phase 3, the NK pipeline is
-re-running at smaller Δt:
+re-running at smaller Δt in two parallel chains:
 
-| Config | Δt | MC tag | Status |
-|---|---|---|---|
-| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | _to be submitted_ |
-| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | _to be submitted_ |
+| Config | Δt | MC tag | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c |
+|---|---|---|---|---|---|---|---|
+| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | `168669856` | `168669858` | `168669860` | `168669861` | `168669862` |
+| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168670903` | `168670904` | `168670906` | `168670907` | `168670908` |
 
-Both land in separate output trees, so they run in parallel via
-two `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` driver invocations.
-Once whichever one converges to a sane periodic state, point
-`compareNK` at that MC by editing the constant
-`MC` in [src/compare_NK_ages.jl](../src/compare_NK_ages.jl) (or by
-adding an env-var override).
+Each chain is one `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` driver
+invocation; both land in separate output trees so they don't collide.
+NK_c on OM2-025 takes ~4–5 h on `gpuhopper`, so both reruns should
+finish overnight. Whichever converges to a sane periodic state first
+becomes the new MC for `compareNK` — point the driver at it by
+editing the `MC` constant in [src/compare_NK_ages.jl](../src/compare_NK_ages.jl)
+or by exposing an env-var override.
 
 ## Critical files / paths summary
 
