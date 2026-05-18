@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #PBS -P y99
-#PBS -l mem=47GB
+#PBS -l mem=96GB
 #PBS -q normal
-#PBS -l ncpus=12
+#PBS -l ncpus=24
 #PBS -l walltime=03:00:00
 #PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99
 

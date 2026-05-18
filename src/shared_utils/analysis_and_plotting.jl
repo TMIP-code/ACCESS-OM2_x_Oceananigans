@@ -465,6 +465,40 @@ end
 ################################################################################
 
 """
+    _safe_colorrange(values; default=(0.0, 1.0), low_q=0.02, high_q=0.98)
+
+Return a non-degenerate `(cmin, cmax)` tuple suitable for Makie. Strips NaNs;
+expands by `eps` if `cmin == cmax` (Makie would otherwise divide by zero and
+produce all-NaN scaled colors); falls back to `default` if no valid values.
+"""
+function _safe_colorrange(values; default = (0.0, 1.0), low_q = 0.02, high_q = 0.98)
+    valid = filter(isfinite, values)
+    isempty(valid) && return default
+    cmin = Float64(quantile(valid, low_q))
+    cmax = Float64(quantile(valid, high_q))
+    if !(isfinite(cmin) && isfinite(cmax)) || cmax - cmin < 1.0e-12
+        # All values collapse to one point — expand minimally so Makie's
+        # (value - cmin) / (cmax - cmin) normalization doesn't divide by zero.
+        c = isfinite(cmin) ? cmin : 0.0
+        return (c - 0.5, c + 0.5)
+    end
+    return (cmin, cmax)
+end
+
+"""
+    _safe_diff_range(values; default=(-1.0, 1.0), scale=0.9)
+
+Symmetric range `±scale·maxabs(values)`, NaN-stripped and non-degenerate.
+"""
+function _safe_diff_range(values; default = (-1.0, 1.0), scale = 0.9)
+    valid = filter(isfinite, values)
+    isempty(valid) && return default
+    m = scale * maximum(abs, valid)
+    isfinite(m) && m > 1.0e-12 || return default
+    return (-m, m)
+end
+
+"""
     plot_age_comparison_slice(A_3D, B_3D, grid, wet3D, out_dir;
                               label_A, label_B, depth_m,
                               colorrange=:auto, diff_range=:auto,
@@ -500,21 +534,8 @@ function plot_age_comparison_slice(
     B_slice[.!wet_k] .= NaN
     diff_slice = B_slice .- A_slice
 
-    cr = if colorrange === :auto
-        valid = vcat(filter(!isnan, vec(A_slice)), filter(!isnan, vec(B_slice)))
-        isempty(valid) ? (0.0, 1.0) :
-            (Float64(quantile(valid, 0.02)), Float64(quantile(valid, 0.98)))
-    else
-        colorrange
-    end
-
-    dr = if diff_range === :auto
-        valid = filter(!isnan, vec(diff_slice))
-        m = isempty(valid) ? 1.0 : 0.9 * maximum(abs, valid)
-        (-m, m)
-    else
-        diff_range
-    end
+    cr = colorrange === :auto ? _safe_colorrange(vcat(vec(A_slice), vec(B_slice))) : colorrange
+    dr = diff_range === :auto ? _safe_diff_range(vec(diff_slice)) : diff_range
 
     fig = Figure(; size = (1700, 500))
     ax_A = Axis(fig[1, 1]; title = label_A)
@@ -575,21 +596,8 @@ function plot_age_comparison_zonal(
     za_B = zonalaverage(B_masked, vol_3D, basin_mask)
     za_D = za_B .- za_A
 
-    cr = if colorrange === :auto
-        valid = vcat(filter(!isnan, vec(za_A)), filter(!isnan, vec(za_B)))
-        isempty(valid) ? (0.0, 1.0) :
-            (Float64(quantile(valid, 0.02)), Float64(quantile(valid, 0.98)))
-    else
-        colorrange
-    end
-
-    dr = if diff_range === :auto
-        valid = filter(!isnan, vec(za_D))
-        m = isempty(valid) ? 1.0 : 0.9 * maximum(abs, valid)
-        (-m, m)
-    else
-        diff_range
-    end
+    cr = colorrange === :auto ? _safe_colorrange(vcat(vec(za_A), vec(za_B))) : colorrange
+    dr = diff_range === :auto ? _safe_diff_range(vec(za_D)) : diff_range
 
     fig = Figure(; size = (1700, 500))
     axkw = (

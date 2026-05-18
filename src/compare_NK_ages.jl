@@ -255,36 +255,38 @@ const _sranges = Dict{Tuple{String, String}, Array{Float64, 3}}()
 
 function get_time_mean(res::String, TW::String)
     haskey(_means, (res, TW)) && return _means[(res, TW)]
-    PM, EXP, wet3D, backend = if res == "1"
-        (PM1, EXP1, wet3D_1, InMemory())
+    PM, EXP, wet3D = if res == "1"
+        (PM1, EXP1, wet3D_1)
     else
-        (PM025, EXP025, wet3D_025, OnDisk())
+        (PM025, EXP025, wet3D_025)
     end
     path = fts_path(PM, EXP, TW)
-    @info "Loading FTS + computing annual mean: $res / $TW" path
+    @info "Loading FTS (InMemory) + computing annual mean: $res / $TW" path
     flush(stdout); flush(stderr)
-    fts = FieldTimeSeries(path, "age"; backend)
+    fts = FieldTimeSeries(path, "age"; backend = InMemory())
     Nt = length(fts.times)
-    @info "FTS has $Nt snapshots"
+    @info "FTS has $Nt snapshots; interior size = $(size(interior(fts[1])))"
     m = time_mean_years(fts, wet3D)
+    @info "annual mean stats" min = minimum(m) max = maximum(m) mean = sum(m) / max(count(wet3D), 1)
     _means[(res, TW)] = m
     return m
 end
 
 function get_seasonal_range(res::String, TW::String)
     haskey(_sranges, (res, TW)) && return _sranges[(res, TW)]
-    PM, EXP, wet3D, backend = if res == "1"
-        (PM1, EXP1, wet3D_1, InMemory())
+    PM, EXP, wet3D = if res == "1"
+        (PM1, EXP1, wet3D_1)
     else
-        (PM025, EXP025, wet3D_025, OnDisk())
+        (PM025, EXP025, wet3D_025)
     end
     path = fts_path(PM, EXP, TW)
-    @info "Loading FTS + computing seasonal range: $res / $TW" path
+    @info "Loading FTS (InMemory) + computing seasonal range: $res / $TW" path
     flush(stdout); flush(stderr)
-    fts = FieldTimeSeries(path, "age"; backend)
+    fts = FieldTimeSeries(path, "age"; backend = InMemory())
     Nt = length(fts.times)
     @info "FTS has $Nt snapshots"
     sr = seasonal_range(fts; wet3D)
+    @info "seasonal range stats" min = minimum(sr) max = maximum(sr)
     _sranges[(res, TW)] = sr
     return sr
 end
