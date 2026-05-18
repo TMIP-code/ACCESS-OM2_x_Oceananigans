@@ -712,16 +712,16 @@ end
 ################################################################################
 
 """
-    seasonal_range(fts::FieldTimeSeries; wet3D=nothing,
-                   max_yr_range=100_000.0, label="") -> Array{Float64,3}
+    seasonal_range(fts::FieldTimeSeries, wet3D, grid;
+                   max_yr_range=10_000.0, label="") -> Array{Float64,3}
 
 Per-cell `max − min` of `interior(fts[t])` across `t = 1:Nt`, in years
 (divides by 365.25·86400). Streams snapshots so it works with `OnDisk()` FTS.
-Dry cells (per `wet3D`) are set to 0. Wet cells whose range is non-finite or
-exceeds `max_yr_range` are marked NaN — guards against one divergent pipeline
-poisoning Makie's color scaling.
+Dry cells are set to 0. Errors via the project-wide age-field sanity check if
+any wet cell's range is non-finite or exceeds `max_yr_range` — that's an
+upstream-solver instability symptom, not something to silently sanitize.
 """
-function seasonal_range(fts; wet3D = nothing, max_yr_range = 100_000.0, label = "")
+function seasonal_range(fts, wet3D, grid; max_yr_range = 10_000.0, label = "")
     year_s = 365.25 * 86400
     Nt = length(fts.times)
     first_snap = Array(interior(fts[1]))
@@ -736,17 +736,65 @@ function seasonal_range(fts; wet3D = nothing, max_yr_range = 100_000.0, label = 
         end
     end
     res = age_max .- age_min
-    if wet3D !== nothing
-        n_wet = count(wet3D)
-        bad = wet3D .& (.!isfinite.(res) .| (res .> max_yr_range))
-        n_bad = count(bad)
-        n_bad > 0 && @warn "seasonal_range$(isempty(label) ? "" : " ($label)"): " *
-            "$(n_bad)/$(n_wet) wet cells non-finite or range > $max_yr_range yr — marking NaN " *
-            "(fraction=$(round(n_bad / max(n_wet, 1) * 100; digits = 3))%)"
-        @. res = ifelse(wet3D, res, 0.0)
-        res[bad] .= NaN
-    end
+    @. res = ifelse(wet3D, res, 0.0)
+    check_age_field(res, wet3D, grid; kind = "seasonal range", min_yr = 0.0, max_yr = max_yr_range, label)
     return res
+end
+
+"""
+    check_age_field(field, wet3D, grid; kind, min_yr, max_yr, label)
+
+Sanity check for a 3D age (or seasonal-range) field. Errors with a
+diagnostic message if any wet cell is non-finite or falls outside
+`[min_yr, max_yr]` years.
+
+Ages above ~10,000 years or non-finite values are upstream-solver
+pathologies (NK divergence, advection-driven blowup, …) and must be
+resolved in the simulation pipeline — not papered over in the plotting
+layer. The error reports the worst cell's value and its (lat, lon,
+depth) so the user can localise the problem, plus the standard
+remediation list (smaller Δt / lower TIMESTEP_MULT, more stable
+timestepper, advection-scheme change, or upstream bug).
+"""
+function check_age_field(field, wet3D, grid; kind, min_yr, max_yr, label)
+    bad = wet3D .& (.!isfinite.(field) .| (field .< min_yr) .| (field .> max_yr))
+    n_bad = count(bad)
+    n_bad == 0 && return field
+
+    abs_bad = ifelse.(bad, abs.(replace(field, NaN => 0.0, Inf => 1.0e30, -Inf => 1.0e30)), 0.0)
+    worst_idx = argmax(abs_bad)
+    i, j, k = Tuple(worst_idx)
+    worst_val = field[worst_idx]
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    lon = Array(ug.λᶜᶜᵃ)[i, j]
+    lat = Array(ug.φᶜᶜᵃ)[i, j]
+    z = znodes(grid, Center(), Center(), Center())
+    depth = -z[k]
+    n_wet = count(wet3D)
+
+    error(
+        """
+        $kind for pipeline `$label` is unphysical: $n_bad / $n_wet wet cells
+        ($(round(n_bad / max(n_wet, 1) * 100; digits = 3))%) have non-finite values or fall
+        outside [$min_yr, $max_yr] yr.
+
+        Worst cell:  value = $worst_val yr  at (i, j, k) = ($i, $j, $k),
+                     lat = $(round(lat; digits = 2))°,  lon = $(round(lon; digits = 2))°,
+                     depth ≈ $(round(depth; digits = 1)) m.
+
+        Ages here should saturate at a few thousand years; values > 10,000 yr
+        or non-finite mean the upstream 1-year NK simulation diverged.
+        Remediations:
+          * Re-run the periodic NK solve with a smaller timestep
+            (lower TIMESTEP_MULT or smaller Δt).
+          * Try a more stable timestepper (SRK3 → SRK5) or advection scheme
+            (centered2 → WENO).
+          * Inspect the per-iterate trace for a NaN/Inf onset.
+
+        Fix the upstream pipeline and re-run; do not bypass this check by
+        clipping values in the plotting layer.
+        """,
+    )
 end
 
 

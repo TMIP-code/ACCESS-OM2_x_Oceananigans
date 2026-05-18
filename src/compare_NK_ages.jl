@@ -98,10 +98,10 @@ end
 label_for(PM, TW) = PM == PM1 ? "OM2-1 $TW" : "OM2-025 $TW"
 
 """Volume-weighted time-mean of FTS interior, in years; dry cells set to 0.
-Wet cells outside `[min_yr, max_yr]` or non-finite are flagged as NaN — this
-keeps Float32 overflow (one bad pipeline) from poisoning Makie's color
-mapping or the auto-colorrange quantile. Set `label` for log messages."""
-function time_mean_years(fts, wet3D; min_yr = -1000.0, max_yr = 100_000.0, label = "")
+Errors via `check_age_field` if any wet cell is non-finite or outside
+[-1000, 10_000] yr — those are upstream solver pathologies (typically a
+divergent NK iterate), not something to silently mask."""
+function time_mean_years(fts, wet3D, grid; min_yr = -1000.0, max_yr = 10_000.0, label = "")
     Nx, Ny, Nz = size(wet3D)
     Nt = length(fts.times)
     acc = zeros(Float64, Nx, Ny, Nz)
@@ -110,25 +110,8 @@ function time_mean_years(fts, wet3D; min_yr = -1000.0, max_yr = 100_000.0, label
         @inbounds @. acc += ifelse(wet3D, Float64(snap) / SECS_PER_YEAR, 0.0)
     end
     acc ./= Nt
-    n_wet = count(wet3D)
-    bad = wet3D .& (.!isfinite.(acc) .| (acc .< min_yr) .| (acc .> max_yr))
-    n_bad = count(bad)
-    n_bad > 0 && @warn "time_mean$(isempty(label) ? "" : " ($label)"): $(n_bad)/$(n_wet) wet cells " *
-        "non-finite or outside [$min_yr, $max_yr] yr — marking NaN " *
-        "(fraction=$(round(n_bad / max(n_wet, 1) * 100; digits = 3))%)"
-    acc[bad] .= NaN
+    check_age_field(acc, wet3D, grid; kind = "annual mean", min_yr, max_yr, label)
     return acc
-end
-
-"""Replace NaNs in a 3D field with `fill` and return it; for use just before
-regridding (the regridder is a linear operator over input values)."""
-function denan(x; fill = 0.0)
-    y = copy(x)
-    bad = .!isfinite.(y)
-    n_bad = count(bad)
-    n_bad > 0 && @info "denan: replacing $n_bad NaN/Inf cells with $fill"
-    y[bad] .= fill
-    return y
 end
 
 """Apply a single-layer regridder per k-level to a 3D array."""
@@ -287,9 +270,9 @@ function get_time_mean(res::String, TW::String)
     fts = FieldTimeSeries(path, "age"; backend = InMemory())
     Nt = length(fts.times)
     @info "FTS has $Nt snapshots; interior size = $(size(interior(fts[1])))"
-    m = time_mean_years(fts, wet3D; label = "$res/$TW")
-    valid = filter(isfinite, vec(m))
-    @info "annual mean stats" min = isempty(valid) ? NaN : minimum(valid) max = isempty(valid) ? NaN : maximum(valid) n_valid = length(valid)
+    grid = res == "1" ? grid1 : grid025
+    m = time_mean_years(fts, wet3D, grid; label = "$res/$TW")
+    @info "annual mean stats" min = minimum(m) max = maximum(m)
     _means[(res, TW)] = m
     return m
 end
@@ -307,9 +290,9 @@ function get_seasonal_range(res::String, TW::String)
     fts = FieldTimeSeries(path, "age"; backend = InMemory())
     Nt = length(fts.times)
     @info "FTS has $Nt snapshots"
-    sr = seasonal_range(fts; wet3D, label = "$res/$TW")
-    valid = filter(isfinite, vec(sr))
-    @info "seasonal range stats" min = isempty(valid) ? NaN : minimum(valid) max = isempty(valid) ? NaN : maximum(valid) n_valid = length(valid)
+    grid = res == "1" ? grid1 : grid025
+    sr = seasonal_range(fts, wet3D, grid; label = "$res/$TW")
+    @info "seasonal range stats" min = minimum(sr) max = maximum(sr)
     _sranges[(res, TW)] = sr
     return sr
 end
@@ -349,21 +332,21 @@ function get_regridder()
 end
 
 """Regrid a native-OM2-025 field onto the OM2-1 grid (or the reverse if the
-direction flag is flipped). NaN cells in `src_3D` (sanitized bad cells) are
-replaced with 0 before regridding — they would otherwise poison the linear
-combination at every destination cell that overlaps them."""
+direction flag is flipped). Inputs are required to be finite (enforced by
+`check_age_field` upstream)."""
 function regrid_to_dst(src_3D)
     regridder = get_regridder()
-    src_clean = denan(src_3D)
+    @assert all(isfinite, src_3D) "regrid_to_dst received non-finite source values — \
+                                   check_age_field should have caught this upstream"
     if REGRID_FINE2COARSE
-        @assert size(src_clean)[1:2] == size(wet3D_025)[1:2] "expected OM2-025 src horizontal dims"
+        @assert size(src_3D)[1:2] == size(wet3D_025)[1:2] "expected OM2-025 src horizontal dims"
         dst_3D = zeros(Float64, size(wet3D_1)...)
     else
-        @assert size(src_clean)[1:2] == size(wet3D_1)[1:2] "expected OM2-1 src horizontal dims"
+        @assert size(src_3D)[1:2] == size(wet3D_1)[1:2] "expected OM2-1 src horizontal dims"
         dst_3D = zeros(Float64, size(wet3D_025)...)
     end
-    regrid_3d!(dst_3D, regridder, src_clean)
-    check_conservation(dst_3D, src_clean, regridder)
+    regrid_3d!(dst_3D, regridder, src_3D)
+    check_conservation(dst_3D, src_3D, regridder)
     return dst_3D
 end
 
