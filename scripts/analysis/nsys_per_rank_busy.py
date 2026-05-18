@@ -140,14 +140,29 @@ def main():
         mean = sum(ks) / len(ks)
         mx = max(ks)
         mn = min(ks)
-        imb_pct = 100 * (mx - mean) / mean if mean > 0 else 0.0
+        argmax = ks.index(mx)
+        argmin = ks.index(mn)
+        n = len(ks)
+        # Wall is bounded by the slowest rank; the idlest rank waits
+        # (max - min). Total wasted GPU-time across all ranks =
+        # N*max - sum(busy_i) = N*(max - mean).
+        idle_idlest_s = (mx - mn) / 1.0e9
+        idle_idlest_fraction = (mx - mn) / mx if mx > 0 else 0.0
+        wasted_total_s = n * (mx - mean) / 1.0e9
+        wasted_fraction_system = (mx - mean) / mx if mx > 0 else 0.0
+        excess_over_mean = (mx - mean) / mean if mean > 0 else 0.0
         ratio = mx / mn if mn > 0 else float("inf")
         print("-" * len(hdr))
         print(f"mean kernel_busy:     {fmt_seconds(int(mean))}")
-        print(f"max  kernel_busy:     {fmt_seconds(int(mx))}    (rank {ks.index(mx)})")
-        print(f"min  kernel_busy:     {fmt_seconds(int(mn))}    (rank {ks.index(mn)})")
-        print(f"imbalance% (max-mean)/mean: {imb_pct:5.1f}%")
-        print(f"ratio max/min:        {ratio:.3f}×")
+        print(f"max  kernel_busy:     {fmt_seconds(int(mx))}    (rank {argmax}, busiest)")
+        print(f"min  kernel_busy:     {fmt_seconds(int(mn))}    (rank {argmin}, idlest)")
+        print()
+        print("Imbalance metrics (sorted by how much waste they imply):")
+        print(f"  max-min absolute:                     {idle_idlest_s:6.2f}s   (rank {argmin}'s idle time waiting on rank {argmax})")
+        print(f"  (max-min)/max → idlest's idle fraction: {100*idle_idlest_fraction:5.1f}%   (% of wall that rank {argmin} spent waiting)")
+        print(f"  max/min ratio:                         {ratio:5.3f}×   (rank {argmax} did this many × more work than rank {argmin})")
+        print(f"  (max-mean)/max → system-wide loss:     {100*wasted_fraction_system:5.1f}%   ({wasted_total_s:.2f}s total GPU-time wasted across {n} ranks)")
+        print(f"  (max-mean)/mean → overload of busiest:  {100*excess_over_mean:5.1f}%   (rank {argmax} did this much more than the average)")
 
     if args.csv:
         with open(args.csv, "w", newline="") as f:
