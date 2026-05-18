@@ -458,9 +458,20 @@ has_step runlong && \
 # 3. Transport matrix building
 # ============================================================
 
-has_step TMbuild && \
+if has_step TMbuild; then
+    # Base deps for TMbuild come from the preprocessing chain. Additionally, an
+    # external job ID can be passed via UPSTREAM_TMBUILD_JOB to make this
+    # TMbuild afterok-depend on it — this is how TRAF chains chain onto the
+    # corresponding IAF TMbuild from a different driver invocation (TRAF needs
+    # the forward M.jld2 to exist before its algebraic invVMtV synthesis can
+    # run; see docs/TRAF_simulations.md). Skipped silently when unset, so IAF
+    # invocations behave identically.
+    TMBUILD_DEPS="$VEL_DEP"
+    [ -n "${UPSTREAM_TMBUILD_JOB:-}" ] && \
+        TMBUILD_DEPS="${UPSTREAM_TMBUILD_JOB}${TMBUILD_DEPS:+:}${TMBUILD_DEPS}"
     TMBUILD_JOB=$(submit_job TMbuild "$WALLTIME_TM_BUILD" \
-        scripts/preprocessing/build_TMconst.sh --deps "$VEL_DEP")
+        scripts/preprocessing/build_TMconst.sh --deps "$TMBUILD_DEPS")
+fi
 
 has_step TMsnapshot && \
     TMSNAP_JOB=$(submit_job TMsnapshot "$WALLTIME_TM_SNAPSHOT" \
