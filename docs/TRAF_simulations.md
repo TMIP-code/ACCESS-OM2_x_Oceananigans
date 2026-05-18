@@ -270,3 +270,45 @@ Manifests:
 - OM2-1 / 1999-2008 — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T220758_1883576.toml`
 - OM2-025 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260516T220819_1884908.toml`
 - OM2-025 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260516T221502_1904462.toml`
+
+### Attempt 3 — `GIT_COMMIT=d40e13a` + follow-ups (2026-05-18)
+
+After diagnosing Attempt 2, we made three fixes:
+- f26fadc — `reverse_fts_time!` GPU-safe (broadcast `.=` swap; landed before Attempt 2).
+- 5ad89c3 — `solve_matrix_age_gpu.jl` now dispatches `M_basename` like its CPU sibling so `TMslv_cG` no longer dies on `invVMtV.jld2`.
+- d40e13a — `NK_c` now `afterok`-depends on `TMslv_c` (in addition to `TMbuild`) so the `INITIAL_AGE=TMage` warm-start is actually on disk by the time NK opens it; OM2-025 `plotNK` resources bumped to `02:00:00 / 24 CPU / 96 GB`.
+
+We also confirmed via `test/probe_traf_bad_cell.jl` (job 168615803) that the input data at the 1999-2008 blow-up cell `(1288, 1047, 36)` and its face neighbours is clean: zero NaN/Inf/large values across the whole parent (incl. halos) for u/v/η/T/S/κV, and `reverse_fts_time!` produces bit-exact mirror values at every probed cell. So the blow-up was not due to a sign bug, NaN, or a corrupt input.
+
+**6 driver invocations.** Four with `TIMESTEPPER=AB2 TIMESTEP_MULT=4` (full chain; new `MC_TRAF = totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4_traf` — same per-year stage count as SRK3 + M=12, more conservative effective Δt). One SRK3 + M=12 NK rerun for OM2-025/1999-2008 (just `NK-run1yrNK-plotNK`, using the existing TMbuild artefacts + the disk-resident warm-start). One SRK3 + M=12 `plotNK`-only rerun for OM2-025/1968-1977 to complete the 5 missing MP4s.
+
+**Attempt 3a — AB2 M=4 full chain (4 invocations, 24 PBS jobs):**
+
+| (PM, TW) | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c | plotNK |
+|---|---|---|---|---|---|---|
+| OM2-1, 1968-1977 | 168619937 | 168619939 | 168619940 | 168619941 | 168619942 | 168619944 |
+| OM2-1, 1999-2008 | 168619962 | 168619963 | 168619964 | 168619965 | 168619966 | 168619967 |
+| OM2-025, 1968-1977 | 168620006 | 168620008 | 168620009 | 168620010 | 168620012 | 168620014 |
+| OM2-025, 1999-2008 | 168620112 | 168620113 | 168620114 | 168620116 | 168620117 | 168620118 |
+
+**Attempt 3b — SRK3 M=12, NK rerun for OM2-025/1999-2008 (3 PBS jobs):**
+
+| step | job | uses |
+|---|---|---|
+| NK_c | 168620173 | existing `invVMtV.jld2` + disk-resident `steady_age_*.jld2` warm-start |
+| run1yrNK_c | 168620174 | afterok NK_c |
+| plotNK | 168620175 | afterok run1yrNK_c |
+
+**Attempt 3c — SRK3 M=12, plotNK only for OM2-025/1968-1977 (1 PBS job):**
+
+| step | job | uses |
+|---|---|---|
+| plotNK | 168620191 | existing converged `age_Pardiso_LSprec.jld2`; finishes the 5 MP4s that the original 01:00:00-walltime job (168481418) didn't complete |
+
+Manifests:
+- OM2-1 / 1968-1977 (3a) — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T110439_2335292.toml`
+- OM2-1 / 1999-2008 (3a) — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T110510_2339993.toml`
+- OM2-025 / 1968-1977 (3a) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T110529_2344043.toml`
+- OM2-025 / 1999-2008 (3a) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T110549_2346922.toml`
+- OM2-025 / 1999-2008 (3b) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T110628_2354101.toml`
+- OM2-025 / 1968-1977 (3c) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T110657_2358935.toml`
