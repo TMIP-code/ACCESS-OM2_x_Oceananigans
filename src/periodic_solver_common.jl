@@ -176,9 +176,16 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
     if INITIAL_AGE == "TMage"
         TM_SOURCE = get(ENV, "TM_SOURCE", "const")
         matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)
-        # Try candidate files in priority order
+        # Try candidate files in priority order. We prefer the variant that
+        # matches the current LUMP_AND_SPRAY setting (since that's the matrix
+        # form NK is actually solving with), then fall back to the other.
+        # solve_matrix_age.jl writes "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING).jld2"
+        # where coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full".
+        preferred_coarse_tag = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes" ? "coarse" : "full"
+        fallback_coarse_tag = preferred_coarse_tag == "coarse" ? "full" : "coarse"
         candidates = [
-            "steady_age_full_$(solver)_$(mp).jld2"
+            "steady_age_$(coarse_tag)_$(solver)_$(mp).jld2"
+                for coarse_tag in (preferred_coarse_tag, fallback_coarse_tag)
                 for mp in ("raw", "dropzeros", "symfill", "symdrop")
                 for solver in ("ParU", "UMFPACK", "Pardiso")
         ]
