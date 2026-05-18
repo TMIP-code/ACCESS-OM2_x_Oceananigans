@@ -312,3 +312,41 @@ Manifests:
 - OM2-025 / 1999-2008 (3a) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T110549_2346922.toml`
 - OM2-025 / 1999-2008 (3b) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T110628_2354101.toml`
 - OM2-025 / 1968-1977 (3c) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T110657_2358935.toml`
+
+#### Attempt 3 outcomes (so far)
+
+- **3a (4 × full AB2 M=4)** — all 4 `TMbuild` jobs Exit 1: "Forward M not found at `.../{MC_AB2_DTx4}/const/M.jld2`". The TRAF `invVMtV` synthesis path needs the forward `M.jld2` at the same MODEL_CONFIG (without `_traf`), and we only had it for SRK3+M=12, not AB2+M=4. Downstream jobs cascaded-cancelled by PBS. **Fix: build the IAF forwards first** (see 3d below).
+- **3b (SRK3 NK rerun)** — Diverged identically to Attempt 2 (same blow-up at (1288, 1047, 36) inside Φ! call #1). Cancelled. **This revealed the real warm-start bug:** `load_initial_age` was hard-coded to look for `steady_age_full_*.jld2`, but `solve_matrix_age.jl` writes `steady_age_coarse_*.jld2` whenever `LUMP_AND_SPRAY=yes` (our production setting). So **no NK run in the entire campaign — IAF or TRAF — has ever actually loaded its TMage warm-start.** All ran from zeros. The OM2-1 and OM2-025/1968-1977 chains converged from zeros; OM2-025/1999-2008 didn't. Fix landed in commit **`ed4c140`** (search the LUMP_AND_SPRAY-matching tag first, fall back to the other variant). Note also: d40e13a's `NK_c afterok TMslv_c` dep is still useful — it ensures the TMage file is actually written before NK opens it — but on its own would not have fixed Attempt 3b since the filename was wrong anyway.
+- **3c (plotNK rerun)** — ✓ Exit 0, ~45 min wall. 10 PNGs + 10 MP4s now complete in `outputs/.../OM2-025/.../1968-1977/periodic/{MC_SRK3_DTx12}_traf/1year/Pardiso_LSprec/plots/`.
+
+Also noted: the doc's previous claim that `TMBUILD_JOB=<id>` pre-set on the env chains TRAF onto IAF TMbuild via PBS deps is **wrong**. `scripts/driver.sh:309` clears `TMBUILD_JOB=""` unconditionally before submitting, so the pre-set value is dropped. The only working "Option 1" is to manually wait for IAF TMbuild to finish, then submit TRAF (which is what we do in 3d/3e below). Will rewrite that section of the doc when the dust settles.
+
+### Attempt 3d — IAF TMbuild for AB2 M=4 (2026-05-18)
+
+Pre-requisite for Attempt 3e — produces the forward `M.jld2` at the AB2+M=4 MODEL_CONFIG.
+
+| (PM, TW) | TMbuild | walltime | Exit | M.jld2 size |
+|---|---|---:|---:|---:|
+| OM2-1, 1968-1977 | 168651416 | 8:42 | 0 | 304 MB |
+| OM2-1, 1999-2008 | 168652252 | 8:29 | 0 | 304 MB |
+| OM2-025, 1968-1977 | 168652635 | 38:44 | 0 | 4.1 GB |
+| OM2-025, 1999-2008 | 168652688 | 38:05 | 0 | 4.1 GB |
+
+### Attempt 3e — TRAF AB2 M=4 full chain (2026-05-18; `GIT_COMMIT=ed4c140`)
+
+`MC_TRAF = totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4_traf`. Same per-year stage count as SRK3+M=12 (one AB2 stage per step × 1/4 = three SRK3 stages × 1/12) but more conservative Δt. The d40e13a + ed4c140 fixes mean NK_c now waits for TMslv_c AND actually loads the warm-start.
+
+| (PM, TW) | GPU queue | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c | plotNK |
+|---|---|---|---|---|---|---|---|
+| OM2-1, 1968-1977 | gpuvolta | 168657994 ✓ | 168657995 | 168657996 | 168657997 | 168657998 | 168657999 |
+| OM2-1, 1999-2008 | gpuvolta | 168658052 ✓ | 168658053 | 168658054 | 168658055 | 168658056 | 168658057 |
+| OM2-025, 1968-1977 | gpuhopper | 168658571 | 168658572 | 168658573 | 168658574 | 168658575 | 168658577 |
+| OM2-025, 1999-2008 | gpuhopper | 168658845 | 168658846 | 168658847 | 168658848 | 168658849 | 168658851 |
+
+TRAF TMbuilds for OM2-1 already F (Exit 0) in ~90 sec each — algebraic `invVMtV = V⁻¹ Mᵀ V` synthesis is fast. OM2-025 TRAF TMbuilds queued; TMslv_c on OM2-025 will take ~15 min, NK_c probably 1-6h.
+
+Manifests:
+- OM2-1 / 1968-1977 (3e) — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T160140_1158630.toml`
+- OM2-1 / 1999-2008 (3e) — `outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T160200_1161827.toml`
+- OM2-025 / 1968-1977 (3e) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T160632_1204052.toml`
+- OM2-025 / 1999-2008 (3e) — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T160803_1217302.toml`
