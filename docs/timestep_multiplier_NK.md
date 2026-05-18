@@ -475,3 +475,71 @@ RMS — may be the right operating point in practice.
 For further reduction, the remaining levers are not Δt-side:
 preconditioner quality (e.g. LSprec coarsening factor), better warm
 start than TMage, or moving GMRES inner iters off-GPU.
+
+## OM2-025: NK steady-state instability at SRK3-M=12 (2026-05-18)
+
+The OM2-025 stability table in
+[docs/timestep_multiplier.md](timestep_multiplier.md) marks SRK3-M=12
+as ✓ — but that ✓ is from the standalone `run1yr` test only. When the
+full NK pipeline at this config was used to build the inputs for the
+cross-resolution age comparison
+([docs/IAF_NK_age_comparison_plan.md](IAF_NK_age_comparison_plan.md))
+we found:
+
+| TW | NK exit | run1yrNK exit | Periodic FTS max\|age\| |
+|---|---|---|---|
+| 1968-1977 | 0 | 0 | a few thousand years (sane) |
+| 1999-2008 | 0 | 0 | **≈ 1.74 × 10⁶¹ yr** (unphysical) |
+
+The 1999-2008 pipeline's NK iterate carries Inf-scale values in
+scattered cells. NK's residual stopping criterion didn't catch it
+(the huge cells are sparse enough that the volume-weighted RMS norm
+still passed the tolerance test, while per-cell maxima escaped). The
+1-year forward map from that solution propagates the pathology into
+the FTS we tried to plot — hence the `check_age_field` error in
+[src/shared_utils/analysis_and_plotting.jl](../src/shared_utils/analysis_and_plotting.jl)
+and the abort of `compare_NK_ages.jl` on first contact with this
+pipeline.
+
+Why does 1999-2008 fail while 1968-1977 passes at the same SRK3-M=12
+config? The 1999-2008 OMIP-IAF forcing carries more mid-latitude eddy
+energy and tropical Pacific variability than 1968-1977; with Δt = 6 h
+SRK3 is close enough to its absolute-stability boundary that the more
+energetic regime tips it over. The 1-year `run1yr` test doesn't see
+this — there's no Newton feedback amplifying per-step truncation
+error over many outer iterates, and 1 year isn't long enough to
+accumulate a blow-up.
+
+**Action.** Re-run OM2-025 / 1999-2008 at two smaller-Δt configs in
+parallel:
+
+```bash
+# AB2, Δt = 1.5 h (most conservative)
+PARENT_MODEL=ACCESS-OM2-025 TIME_WINDOW=1999-2008 \
+TIMESTEPPER=AB2 TIMESTEP_MULT=3 \
+VELOCITY_SOURCE=totaltransport W_FORMULATION=wdiagnosed \
+ADVECTION_SCHEME=centered2 MONTHLY_KAPPAV=yes \
+LINEAR_SOLVER=Pardiso LUMP_AND_SPRAY=yes \
+JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK \
+  bash scripts/driver.sh
+
+# SRK3, Δt = 4.5 h (one divisor step below the failing M=12)
+PARENT_MODEL=ACCESS-OM2-025 TIME_WINDOW=1999-2008 \
+TIMESTEPPER=SRK3 TIMESTEP_MULT=9 \
+VELOCITY_SOURCE=totaltransport W_FORMULATION=wdiagnosed \
+ADVECTION_SCHEME=centered2 MONTHLY_KAPPAV=yes \
+LINEAR_SOLVER=Pardiso LUMP_AND_SPRAY=yes \
+JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK \
+  bash scripts/driver.sh
+```
+
+Each lands in its own `outputs/.../periodic/totaltransport_wdiagnosed_centered2_{AB2,SRK3}_mkappaV_DTx{3,9}/`
+tree, so they don't collide. Whichever converges to a sane periodic
+state first becomes the new MC for `compareNK`.
+
+**Implication for the recommendation.** SRK3-M=12 as the OM2-025 NK
+default needs an asterisk: it is the best *tested* speedup but is not
+robust across IAF forcing decades. A defensible default is SRK3-M=9
+(Δt = 4.5 h, 3× speedup) if it converges cleanly on both windows;
+otherwise fall back to AB2-M=3 / SRK3-M=6 — slower but with more
+margin to the stability boundary. The reruns above will resolve this.

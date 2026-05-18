@@ -71,6 +71,20 @@ an implicit / IMEX integrator (not currently in tree).
 | 18 | 9 h    |   | ✗ | ✗ |   | ✗ |
 | 36 | 18 h   |   |   | ✗ |   | ✗ |
 
+> [!WARNING]
+> **OM2-025 SRK3-M=12 passes 1-year stability but fails the NK steady state for 1999-2008.**
+> The ✓ in the table reflects the *1-year `run1yr`* test (no NK warm start, no Newton feedback).
+> The full NK pipeline at SRK3-M=12 for `TIME_WINDOW=1999-2008` produces a periodic age field
+> with scattered cells at `|age| ≈ 1.7 × 10⁶¹ yr` — discovered when `compare_NK_ages.jl` tried
+> to plot it (2026-05-18). NK exits 0 numerically but the result is unphysical and `check_age_field`
+> rejects it. The same config converges fine for `TIME_WINDOW=1968-1977`, so the marginal
+> stability of SRK3 at Δt=6h is being pushed over the edge by the higher-energy 1999-2008
+> circulation. Re-runs at AB2-M=3 (Δt=1.5h) and SRK3-M=9 (Δt=4.5h) are queued — see
+> [IAF_NK_age_comparison_plan.md § Known issue](IAF_NK_age_comparison_plan.md#known-issue--om2-025--1999-2008-instability)
+> and [timestep_multiplier_NK.md § OM2-025](timestep_multiplier_NK.md#om2-025-nk-steady-state-instability-at-srk3-m12-2026-05-18).
+> Moral: 1-year stability is **necessary but not sufficient** for NK validity, especially as
+> simulation forcing energy varies between time windows.
+
 **Recommendation — best tested speedup: 4×** (SRK3-M=12). Key
 findings from the SRK{2,3,5} × M ∈ {12, 18} sweep:
 

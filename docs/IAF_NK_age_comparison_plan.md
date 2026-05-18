@@ -175,6 +175,114 @@ OM2-1 phases run on the login node. OM2-025 wants a small PBS job (normal queue,
 - **Depth axis alignment**: confirm `grid.z_faces` identical between OM2-1 and OM2-025 (both should be the standard ACCESS-OM2 50-level grid) before overlaying profiles. If different, interpolate one onto the other.
 - **Phase 3 disk usage**: if seasonal-range diff fields at all 6 depths produce too many PNGs, gate behind a `SEASONALITY_DEPTHS=...` env var.
 
+## Results (first pass, 2026-05-18)
+
+`compareNK` (driver: `src/compare_NK_ages.jl`, PBS: `scripts/plotting/compare_NK_ages.sh`,
+step in `scripts/driver.sh`) ran end-to-end on the four NK pipelines, but
+the OM2-025 / 1999-2008 FTS turned out to carry **scattered cells with
+ages up to `1.74 × 10⁶¹` yr** — clearly an upstream instability, not a
+plotting issue (see [Known issue](#known-issue-om2-025-1999-2008-instability)
+below). The OM2-1 phase-1 PNGs were produced cleanly and are summarised here.
+
+Outputs land under:
+
+```
+outputs/comparisons/NK_age/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12/
+├── phase1_tw_OM2-1/          ✅ 11 PNGs (slices, zonal-avg per basin, basin profiles)
+├── phase1_tw_OM2-025/        ❌ blocked by OM2-025/1999-2008 instability
+├── phase2_resolution_*/      ❌ blocked
+└── phase3_seasonality/       ❌ blocked
+```
+
+### OM2-1 1968-1977 vs 1999-2008 — phase 1
+
+**Atlantic zonal mean (vol-weighted, 0–6000 m):**
+
+![OM2-1 Atlantic zonal-mean age, 1968-1977 vs 1999-2008 vs B−A](../outputs/comparisons/NK_age/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12/phase1_tw_OM2-1/zonal_atlantic.png)
+
+**1000 m horizontal slice:**
+
+![OM2-1 age at 1000 m, 1968-1977 vs 1999-2008 vs B−A](../outputs/comparisons/NK_age/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12/phase1_tw_OM2-1/slice_1000m.png)
+
+**Volume-weighted basin profiles (overlay):**
+
+![OM2-1 basin-mean age profiles, 1968-1977 vs 1999-2008](../outputs/comparisons/NK_age/totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12/phase1_tw_OM2-1/profiles_basins.png)
+
+**Interpretation.** The two windows differ at the ~10 % level globally,
+with the spatial structure dominated by AMOC variability:
+
+- **Atlantic.** Mid-depth tropical–subtropical Atlantic (≈ 0–30° N, 1500–
+  3500 m) is **~100–200 yr younger** in 1999-2008 (the diff panel is
+  strongly blue there). The southern-Atlantic deep limb (≈ 30° S,
+  3500–4500 m) is **~150–250 yr older** in 1999-2008. Read together
+  this is the AMOC reshuffle: stronger northern overturning ventilates
+  the mid-depth subtropics while less deep water reaches the southern
+  Atlantic.
+- **Pacific.** Older basin-wide in 1999-2008, peaking around **+150–
+  250 yr** at the mid-depth equator (15° S–15° N, 1500–3500 m). The
+  basin-profile shows the orange (1999-2008) curve sitting consistently
+  above the blue (1968-1977) curve from 1500 m downward. Consistent with
+  weakened Pacific Deep Water renewal in the later window.
+- **Indian.** Nearly unchanged (≤ 50 yr drift in the profile and a
+  similarly bland zonal-mean diff — not embedded for brevity, see
+  `phase1_tw_OM2-1/zonal_indian.png`).
+- **Global mean profile** is the Pacific signal: the orange curve is
+  ~150 yr older below 1500 m, surface and abyssal floors collapse onto
+  each other.
+
+The diffs are physically plausible for an IAF / OMIP-style reanalysis
+comparing the late 1960s–70s to the late 1990s–2000s.
+
+### Known issue — OM2-025 / 1999-2008 instability
+
+The NK iterate for `PARENT_MODEL=ACCESS-OM2-025`,
+`TIME_WINDOW=1999-2008`, `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=12`
+( `MC = totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12` )
+finishes the Newton-Krylov loop with exit code 0
+(`outputs/.../periodic/${MC}/NK/age_Pardiso_LSprec.jld2`), and the
+1-year forward simulation from that solution also exits 0, but the
+resulting `age_periodic_1year.jld2` carries scattered cells reaching
+**± 1.7 × 10⁶¹ yr** — diagnosed by `check_age_field` in
+`src/shared_utils/analysis_and_plotting.jl`:
+
+```
+annual mean for pipeline `025/1999-2008` is unphysical:
+N / 89_…_ wet cells have non-finite values or fall outside
+[-1000, 10_000] yr.
+Worst cell:  value = 1.7387547e61 yr  at (i, j, k) = (…),
+             lat = …°,  lon = …°,  depth ≈ … m.
+```
+
+These ages are physically impossible (ventilation in the ocean
+saturates at a few thousand years), so this is treated as instability
+and the comparison driver hard-errors rather than masking the cells.
+The corresponding row in the OM2-025 cell of
+[docs/timestep_multiplier.md](timestep_multiplier.md) is marked `✓` —
+but that ✓ is from the *1-year* `run1yr` stability test (no NK warm
+start, no feedback). The NK steady state amplifies any per-step
+truncation error over its 40+ Newton iterates, and SRK3 + Δt = 6 h
+turns out to sit too close to the absolute-stability boundary for the
+1999-2008 (more energetic) circulation, even though it was fine for
+1968-1977. The notes in [docs/timestep_multiplier_NK.md](timestep_multiplier_NK.md)
+and [docs/timestep_multiplier.md](timestep_multiplier.md) flag this.
+
+### Planned re-runs (OM2-025 / 1999-2008)
+
+To unblock phase 1 OM2-025, phase 2, and phase 3, the NK pipeline is
+re-running at smaller Δt:
+
+| Config | Δt | MC tag | Status |
+|---|---|---|---|
+| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | _to be submitted_ |
+| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | _to be submitted_ |
+
+Both land in separate output trees, so they run in parallel via
+two `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` driver invocations.
+Once whichever one converges to a sane periodic state, point
+`compareNK` at that MC by editing the constant
+`MC` in [src/compare_NK_ages.jl](../src/compare_NK_ages.jl) (or by
+adding an env-var override).
+
 ## Critical files / paths summary
 
 | Purpose | Path |
