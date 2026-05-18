@@ -712,13 +712,16 @@ end
 ################################################################################
 
 """
-    seasonal_range(fts::FieldTimeSeries; wet3D=nothing) -> Array{Float64,3}
+    seasonal_range(fts::FieldTimeSeries; wet3D=nothing,
+                   max_yr_range=100_000.0, label="") -> Array{Float64,3}
 
 Per-cell `max − min` of `interior(fts[t])` across `t = 1:Nt`, in years
 (divides by 365.25·86400). Streams snapshots so it works with `OnDisk()` FTS.
-If `wet3D` is given, dry cells in the result are set to 0.
+Dry cells (per `wet3D`) are set to 0. Wet cells whose range is non-finite or
+exceeds `max_yr_range` are marked NaN — guards against one divergent pipeline
+poisoning Makie's color scaling.
 """
-function seasonal_range(fts; wet3D = nothing)
+function seasonal_range(fts; wet3D = nothing, max_yr_range = 100_000.0, label = "")
     year_s = 365.25 * 86400
     Nt = length(fts.times)
     first_snap = Array(interior(fts[1]))
@@ -734,7 +737,14 @@ function seasonal_range(fts; wet3D = nothing)
     end
     res = age_max .- age_min
     if wet3D !== nothing
+        n_wet = count(wet3D)
+        bad = wet3D .& (.!isfinite.(res) .| (res .> max_yr_range))
+        n_bad = count(bad)
+        n_bad > 0 && @warn "seasonal_range$(isempty(label) ? "" : " ($label)"): " *
+            "$(n_bad)/$(n_wet) wet cells non-finite or range > $max_yr_range yr — marking NaN " *
+            "(fraction=$(round(n_bad / max(n_wet, 1) * 100; digits = 3))%)"
         @. res = ifelse(wet3D, res, 0.0)
+        res[bad] .= NaN
     end
     return res
 end
