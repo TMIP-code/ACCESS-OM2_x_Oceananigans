@@ -373,6 +373,45 @@ Three options for the OM2-025/1999-2008 NK:
 2. **Mask velocities to zero near the j=Ny fold** for both the IAF and TRAF runs (clean physics fix; ~1 cell strip below the fold).
 3. **Use only the (steady) matrix solution** for this (PM, TW) — `invVMtV \ -1` already gave a sensible mean age (1063 yr from TMslv_c) — and skip the periodic NK. Loses the seasonal cycle but gives a usable adjoint-age field.
 
+### Attempt 3f — OM2-025 AB2 M=3 + SRK3 M=9 (2026-05-18; commits 5e69399 + earlier)
+
+The `UPSTREAM_TMBUILD_JOB` mechanism (commit 5e69399) made it possible to fire-and-forget: submit each IAF TMbuild, then immediately submit the matching TRAF chain with `UPSTREAM_TMBUILD_JOB=<iaf-id>` and let PBS handle the `afterok` chaining.
+
+| Config | TW | IAF TMbuild | TRAF chain (TMbuild → … → plotNK) |
+|---|---|---|---|
+| AB2 M=3 | 1968-1977 | 168700542 ✓ (38:45) | 168702954 … 168702959 |
+| AB2 M=3 | 1999-2008 | 168700954 ✓ (38:05) | 168702995 … 168703000 |
+| SRK3 M=9 | 1968-1977 | 168701572 ✓ (38:26) | 168703006 … 168703011 |
+| SRK3 M=9 | 1999-2008 | 168701899 ✓ (37:23) | 168703030 … 168703036 |
+
+**All 4 NK_c converged — including the previously-stalled OM2-025/1999-2008.** Crossing the Δt = ~16000 s threshold finally tames the fold-region instability.
+
+| Config | TW | NK_c walltime | Φ! | retcode | initial residual | mean TRAF age |
+|---|---|---:|---:|---|---:|---:|
+| AB2 M=3 | 1968-1977 | 7:12:26 | 120 | ✓ Success | 2.91e+10 | **868.80 yr** |
+| AB2 M=3 | 1999-2008 | 6:55:53 | 116 | ✓ Success | 2.76e+10 | **917.35 yr** |
+| SRK3 M=9 | 1968-1977 | 6:19:17 | 119 | ✓ Success | 2.41e+10 | **885.88 yr** |
+| SRK3 M=9 | 1999-2008 | 6:09:11 | 116 | ✓ Success | 2.68e+10 | **933.39 yr** |
+
+Cross-Δt mean-age summary for OM2-025 (all converged chains):
+
+| Δt config | effective Δt | 1968-1977 | 1999-2008 |
+|---|---:|---:|---:|
+| SRK3 M=12 (Attempt 2) | 21600 s | 892.89 | garbage (stalled) |
+| AB2 M=4 (Attempt 3e) | 21600 s | 872.01 | 1048.87 (stalled, untrusted) |
+| **SRK3 M=9 (Attempt 3f)** | 16200 s | **885.88** | **933.39** |
+| **AB2 M=3 (Attempt 3f)** | 16200 s | **868.80** | **917.35** |
+
+For 1968-1977 the four converged values span 868-893 yr (~3% spread) and don't show a clear monotone trend with Δt — they're within timestepper noise. For 1999-2008 only the M=9/M=3 (Δt=16200) runs converged; SRK3 vs AB2 differ by ~15 yr (~2%), consistent with timestepper noise rather than discretization error.
+
+Run1yrNK_c finished Exit 0 for 3/4 (the 4th, 168702999, ran successfully too at 12 min wall). PlotNK jobs still mostly running on the new 02:00:00 walltime; will complete the plot artefact set in the next hour.
+
+Manifests:
+- AB2 M=3 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T234439_1723447.toml`
+- AB2 M=3 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T234516_1725867.toml`
+- SRK3 M=9 / 1968-1977 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1968-1977/manifests/20260518T234544_1728309.toml`
+- SRK3 M=9 / 1999-2008 — `outputs/ACCESS-OM2-025/025deg_jra55_iaf_omip2_cycle6/1999-2008/manifests/20260518T234617_1731386.toml`
+
 Other 3 chains have produced full deliverables (10 PNG + 10 MP4 each at AB2+M=4 MC tag):
 - OM2-1/{1968-1977,1999-2008} plotNK F Exit 0 (~7 min each)
 - OM2-025/1968-1977 plotNK 168658577 still R (~38 min so far; on the bumped 02:00:00 walltime); OM2-025/1999-2008 plotNK F under the budget.
