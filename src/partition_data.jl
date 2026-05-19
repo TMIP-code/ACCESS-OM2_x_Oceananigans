@@ -228,6 +228,8 @@ fts_fields = [
     ("w_from_$(vs_prefix)", "w"),
     ("eta", "η"),
 ]
+# Include monthly κV if the clo step has produced it (required for distributed MONTHLY_KAPPAV=yes).
+isfile(joinpath(monthly_dir, "kappa_v_monthly.jld2")) && push!(fts_fields, ("kappa_v", "κV"))
 
 stop_time = 1year  # for Cyclical time indexing
 
