@@ -61,7 +61,13 @@ The pipeline is now end-to-end functional at two of the three ACCESS-OM2 resolut
 
 The honest status on ACCESS-OM2-01 is: **the 1-year forward operator runs**, but the cost is currently the binding constraint on doing Newton-Krylov on this grid. On 4× H200 GPUs one $\phi$ evaluation takes ~1.7 h, and going to 8 GPUs across a node boundary gives no speed-up (see `docs/OM2_01_NODE_SCALING_INVESTIGATION.md`). A 100-iteration NK solve would therefore cost ~170 GPU-hours per experiment, and we have not yet resolved the cross-node scaling issue.
 
-Recent work on the `TIMESTEP_MULT` flag (see `docs/timestep_multiplier.md`) has already paid off at the lower resolutions: because we only advect a passive tracer through prescribed velocities, the dynamical CFL of ACCESS-OM2 is much looser for us than for ACCESS-OM2 itself, and SRK3 with `TIMESTEP_MULT=12` is now the default at 1° and 0.25° (used in the converged forward IAF and TRAF runs). For OM2-01 the largest stable multiplier found so far is M=6, and only on a 1x2 partition; settling on a usable (M, partition) combination is still open.
+Recent work on the `TIMESTEP_MULT` flag (see [docs/timestep_multiplier.md](timestep_multiplier.md) and [docs/timestep_multiplier_NK.md](timestep_multiplier_NK.md)) has paid off, but more modestly than the standalone 1-year stability sweep first suggested. The NK fixed point amplifies per-step truncation error over the ~900-yr ventilation timescale, so the practical NK ceiling sits one or two divisor steps below the largest Δt that passes a single-year forward-map test. Current per-resolution NK defaults (all SRK3 unless noted):
+
+- **OM2-1**: M=4 (Δt = 6 h), 2.6× NK wall-clock speedup at a ~1.5% shift in the periodic age field vs M=1. M=6 and M=12 crashed/stalled in the NK pipeline despite the 1-year forward map running cleanly at M=12.
+- **OM2-025**: M=9 (Δt = 4.5 h), 3× speedup. The earlier M=12 candidate turned out to be NK-unstable for the 1999-2008 forcing window under both forward IAF and adjoint TRAF; M=9 converges cleanly across both computed time windows for both.
+- **OM2-01**: the best stable multiplier in the 1-year forward map is AB2-M=2 (2× speedup). NK has not yet been attempted at 0.1°, so this is a forward-map ceiling, not a confirmed NK ceiling, and the OM2-1/OM2-025 experience suggests the NK ceiling could be tighter still.
+
+The general lesson, recorded in [docs/timestep_multiplier.md](timestep_multiplier.md): 1-year `run1yr` stability is necessary but not sufficient for NK stability.
 
 Another option, not yet implemented, is to **precompute $w$** instead of diagnosing it on the fly. Diagnosing $w$ from continuity is currently a substantial fraction of per-step cost (estimated ~30%), and prescribing it from a preprocessed FieldTimeSeries would remove that overhead at the price of an extra preprocessing step. A plan exists in [plans/prescribe_w_for_performance.md](../plans/prescribe_w_for_performance.md).
 
