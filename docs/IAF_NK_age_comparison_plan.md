@@ -266,36 +266,61 @@ turns out to sit too close to the absolute-stability boundary for the
 1968-1977. The notes in [docs/timestep_multiplier_NK.md](timestep_multiplier_NK.md)
 and [docs/timestep_multiplier.md](timestep_multiplier.md) flag this.
 
-### Re-runs (OM2-025 / 1999-2008, 2026-05-18 → 2026-05-19)
+### Re-runs (OM2-025, 2026-05-18 → 2026-05-19)
+
+#### 1999-2008 — bracket of timestepper × Δt
 
 Two `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` chains submitted in
-parallel; both finished overnight (NK_c ~6 h on `gpuhopper`).
+parallel (one per timestepper × multiplier). Both finished overnight.
 
-| Config | Δt | MC tag | NK_c → run1yrNK_c | NK retcode | mean(age) | max(age) | volRMS drift |
+| Config | Δt | MC tag | NK_c → run1yrNK_c | NK retcode | Per-Φ wall | Total NK wall | mean(age) | max(age) | volRMS drift |
+|---|---|---|---|---|---|---|---|---|---|
+| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | `168669861` → `168669862` | Success | 196.6 s | 6 h 37 m | 917.3 yr | 2.5 × 10³ yr | 9.6 × 10⁻⁸ yr |
+| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168670907` → `168670908` | Success | **173.2 s** | **5 h 53 m** | 933.4 yr | 2.5 × 10³ yr | 8.6 × 10⁻⁸ yr |
+
+Both converged cleanly (drift ≪ tol; mean ages agree to ~1.7%; both
+did 113 Φ! calls / 3 Newton iters).  **SRK3-M=9 wins on wall time
+(~12% faster end-to-end, ~12% faster per-Φ-call), lower allocations
+(1.88 G vs 2.64 G), lower GC fraction (2.1% vs 2.8%)**, and it
+matches OM2-1's timestepper (SRK3-M=12) so the cross-resolution
+comparison stays apples-to-apples on the integrator.
+
+Verdict: **SRK3-M=9 is the new OM2-025 NK default for this campaign.**
+
+#### 1968-1977 — re-run at the new default
+
+To keep both OM2-025 windows on the same timestepper / Δt, the
+1968-1977 NK is also being re-run at SRK3-M=9. (The original
+1968-1977 SRK3-M=12 was numerically sane — the SRK3-M=12 instability
+was specific to the more energetic 1999-2008 forcing — so this run
+is for *consistency* across windows, not to fix a bug.)
+
+| Config | Δt | MC tag | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c |
 |---|---|---|---|---|---|---|---|
-| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | `168669861` → `168669862` | Success | 917.3 yr | 2.5 × 10³ yr | 9.6 × 10⁻⁸ yr |
-| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168670907` → `168670908` | Success | 933.4 yr | 2.5 × 10³ yr | 8.6 × 10⁻⁸ yr |
+| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168858362` | `168858363` | `168858364` | `168858365` | `168858366` |
 
-Both converged cleanly — max ages well under the 10 000 yr sanity
-threshold, drift ~10⁻⁷ yr ≪ tolerance, mean ages agree to within
-~1.7%. **Either** is now a defensible MC for the OM2-025 leg of the
-comparison.
+Once `168858366` finishes (~7 h total wall), re-run `compareNK` with
+default env vars to land Phase 1 OM2-025, Phase 2, and Phase 3 plots.
 
-**Choice for `compareNK`.** `compare_NK_ages.jl` now reads its MC
-per-resolution from env vars (`MC_OM2_1`, `MC_OM2_025`) with the
-defaults
+### `compareNK` MC configuration
+
+`compare_NK_ages.jl` reads its MC per-resolution from env vars
+(`MC_OM2_1`, `MC_OM2_025`) with the defaults
 
 ```julia
 DEFAULT_MC_OM2_1   = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12"
 DEFAULT_MC_OM2_025 = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9"
 ```
 
-i.e. SRK3-M=9 for OM2-025 by default (closest match to the OM2-1
-SRK3-M=12 — same timestepper, smaller Δt). The output tree is keyed
-on both MCs (`{MC_OM2_1}__vs__{MC_OM2_025}/`) so different MC
-combinations don't collide. Override either via env var on
-re-submission, e.g. `MC_OM2_025=…_AB2_mkappaV_DTx3 JOB_CHAIN=compareNK
-bash scripts/driver.sh`.
+The output tree is keyed on both MCs
+(`outputs/comparisons/NK_age/{MC_OM2_1}__vs__{MC_OM2_025}/`) so
+different MC combinations don't collide. Override either via env var
+on resubmission, e.g.
+
+```bash
+MC_OM2_025=totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3 \
+JOB_CHAIN=compareNK bash scripts/driver.sh
+```
 
 ### compareNK PBS history (2026-05-18)
 
