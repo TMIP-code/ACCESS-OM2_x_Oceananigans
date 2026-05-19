@@ -300,6 +300,13 @@ echo "JVP_METHOD=$JVP_METHOD, LINEAR_SOLVER=$LINEAR_SOLVER, LUMP_AND_SPRAY=$LUMP
 echo "TBLOCKING=$TBLOCKING, GRID halos=(${GRID_HX},${GRID_HY},${GRID_HZ})"
 echo ""
 
+# Guard: OM2-01 cannot fit a single monthly FTS on one H200 (each ~50 GB, GPU has 140 GB).
+if [ "$PARENT_MODEL" = "ACCESS-OM2-01" ] && [ "$NGPUS" -lt 2 ]; then
+    for s in diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong NK run1yrNK; do
+        has_step "$s" && { echo "ERROR: ACCESS-OM2-01 requires NGPUS>=2 (each monthly FTS ~50GB on 140GB H200). Use GPU_RESOURCES=gpuhopper-1x4 or larger. Blocking step: $s" >&2; exit 1; }
+    done
+fi
+
 # Job ID variables (empty = not submitted; can be pre-set via env vars to chain
 # downstream steps onto jobs submitted by an earlier driver invocation, e.g.
 # `GRID_JOB=12345.gadi-pbs VEL_JOB=12346.gadi-pbs CLO_JOB=12347.gadi-pbs \
