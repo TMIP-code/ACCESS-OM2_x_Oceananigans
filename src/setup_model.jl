@@ -115,6 +115,20 @@ Nx, Ny, Nz = size(grid)
 @info "Grid loaded: Nx=$Nx, Ny=$Ny, Nz=$Nz"
 flush(stdout); flush(stderr)
 
+# Helper: log per-rank GPU memory at a labelled checkpoint
+function gpu_mem_log(tag::AbstractString)
+    try
+        rank = arch isa Distributed ? arch.local_rank : 0
+        used_GiB = (CUDA.total_memory() - CUDA.available_memory()) / 2^30
+        total_GiB = CUDA.total_memory() / 2^30
+        @info "[rank $rank] GPU mem $tag: $(round(used_GiB; digits = 2)) / $(round(total_GiB; digits = 2)) GiB used"
+    catch e
+        @warn "GPU mem probe failed at $tag: $e"
+    end
+    return flush(stdout)
+end
+gpu_mem_log("after grid load")
+
 ################################################################################
 # Load velocities from disk
 ################################################################################
@@ -155,10 +169,12 @@ arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 u_ts = load_fts(arch, u_file, "u", grid; backend, time_indexing, fts_kw...)
 TRAF && reverse_fts_time!(u_ts; flip_sign = true)
 @show u_ts
+gpu_mem_log("after u FTS load")
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 v_ts = load_fts(arch, v_file, "v", grid; backend, time_indexing, fts_kw...)
 TRAF && reverse_fts_time!(v_ts; flip_sign = true)
 @show v_ts
+gpu_mem_log("after v FTS load")
 @info "Loading sea surface height from MOM output"
 flush(stdout); flush(stderr)
 η_file = joinpath(monthly_dir, "eta_monthly.jld2")
@@ -166,6 +182,7 @@ arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
 η_ts = load_fts(arch, η_file, "η", grid; backend, time_indexing, fts_kw...)
 TRAF && reverse_fts_time!(η_ts; flip_sign = false)
 @show η_ts
+gpu_mem_log("after η FTS load")
 
 prescribed_Δt = u_ts.times[2] - u_ts.times[1]  # Infer from time spacing
 fts_times = u_ts.times
@@ -204,6 +221,7 @@ if W_FORMULATION == "wprescribed"
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     w_ts = load_fts(arch, w_file, "w", grid; backend, time_indexing, fts_kw...)
     @show w_ts
+    gpu_mem_log("after w FTS load")
 
     @info "Prescribing u, v, and w"
     flush(stdout); flush(stderr)
@@ -236,6 +254,7 @@ mld_file = joinpath(mld_yearly_dir, "mld_yearly.nc")
 flush(stdout); flush(stderr)
 κVField = load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 @show κVField
+gpu_mem_log("after yearly MLD-based κVField")
 
 # Optionally load monthly κV FTS for time-varying vertical diffusivity
 if MONTHLY_KAPPAV
@@ -251,7 +270,10 @@ if MONTHLY_KAPPAV
     set!(κVField, κV_ts[1])
     @info "κVField initialized from first month of κV FTS"
     flush(stdout); flush(stderr)
+    gpu_mem_log("after monthly κV FTS load")
 end
+
+gpu_mem_log("after all preprocessed inputs loaded")
 
 if GM_REDI
     # No HorizontalScalarDiffusivity — isopycnal κ_symmetric in GM-Redi handles horizontal mixing
@@ -361,6 +383,7 @@ stop_time = n_months * prescribed_Δt
 
 @info "Model built (stop_time = $(stop_time / year) years, N_MONTHS=$n_months)"
 flush(stdout); flush(stderr)
+gpu_mem_log("after model build")
 
 @info "setup_model.jl complete"
 flush(stdout); flush(stderr)
