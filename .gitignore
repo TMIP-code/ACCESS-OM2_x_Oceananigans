@@ -12,4 +12,3 @@ settings
 test*.jld2
 plans/
 scripts/runs/submissions.tsv
-docs/PROJECT_SUMMARY.md
