@@ -543,3 +543,60 @@ robust across IAF forcing decades. A defensible default is SRK3-M=9
 (Δt = 4.5 h, 3× speedup) if it converges cleanly on both windows;
 otherwise fall back to AB2-M=3 / SRK3-M=6 — slower but with more
 margin to the stability boundary. The reruns above will resolve this.
+
+### Update (2026-05-18) — AB2-M=4 also fails; AB2-M=3 / SRK3-M=9 both succeed
+
+Discovered while running the TRAF (Time-Reversed Adjoint Flow)
+campaign — same NK code path, just with the sign-flipped, time-reversed
+velocity FTS — that this stability wall is **not specific to SRK3 at
+Δt=6h.** AB2 at Δt=6h also fails for 1999-2008:
+
+| Integrator × M | Δt | NK retcode | mean periodic age | location of blow-up |
+|---|---|---|---|---|
+| SRK3 M=12 | 6 h | Stalled (TRAF) | 2.4e-18 yr (garbage) | (1288, 1047, 36), `max(age)` reaches 6.8e+25 yr inside Φ! call #1 |
+| AB2  M=4  | 6 h | Stalled (TRAF) | 1048.87 yr (untrusted, residual 1e+107) | same cells, max(age) 3.7e+40 yr by 0.083 yr, 2.5e+106 yr by end of yr |
+| **SRK3 M=9** | 4.5 h | ✓ **Success** | **933.39 yr** | — |
+| **AB2  M=3** | 1.5 h | ✓ **Success** | **917.35 yr** | — |
+
+The same Δt=4.5h / 1.5h reruns also work for OM2-025/1968-1977
+(885.88 / 868.80 yr respectively), so this isn't a 1999-2008-only
+remedy — both timesteppers at Δt ≤ 4.5 h are robust across the IAF
+forcing decades tested. See [TRAF_simulations.md § Attempt 3f](TRAF_simulations.md#attempt-3f--om2-025-ab2-m3--srk3-m9-2026-05-18-commits-5e69399--earlier)
+for the full job-ID table and convergence trajectories.
+
+**Cross-Δt mean-age summary for OM2-025 (TRAF NK, both TWs):**
+
+| Δt config | effective Δt (s) | 1968-1977 (yr) | 1999-2008 (yr) |
+|---|---:|---:|---:|
+| SRK3 M=12 | 21600 | 892.89 | garbage (stalled) |
+| AB2 M=4   | 21600 | 872.01 | 1048.87 (stalled) |
+| **SRK3 M=9** | 16200 | **885.88** | **933.39** |
+| **AB2 M=3**  | 16200 | **868.80** | **917.35** |
+
+For 1968-1977 the four converged values span 868-893 yr (~3% spread)
+with no monotone trend across Δt — i.e. just timestepper noise. For
+1999-2008 the SRK3 / AB2 values at Δt = 16200 s differ by ~15 yr
+(~2%), also within the expected timestepper-spread band.
+
+**Revised recommendation for the OM2-025 NK production default.** Use
+**SRK3-M=9** (Δt=4.5h, 3× speedup over Δt_base of 1800 s). This is the
+largest Δt that converges in both TWs and under both forward (IAF) and
+adjoint (TRAF) NK. The 1-year `run1yr` SRK3-M=12 ✓ in
+[timestep_multiplier.md § OM2-025](timestep_multiplier.md#om2-025-δt_base--1800-s)
+remains correct for *standalone* use; it just doesn't transfer cleanly
+to NK at the more energetic 1999-2008 forcing.
+
+The TRAF rollout also surfaced and fixed two related issues that had
+been silently corrupting the warm-start path for both IAF and TRAF
+runs across the entire campaign:
+- `load_initial_age` was hard-coded to look for `steady_age_full_*.jld2`
+  but `solve_matrix_age.jl` writes `steady_age_coarse_*.jld2` whenever
+  `LUMP_AND_SPRAY=yes` (the production setting). No NK run had ever
+  loaded its TMage warm-start. Fix: commit `ed4c140`.
+- `NK_c` only `afterok`-depended on `TMbuild`, not `TMslv_c`, so even
+  after fixing the filename NK could still start before the warm-start
+  file was on disk. Fix: commit `d40e13a`.
+
+With both fixes in place, the SRK3-M=9 / AB2-M=3 NK runs above were
+the first in the campaign to actually start from the TM steady age
+(max ~3000 yr, mean ~430 yr) rather than from zeros.

@@ -72,21 +72,55 @@ an implicit / IMEX integrator (not currently in tree).
 | 36 | 18 h   |   |   | ✗ |   | ✗ |
 
 > [!WARNING]
-> **OM2-025 SRK3-M=12 passes 1-year stability but fails the NK steady state for 1999-2008.**
-> The ✓ in the table reflects the *1-year `run1yr`* test (no NK warm start, no Newton feedback).
-> The full NK pipeline at SRK3-M=12 for `TIME_WINDOW=1999-2008` produces a periodic age field
-> with scattered cells at `|age| ≈ 1.7 × 10⁶¹ yr` — discovered when `compare_NK_ages.jl` tried
-> to plot it (2026-05-18). NK exits 0 numerically but the result is unphysical and `check_age_field`
-> rejects it. The same config converges fine for `TIME_WINDOW=1968-1977`, so the marginal
-> stability of SRK3 at Δt=6h is being pushed over the edge by the higher-energy 1999-2008
-> circulation. Re-runs at AB2-M=3 (Δt=1.5h) and SRK3-M=9 (Δt=4.5h) are queued — see
-> [IAF_NK_age_comparison_plan.md § Known issue](IAF_NK_age_comparison_plan.md#known-issue--om2-025--1999-2008-instability)
+> **OM2-025 Δt ≥ 6 h fails NK steady state for 1999-2008 with both SRK3 and AB2.**
+> The ✓ for SRK3-M=12 in the table above reflects the *1-year `run1yr`* test only
+> (no NK warm start, no Newton feedback). The full NK pipeline at Δt = 6 h for
+> `TIME_WINDOW=1999-2008` fails in two different ways depending on the integrator:
+>
+> - **SRK3-M=12 (Δt=6h)** — IAF: NK exits 0 but the periodic age has scattered cells
+>   at `|age| ≈ 1.7 × 10⁶¹ yr` (discovered when `compare_NK_ages.jl` tried to plot it,
+>   2026-05-18; NK's RMS norm passed but `check_age_field` rejected the per-cell max).
+>   TRAF (Attempt 2 in [TRAF_simulations.md](TRAF_simulations.md)): forward Φ map blows up
+>   at `(i=1288, j=1047, k≈36)` (high-latitude near the tripolar fold) reaching
+>   `max(age) ≈ 10⁶⁸ yr` inside Φ! call #1; NK retcode `Stalled`, mean age `2.4e-18 yr`.
+> - **AB2-M=4 (Δt=6h)** — TRAF (Attempt 3e): same fold-region blow-up. Smaller Δt
+>   (2 vs 6 h) does NOT save it. NK retcode `Stalled` at residual `~10¹⁰⁷`.
+>
+> Both the 1968-1977 TW converges fine at Δt = 6 h for either integrator; the
+> 1999-2008 forcing is energetic enough at this resolution to push Δt = 6 h
+> past its stability margin at the polar grid singularity.
+>
+> **Resolution.** TRAF Attempt 3f (2026-05-18) ran the full NK pipeline at smaller Δt
+> for both timesteppers and both TWs — all converged:
+>
+> | Δt config | OM2-025/1968-1977 mean (yr) | OM2-025/1999-2008 mean (yr) |
+> |---|---:|---:|
+> | SRK3-M=12 (Δt=6 h)  | 892.89 ✓     | garbage (stalled) |
+> | AB2-M=4  (Δt=6 h)   | 872.01 ✓     | 1048.87 (stalled) |
+> | **SRK3-M=9** (Δt=4.5 h) | **885.88 ✓** | **933.39 ✓** |
+> | **AB2-M=3**  (Δt=1.5 h) | **868.80 ✓** | **917.35 ✓** |
+>
+> See [TRAF_simulations.md § Attempt 3f](TRAF_simulations.md#attempt-3f--om2-025-ab2-m3--srk3-m9-2026-05-18-commits-5e69399--earlier),
+> [IAF_NK_age_comparison_plan.md § Known issue](IAF_NK_age_comparison_plan.md#known-issue--om2-025--1999-2008-instability),
 > and [timestep_multiplier_NK.md § OM2-025](timestep_multiplier_NK.md#om2-025-nk-steady-state-instability-at-srk3-m12-2026-05-18).
-> Moral: 1-year stability is **necessary but not sufficient** for NK validity, especially as
-> simulation forcing energy varies between time windows.
+>
+> **Moral**: 1-year `run1yr` stability is **necessary but not sufficient** for NK
+> validity. The NK fixed-point amplifies per-step truncation error over the
+> ventilation timescale (~900 yr), so a marginally-stable Δt for a single year
+> can be catastrophically unstable inside a 60+ Newton-iteration solve. The
+> stability table above measures the *forward map*, not the NK pipeline.
 
-**Recommendation — best tested speedup: 4×** (SRK3-M=12). Key
-findings from the SRK{2,3,5} × M ∈ {12, 18} sweep:
+**Recommendation — best tested speedup: 3×** (SRK3-M=9, Δt=4.5h). The
+SRK3-M=12 4× claim above held for the 1-year `run1yr` test only; in
+the full NK pipeline Δt=6 h fails for the 1999-2008 forcing window
+(see warning callout above and [TRAF_simulations.md § Attempt 3f](TRAF_simulations.md#attempt-3f--om2-025-ab2-m3--srk3-m9-2026-05-18-commits-5e69399--earlier)
+for the NK-converged numbers at Δt=4.5h). For NK production runs
+use **SRK3-M=9** (3× speedup, the 1968-1977 mean age is 885.88 yr and
+the 1999-2008 mean is 933.39 yr). AB2-M=3 (1× per-step speedup, Δt=1.5h)
+is the conservative fallback if SRK3-M=9 ever flakes — both TWs also
+converged there (868.80 / 917.35 yr).
+
+Key findings from the SRK{2,3,5} × M ∈ {12, 18} 1-year sweep:
 
 - **SRK2 fails everywhere** even at M=12 (CFL ~0.86); SRK2's
   absolute-stability region is too narrow for centered-2 + surface
@@ -94,14 +128,17 @@ findings from the SRK{2,3,5} × M ∈ {12, 18} sweep:
 - **No SRK-N reaches Δt=9h** — SRK3-M=18 and SRK5-M=18 both blow up
   at the same grid point (1288, 1047, ~35), an equatorial-jet region
   where local CFL exceeds the global average. More stages don't
-  help past this point.
-- **M=12 is the universal wall.** `N_base=17532` has no divisor
+  help past this point. (Same grid point that fails the *NK* at
+  Δt=6 h for 1999-2008 — see callout — so the NK steady state hits
+  its stability wall at a smaller Δt than the standalone forward map.)
+- **M=12 is the 1-year-stability wall.** `N_base=17532` has no divisor
   between 12 and 18, so the integer-divisor structure plus the
-  integrator-independent Δt=9h wall caps explicit speedup at
-  `M_max_stable / stage_count_min = 12 / 3 = 4×`. SRK4-M=12 (3×)
-  isn't worth testing.
+  integrator-independent Δt=9h wall caps explicit standalone speedup
+  at `M_max_stable / stage_count_min = 12 / 3 = 4×`. SRK4-M=12 (3×)
+  isn't worth testing. **But** the NK pipeline's effective wall is
+  one divisor step tighter — M=9 (Δt=4.5h) for SRK3 — see callout.
 
-To push past 4×: same as OM2-1 — different operator (WENO5) or
+To push past 3×-4×: same as OM2-1 — different operator (WENO5) or
 implicit / IMEX integrator (not currently in tree).
 
 ### OM2-01 (Δt_base = 400 s)
@@ -139,11 +176,19 @@ one factor of Δt each (M=2 → 3 → 6) but not more.
 
 The pattern across resolutions:
 
-| Model | Best stable point | Effective speedup |
-|---|---|---|
-| OM2-1   | AB2-M=4 or SRK3-M=12 | 4× |
-| OM2-025 | SRK3-M=12            | 4× |
-| OM2-01  | **AB2-M=2**          | **2×** |
+| Model | Best stable point (1-year `run1yr`) | Best stable point (NK pipeline) | Effective speedup |
+|---|---|---|---|
+| OM2-1   | AB2-M=4 or SRK3-M=12 | same | 4× |
+| OM2-025 | SRK3-M=12 (1968-1977 NK works; 1999-2008 NK fails) | **SRK3-M=9** (both TWs converge) | 3× |
+| OM2-01  | **AB2-M=2**          | not yet tested | **2×** |
+
+The OM2-025 row collapses two different stability walls into one table.
+Standalone `run1yr` at SRK3-M=12 (Δt=6 h) is fine for both 1968-1977
+and 1999-2008, but the NK fixed-point amplifies per-step truncation
+error over ~900-yr ventilation timescales and the 1999-2008 forcing
+pushes Δt=6 h past its NK margin at the tripolar fold. SRK3-M=9
+(Δt=4.5 h) converges cleanly in both TWs under both IAF and TRAF
+(see [TRAF_simulations.md § Attempt 3f](TRAF_simulations.md#attempt-3f--om2-025-ab2-m3--srk3-m9-2026-05-18-commits-5e69399--earlier)).
 
 For a step-change speedup, an operator change is needed:
 `ADVECTION_SCHEME=weno5` adds numerical diffusion (enlarging the
