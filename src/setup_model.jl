@@ -119,9 +119,8 @@ flush(stdout); flush(stderr)
 function gpu_mem_log(tag::AbstractString)
     try
         rank = arch isa Distributed ? arch.local_rank : 0
-        used_GiB = (CUDA.total_memory() - CUDA.available_memory()) / 2^30
-        total_GiB = CUDA.total_memory() / 2^30
-        @info "[rank $rank] GPU mem $tag: $(round(used_GiB; digits = 2)) / $(round(total_GiB; digits = 2)) GiB used"
+        @info "[rank $rank] GPU mem $tag:"
+        CUDA.pool_status()
     catch e
         @warn "GPU mem probe failed at $tag: $e"
     end
