@@ -266,23 +266,36 @@ turns out to sit too close to the absolute-stability boundary for the
 1968-1977. The notes in [docs/timestep_multiplier_NK.md](timestep_multiplier_NK.md)
 and [docs/timestep_multiplier.md](timestep_multiplier.md) flag this.
 
-### Re-runs queued (OM2-025 / 1999-2008, 2026-05-18)
+### Re-runs (OM2-025 / 1999-2008, 2026-05-18 → 2026-05-19)
 
-To unblock phase 1 OM2-025, phase 2, and phase 3, the NK pipeline is
-re-running at smaller Δt in two parallel chains:
+Two `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` chains submitted in
+parallel; both finished overnight (NK_c ~6 h on `gpuhopper`).
 
-| Config | Δt | MC tag | TMbuild | TMslv_c | TMslv_cG | NK_c | run1yrNK_c |
+| Config | Δt | MC tag | NK_c → run1yrNK_c | NK retcode | mean(age) | max(age) | volRMS drift |
 |---|---|---|---|---|---|---|---|
-| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | `168669856` | `168669858` | `168669860` | `168669861` | `168669862` |
-| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168670903` | `168670904` | `168670906` | `168670907` | `168670908` |
+| `TIMESTEPPER=AB2`,  `TIMESTEP_MULT=3` | 1.5 h | `totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx3`  | `168669861` → `168669862` | Success | 917.3 yr | 2.5 × 10³ yr | 9.6 × 10⁻⁸ yr |
+| `TIMESTEPPER=SRK3`, `TIMESTEP_MULT=9` | 4.5 h | `totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9` | `168670907` → `168670908` | Success | 933.4 yr | 2.5 × 10³ yr | 8.6 × 10⁻⁸ yr |
 
-Each chain is one `JOB_CHAIN=TMbuild-TMsolve-NK-run1yrNK` driver
-invocation; both land in separate output trees so they don't collide.
-NK_c on OM2-025 takes ~4–5 h on `gpuhopper`, so both reruns should
-finish overnight. Whichever converges to a sane periodic state first
-becomes the new MC for `compareNK` — point the driver at it by
-editing the `MC` constant in [src/compare_NK_ages.jl](../src/compare_NK_ages.jl)
-or by exposing an env-var override.
+Both converged cleanly — max ages well under the 10 000 yr sanity
+threshold, drift ~10⁻⁷ yr ≪ tolerance, mean ages agree to within
+~1.7%. **Either** is now a defensible MC for the OM2-025 leg of the
+comparison.
+
+**Choice for `compareNK`.** `compare_NK_ages.jl` now reads its MC
+per-resolution from env vars (`MC_OM2_1`, `MC_OM2_025`) with the
+defaults
+
+```julia
+DEFAULT_MC_OM2_1   = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12"
+DEFAULT_MC_OM2_025 = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9"
+```
+
+i.e. SRK3-M=9 for OM2-025 by default (closest match to the OM2-1
+SRK3-M=12 — same timestepper, smaller Δt). The output tree is keyed
+on both MCs (`{MC_OM2_1}__vs__{MC_OM2_025}/`) so different MC
+combinations don't collide. Override either via env var on
+re-submission, e.g. `MC_OM2_025=…_AB2_mkappaV_DTx3 JOB_CHAIN=compareNK
+bash scripts/driver.sh`.
 
 ### compareNK PBS history (2026-05-18)
 

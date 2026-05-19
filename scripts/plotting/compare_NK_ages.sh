@@ -24,6 +24,8 @@ source scripts/env_defaults.sh
 [ -n "${RUN_PHASE3:-}"  ] && export RUN_PHASE3  && echo "RUN_PHASE3=$RUN_PHASE3"
 [ -n "${RUN_PHASE3B:-}" ] && export RUN_PHASE3B && echo "RUN_PHASE3B=$RUN_PHASE3B"
 [ -n "${REGRID_DIRECTION:-}" ] && export REGRID_DIRECTION && echo "REGRID_DIRECTION=$REGRID_DIRECTION"
+[ -n "${MC_OM2_1:-}"   ] && export MC_OM2_1   && echo "MC_OM2_1=$MC_OM2_1"
+[ -n "${MC_OM2_025:-}" ] && export MC_OM2_025 && echo "MC_OM2_025=$MC_OM2_025"
 
 echo "Running compare_NK_ages.jl on CPU"
 log_dir=logs/julia/comparisons/NK_age

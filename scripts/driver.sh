@@ -620,10 +620,16 @@ has_step plotgrid && \
 # compareNK: cross-resolution NK age comparison
 # Standalone step — reads all 4 (PM × TW) periodic-NK FTS files that must
 # already exist. Independent of the current PARENT_MODEL/EXPERIMENT/TIME_WINDOW.
-has_step compareNK && \
+if has_step compareNK; then
+    compare_vars="RUN_PHASE1=${RUN_PHASE1:-yes},RUN_PHASE2=${RUN_PHASE2:-yes}"
+    compare_vars+=",RUN_PHASE3=${RUN_PHASE3:-yes},RUN_PHASE3B=${RUN_PHASE3B:-no}"
+    compare_vars+=",REGRID_DIRECTION=${REGRID_DIRECTION:-fine2coarse}"
+    [ -n "${MC_OM2_1:-}"   ] && compare_vars+=",MC_OM2_1=${MC_OM2_1}"
+    [ -n "${MC_OM2_025:-}" ] && compare_vars+=",MC_OM2_025=${MC_OM2_025}"
     submit_job compareNK "${WALLTIME_COMPARE_NK:-03:00:00}" \
         scripts/plotting/compare_NK_ages.sh \
-        --vars "RUN_PHASE1=${RUN_PHASE1:-yes},RUN_PHASE2=${RUN_PHASE2:-yes},RUN_PHASE3=${RUN_PHASE3:-yes},RUN_PHASE3B=${RUN_PHASE3B:-no},REGRID_DIRECTION=${REGRID_DIRECTION:-fine2coarse}" > /dev/null
+        --vars "$compare_vars" > /dev/null
+fi
 
 # plotMOC (depends on: prep + grid — needs ty_trans_monthly.nc and grid.jld2)
 if has_step plotMOC; then

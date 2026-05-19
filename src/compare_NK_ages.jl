@@ -51,7 +51,16 @@ include("shared_functions.jl")
 # Configuration
 ################################################################################
 
-const MC = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12"
+# Per-resolution MC tag, overridable via env var. Each resolution may run a
+# different timestepper/Δt to reach a sane periodic state — the comparison
+# remains physically meaningful as long as each MC is its own well-converged
+# steady state.  Defaults match the original "comparable" run; the OM2-025
+# default is SRK3-M=9 after SRK3-M=12 was found to diverge for 1999-2008
+# (see docs/IAF_NK_age_comparison_plan.md § Known issue).
+const DEFAULT_MC_OM2_1 = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12"
+const DEFAULT_MC_OM2_025 = "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx9"
+const MC_OM2_1 = get(ENV, "MC_OM2_1", DEFAULT_MC_OM2_1)
+const MC_OM2_025 = get(ENV, "MC_OM2_025", DEFAULT_MC_OM2_025)
 const SOLVER_TAG = "Pardiso_LSprec"
 
 const PM1, EXP1 = "ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6"
@@ -71,9 +80,11 @@ const RUN_PHASE3B = lowercase(get(ENV, "RUN_PHASE3B", "no")) == "yes"
 const REGRID_FINE2COARSE = lowercase(get(ENV, "REGRID_DIRECTION", "fine2coarse")) == "fine2coarse"
 
 const repo_root = normpath(joinpath(@__DIR__, ".."))
-const OUT_ROOT = joinpath(repo_root, "outputs", "comparisons", "NK_age", MC)
+# Output directory keys off both MCs so different MC combinations don't collide.
+const OUT_TAG = MC_OM2_1 == MC_OM2_025 ? MC_OM2_1 : "$(MC_OM2_1)__vs__$(MC_OM2_025)"
+const OUT_ROOT = joinpath(repo_root, "outputs", "comparisons", "NK_age", OUT_TAG)
 
-@info "compare_NK_ages.jl configuration" RUN_PHASE1 RUN_PHASE2 RUN_PHASE3 RUN_PHASE3B REGRID_FINE2COARSE OUT_ROOT
+@info "compare_NK_ages.jl configuration" MC_OM2_1 MC_OM2_025 RUN_PHASE1 RUN_PHASE2 RUN_PHASE3 RUN_PHASE3B REGRID_FINE2COARSE OUT_ROOT
 mkpath(OUT_ROOT)
 flush(stdout); flush(stderr)
 
@@ -81,8 +92,10 @@ flush(stdout); flush(stderr)
 # Paths and basic helpers
 ################################################################################
 
+mc_for(PM) = PM == PM1 ? MC_OM2_1 : MC_OM2_025
+
 fts_path(PM, EXP, TW) = joinpath(
-    repo_root, "outputs", PM, EXP, TW, "periodic", MC, "1year", SOLVER_TAG,
+    repo_root, "outputs", PM, EXP, TW, "periodic", mc_for(PM), "1year", SOLVER_TAG,
     "age_periodic_1year.jld2",
 )
 grid_path(PM, EXP) = joinpath(repo_root, "preprocessed_inputs", PM, EXP, "grid.jld2")
