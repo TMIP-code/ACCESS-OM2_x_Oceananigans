@@ -64,22 +64,31 @@ if TBLOCKING > 0
     # diagnosed w and z-scaling would be inconsistent. η, w, and z-scaling
     # all re-sync once per batch via update_state! — acceptable because
     # the FTS varies on monthly timescales and K·Δt ≪ 1 month.
-    # MONTHLY_KAPPAV: κV is no longer a simple (field, fts) set! — it needs
-    # the MLD→κV step kernel each sub-step. Not yet wired into the K-batch
-    # loop; κV stays constant within a batch when temporal blocking is on.
-    # For K ≲ 10 and Δt ~ 1 h this is ≲ 2 % of the natural ~monthly κV
-    # variation, acceptable for benchmark purposes. Inter-batch updates
-    # still happen via update_κV! on IterationInterval(1).
-    MONTHLY_KAPPAV && @warn "TBLOCKING + MONTHLY_KAPPAV: κV is not updated per sub-step inside the K-batch loop"
     fts_update_list = Tuple{Any, Any}[]
     GM_REDI && append!(fts_update_list, [(model.tracers.T, T_ts), (model.tracers.S, S_ts)])
     FTS_UPDATES = Tuple(fts_update_list)
+
+    # MONTHLY_KAPPAV: κV needs the MLD→κV step kernel rather than a simple
+    # (field, fts) set!. Wired in as an extra_updates closure on the model
+    # clock time; halos filled locally to keep the batch MPI-free. Captures
+    # mld_scratch, mld_ts, κVField, z_center, κVML, κVBG from setup_model.jl.
+    extra_update_list = Any[]
+    if MONTHLY_KAPPAV
+        push!(
+            extra_update_list, function (t)
+                set!(mld_scratch, mld_ts[Time(t)])
+                update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG; only_local_halos = true)
+                return nothing
+            end
+        )
+    end
+    EXTRA_UPDATES = Tuple(extra_update_list)
 
     # Shared batch counter for the in-`multi_time_step!` sync-GC hook. Reset
     # to 0 between warmup and timed regions below.
     BATCH_COUNTER = Ref(0)
 
-    @info "Temporal blocking ENABLED: K=$TBLOCKING sub-steps per batch; halos=($Hx, $Hy); fts_updates=$(length(FTS_UPDATES))"
+    @info "Temporal blocking ENABLED: K=$TBLOCKING sub-steps per batch; halos=($Hx, $Hy); fts_updates=$(length(FTS_UPDATES)) extra_updates=$(length(EXTRA_UPDATES))"
 end
 
 # Lightweight progress callback: iteration, time, wall time only (no age stats)
@@ -106,7 +115,7 @@ else
     # timed region below after reset!(simulation).
     multi_time_step!(
         model, Δt, Nx_local, Ny_local, Nz_local;
-        K = TBLOCKING, fts_updates = FTS_UPDATES,
+        K = TBLOCKING, fts_updates = FTS_UPDATES, extra_updates = EXTRA_UPDATES,
         sync_gc_nbatches = 0, batch_index = BATCH_COUNTER,
     )
 end
@@ -154,7 +163,7 @@ CUDA.@profile external = true begin
         for batch in 1:n_batches
             multi_time_step!(
                 model, Δt, Nx_local, Ny_local, Nz_local;
-                K = TBLOCKING, fts_updates = FTS_UPDATES,
+                K = TBLOCKING, fts_updates = FTS_UPDATES, extra_updates = EXTRA_UPDATES,
                 sync_gc_nbatches = SYNC_GC_NSTEPS, batch_index = BATCH_COUNTER,
             )
             if batch % max(1, n_batches ÷ 12) == 0

@@ -73,7 +73,7 @@ function fill_z_halos_over_extended_xy!(tracers, grid, Nx, Ny, margin)
 end
 
 """
-    multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates=(),
+    multi_time_step!(model, Δt, Nx, Ny, Nz; K, fts_updates=(), extra_updates=(),
                      sync_gc_nbatches=0, batch_index=Ref(0))
 
 Run `K` tracer sub-steps behind a single MPI halo exchange.
@@ -83,6 +83,13 @@ Run `K` tracer sub-steps behind a single MPI halo exchange.
 `only_local_halos=true`. Use this to replace any `IterationInterval(1)`
 Simulation callback that prescribes a field from an FTS.
 
+`extra_updates` is a tuple of `f(t::Float64)::Nothing` callables that run
+once per sub-step after `fts_updates`. Use it for derived per-sub-step
+updates that don't fit the simple `(field, fts)` `set!` pattern — for
+example, deriving 3D κV from an interpolated 2D MLD via
+`update_κV_from_mld!(...; only_local_halos=true)`. Each callable is
+responsible for its own (local-only) halo fill.
+
 `sync_gc_nbatches` (default 0 = disabled) fires `GC.gc(false)` once every
 `sync_gc_nbatches` calls, immediately after the batch-end `update_state!`
 collective. The shared `batch_index::Ref{Int}` lets the caller carry the
@@ -90,7 +97,7 @@ counter across calls and reset it between warmup and timed regions.
 Note: the unit is **batches**, not raw steps — N batches = N·K raw steps.
 """
 function multi_time_step!(
-        model, Δt, Nx, Ny, Nz; K, fts_updates = (),
+        model, Δt, Nx, Ny, Nz; K, fts_updates = (), extra_updates = (),
         sync_gc_nbatches::Int = 0, batch_index::Ref{Int} = Ref(0)
     )
     FT = eltype(model.grid)
@@ -115,13 +122,22 @@ function multi_time_step!(
 
         tick!(model.clock, Δt_FT)
 
-        # Per-sub-step FTS-backed field updates (η, κV, optional T/S).
+        # Per-sub-step FTS-backed field updates (η, optional T/S).
         # Local only — no MPI.
         if !isempty(fts_updates)
             t_now = Time(model.clock.time)
             for (target, source) in fts_updates
                 set!(target, source[t_now])
                 fill_halo_regions!(target; only_local_halos = true)
+            end
+        end
+
+        # Per-sub-step arbitrary update closures (e.g. derive κV from MLD).
+        # Each closure is responsible for its own local-only halo fill.
+        if !isempty(extra_updates)
+            t_now = model.clock.time
+            for fn in extra_updates
+                fn(t_now)
             end
         end
 

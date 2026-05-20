@@ -233,7 +233,9 @@ function _try_load_diag_fts(file, varname; grid, backend, time_indexing)
     end
 end
 
-# Optionally add MLD if monthly FTS exists
+# Optionally add MLD if monthly FTS exists. `mld_ts` is initialized to nothing
+# so the κV-at-200m block below can branch on it unconditionally.
+mld_ts = nothing
 mld_file = joinpath(mld_monthly_dir, "mld_monthly.jld2")
 if isfile(mld_file)
     @info "Loading MLD FTS from: $mld_file"
@@ -244,20 +246,26 @@ if isfile(mld_file)
     end
 end
 
-# Optionally add κV at ~200m depth — only when MONTHLY_KAPPAV=yes, mirroring
-# setup_model.jl's gate.
-κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
+# Optionally add κV at ~200m depth — only when MONTHLY_KAPPAV=yes. κV is now
+# derived from the 2D MLD FTS on the fly (the precomputed 3D `kappa_v_monthly.jld2`
+# was retired), so we build a parallel 2D FTS of κV[k_200m] from MLD using the
+# same step formula as `update_κV_from_mld!`:
+#   κV[k_200m] = κVML where MLD (positive-down) > 200 m  (k_200m inside ML)
+#              = κVBG otherwise                            (k_200m below ML)
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
-if MONTHLY_KAPPAV && isfile(κV_file)
-    @info "Loading κV FTS from: $κV_file"
-    κV_ts = _try_load_diag_fts(κV_file, "κV"; grid, backend = InMemory(), time_indexing)
-    if κV_ts !== nothing
-        k_200m = find_nearest_depth_index(grid, 200)
-        k_200m_halos = k_200m + Hz  # offset for halo in parent array
-        push!(field_specs, ("kappaV_200m", κV_ts, k_200m_halos))
+if MONTHLY_KAPPAV && isfile(mld_file) && mld_ts !== nothing
+    κVML = 0.1     # m^2/s, same as setup_model.jl
+    κVBG = 3.0e-5  # m^2/s, same as setup_model.jl
+    depth_200m = 200.0
+    @info "Deriving κV at $(depth_200m) m from MLD FTS for diagnostic animation"
+    κV_at_200m_ts = FieldTimeSeries{Center, Center, Nothing}(
+        grid, mld_ts.times; backend = InMemory(), time_indexing,
+    )
+    for n in 1:length(mld_ts.times)
+        mld_n = interior(mld_ts[n])  # positive-down MLD (no negation in plot script)
+        interior(κV_at_200m_ts[n]) .= ifelse.(mld_n .> depth_200m, κVML, κVBG)
     end
-elseif isfile(κV_file)
-    @info "Skipping κV plot — set MONTHLY_KAPPAV=yes to enable (κV file present at $κV_file)"
+    push!(field_specs, ("kappaV_200m_from_MLD", κV_at_200m_ts, nothing))
 end
 
 @info "Generating surface field animations ($(length(field_specs)) fields)"

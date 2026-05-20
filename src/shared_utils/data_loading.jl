@@ -122,21 +122,25 @@ function reverse_fts_time!(fts; flip_sign::Bool = false)
 end
 
 """
-    update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+    update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG; only_local_halos=false)
 
 Set 3D `κVField` from a 2D `mld_field` whose values are already in
 z-coordinate sign convention (negative in the ocean). Mixed-layer cells
 (z > MLD_z, i.e. shallower than the MLD) get `κVML`; deeper cells get `κVBG`.
-Halo regions are filled before returning. Used by both `load_mld_diffusivity`
-(yearly, called once) and the `MONTHLY_KAPPAV` per-iteration callback in
-`setup_model.jl` — keeping the formula in one place.
+Halo regions are filled before returning. Used by:
+  - `load_mld_diffusivity` (yearly, called once)
+  - the `MONTHLY_KAPPAV` per-iteration callback in `setup_model.jl`
+  - the K-batch sub-step closure in `run_1year_benchmark.jl` — pass
+    `only_local_halos=true` there to skip the MPI exchange inside the batch
+    (matches the `fill_halo_regions!(...; only_local_halos=true)` pattern
+    `temporal_blocking.jl` uses for FTS-backed prescribed fields).
 """
-function update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+function update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG; only_local_halos::Bool = false)
     Nz = length(z_center)
     mld_data = interior(mld_field)
     is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
     set!(κVField, κVML * is_mld + κVBG * .!is_mld)
-    fill_halo_regions!(κVField)
+    fill_halo_regions!(κVField; only_local_halos)
     return κVField
 end
 
