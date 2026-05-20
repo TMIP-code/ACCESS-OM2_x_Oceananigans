@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
-#   TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM
+#   TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation plotTM
 #   plot1yr plot10yr plot100yr plotMOC compareNK
 #
 # compareNK: cross-resolution NK age comparison — see docs/IAF_NK_age_comparison_plan.md.
@@ -120,7 +120,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM"
+    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
     echo ""
     echo "  Shortcuts:"
@@ -141,7 +141,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotgrid plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotNK plotNKtrace plotventilation plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -315,7 +315,7 @@ PREP_JOB="${PREP_JOB:-}" GRID_JOB="${GRID_JOB:-}" VEL_JOB="${VEL_JOB:-}" CLO_JOB
 RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
-NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG=""
+NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG="" VENT_CONST="" VENT_AVG=""
 
 # ============================================================
 # 1. Preprocessing
@@ -564,6 +564,24 @@ if has_step run1yrNK; then
 fi
 
 # ============================================================
+# 5c. Surface ventilation diagnostic (CPU, depends on NK)
+# ============================================================
+
+VENT_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
+
+if has_step ventilation; then
+    run_const && \
+        VENT_CONST=$(submit_job ventilation_c "${WALLTIME_VENTILATION:-00:30:00}" \
+            scripts/solvers/compute_ventilation.sh \
+            --deps "${NK_CONST:-}" --vars "TM_SOURCE=const,${VENT_VARS}")
+
+    run_avg && \
+        VENT_AVG=$(submit_job ventilation_a "${WALLTIME_VENTILATION:-00:30:00}" \
+            scripts/solvers/compute_ventilation.sh \
+            --deps "${NK_AVG:-}" --vars "TM_SOURCE=avg,${VENT_VARS}")
+fi
+
+# ============================================================
 # 6. Plotting
 # ============================================================
 
@@ -602,6 +620,16 @@ has_step plotNKtrace && \
     submit_job plotNKtrace "$WALLTIME_PLOT" \
         scripts/plotting/plot_trace_history_job.sh \
         --deps "${NK_CONST:-}" > /dev/null
+
+if has_step plotventilation; then
+    plotvent_overrides=()
+    [ -n "${PLOT_VENT_NCPUS:-}" ] && plotvent_overrides+=(--ncpus "$PLOT_VENT_NCPUS")
+    [ -n "${PLOT_VENT_MEM:-}" ] && plotvent_overrides+=(--mem "$PLOT_VENT_MEM")
+    submit_job plotventilation "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
+        scripts/plotting/plot_ventilation.sh \
+        --deps "${VENT_CONST:-${NK_CONST:-}}" "${plotvent_overrides[@]}" \
+        --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
+fi
 
 has_step plot1yr && \
     submit_job plot1yr "$WALLTIME_PLOT" \

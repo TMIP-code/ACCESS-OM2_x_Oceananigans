@@ -18,10 +18,10 @@ graph TD
         TMbuild & TMsnapshot
     end
     subgraph solvers
-        TMsolve:::gpu & NK:::gpu & run1yrNK:::gpu
+        TMsolve:::gpu & NK:::gpu & run1yrNK:::gpu & ventilation
     end
     subgraph plotting
-        plotgrid & plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotMOC
+        plotgrid & plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotventilation & plotMOC
     end
     prep & grid --> vel & clo
     vel --> diagnose_w
@@ -32,7 +32,8 @@ graph TD
     run10yr --> plot10yr
     run100yr --> plot100yr
     TMbuild & TMsnapshot --> TMsolve & NK & plotTM
-    NK --> run1yrNK & plotNKtrace
+    NK --> run1yrNK & plotNKtrace & ventilation
     run1yrNK --> plotNK
+    ventilation --> plotventilation
     grid --> plotgrid
     prep & grid --> plotMOC
