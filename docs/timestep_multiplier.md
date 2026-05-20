@@ -793,15 +793,9 @@ TBD after sweep completes.
 
 ### Known issues
 
-- **`plot_standardrun_age.jl` unconditionally loads κV** (`kappa_v_monthly.jld2`),
-  which currently fails when the on-disk halo size doesn't match the
-  active `GRID_HZ`. The OM2-1 κV file dates from 2026-05-04 with `Hz=2`
-  (parent z size 54), the current default is `GRID_HZ=7` (parent z size
-  64) → `DimensionMismatch` at
-  [plot_standardrun_age.jl:230](../src/plot_standardrun_age.jl#L230).
-  This blocked every plot1yr submitted after the sweep (AB2 OM2-025
-  resubmit + all 4 SRK3 plots). Possible fixes: (a) gate κV loading on
-  `MONTHLY_KAPPAV=yes`, (b) repreprocess κV with current halo, (c)
-  rebuild the κV `Field` with the active halo before pushing it into
-  `field_specs`. Stability conclusions above are unaffected — they come
-  from the run logs, not from the plot output.
+- *(resolved)* `kappa_v_monthly.jld2` was retired when `MONTHLY_KAPPAV=yes`
+  switched to deriving κV from a 2D monthly MLD on the fly (see commit
+  history around the MLD κV refactor). `plot_standardrun_age.jl` already
+  uses `_try_load_diag_fts`, so it silently skips the 200 m κV diagnostic
+  now that the file no longer exists. Reviving that diagnostic from MLD
+  is a separate follow-up.

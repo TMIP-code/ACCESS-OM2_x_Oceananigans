@@ -30,10 +30,7 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     gm = lowercase(get(ENV, "GM_REDI", "no"))
     gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
     gm == "adv" && (mc = "$(mc)_GMREDIadv")
-    if lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
-        mc = "$(mc)_mkappaV"
-        lowercase(get(ENV, "KAPPAV_FROM_MLD", "no")) == "yes" && (mc = "$(mc)_mldKappaV")
-    end
+    lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
     lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes")) == "no" && (mc = "$(mc)_noKV")
     M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
     M !== nothing && M > 1 && (mc = "$(mc)_DTx$(M)")

@@ -64,8 +64,14 @@ if TBLOCKING > 0
     # diagnosed w and z-scaling would be inconsistent. η, w, and z-scaling
     # all re-sync once per batch via update_state! — acceptable because
     # the FTS varies on monthly timescales and K·Δt ≪ 1 month.
+    # MONTHLY_KAPPAV: κV is no longer a simple (field, fts) set! — it needs
+    # the MLD→κV step kernel each sub-step. Not yet wired into the K-batch
+    # loop; κV stays constant within a batch when temporal blocking is on.
+    # For K ≲ 10 and Δt ~ 1 h this is ≲ 2 % of the natural ~monthly κV
+    # variation, acceptable for benchmark purposes. Inter-batch updates
+    # still happen via update_κV! on IterationInterval(1).
+    MONTHLY_KAPPAV && @warn "TBLOCKING + MONTHLY_KAPPAV: κV is not updated per sub-step inside the K-batch loop"
     fts_update_list = Tuple{Any, Any}[]
-    MONTHLY_KAPPAV && push!(fts_update_list, (κVField, κV_ts))
     GM_REDI && append!(fts_update_list, [(model.tracers.T, T_ts), (model.tracers.S, S_ts)])
     FTS_UPDATES = Tuple(fts_update_list)
 

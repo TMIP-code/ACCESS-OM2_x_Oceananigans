@@ -55,7 +55,7 @@ TRAF jobs read but do not (re)generate anything in the `preprocessed_inputs/` tr
   - `eta_monthly.jld2` (reversed only)
   - `temp_monthly.jld2` (reversed only)
   - `salt_monthly.jld2` (reversed only)
-  - `kappa_v_monthly.jld2` (reversed only)
+  - `mld_monthly.jld2` (reversed only; κV is derived from MLD on the fly in setup_model.jl)
 
 Within an IAF driver invocation the DAG `prep → grid → vel → clo → diagnose_w → TMbuild` makes all of these implicit `afterok` dependencies. But TRAF is a **separate driver invocation** that does not auto-inherit those PBS deps. Two coordination strategies (expanded under "Submission strategy" below):
 

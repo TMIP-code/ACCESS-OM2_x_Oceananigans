@@ -49,8 +49,7 @@ MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}             # raw | symfill | dropze
 INITIAL_AGE=${INITIAL_AGE:-TMage}                       # TMage | 0 | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
-MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no
-KAPPAV_FROM_MLD=${KAPPAV_FROM_MLD:-no}                  # yes | no — derive 3D κV on the fly from 2D monthly MLD (saves ~Nz× memory); only effective when MONTHLY_KAPPAV=yes; tags MODEL_CONFIG with _mldKappaV
+MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV)
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
@@ -85,9 +84,6 @@ case "$GM_REDI" in
 esac
 if [ "$MONTHLY_KAPPAV" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_mkappaV"
-    if [ "$KAPPAV_FROM_MLD" = "yes" ]; then
-        MODEL_CONFIG="${MODEL_CONFIG}_mldKappaV"
-    fi
 fi
 case "$IMPLICIT_KAPPAV" in
     yes) ;;
@@ -107,7 +103,7 @@ fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
-export GM_REDI MONTHLY_KAPPAV KAPPAV_FROM_MLD IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
+export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
 export TRAF TRAF_TM_SOURCE
 
 echo "PARENT_MODEL=$PARENT_MODEL"
@@ -136,7 +132,6 @@ echo "INITIAL_AGE=$INITIAL_AGE"
 echo "TM_SOURCE=$TM_SOURCE"
 echo "GM_REDI=$GM_REDI"
 echo "MONTHLY_KAPPAV=$MONTHLY_KAPPAV"
-echo "KAPPAV_FROM_MLD=$KAPPAV_FROM_MLD"
 echo "IMPLICIT_KAPPAV=$IMPLICIT_KAPPAV"
 echo "TBLOCKING=$TBLOCKING"
 echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"

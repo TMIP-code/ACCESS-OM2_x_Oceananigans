@@ -1,9 +1,10 @@
 """
-Preprocess closure-related fields (T, S, κV) from ACCESS-OM2 output to JLD2 format.
+Preprocess closure-related fields (T, S, MLD) from ACCESS-OM2 output to JLD2 format.
 
 Creates monthly FieldTimeSeries and yearly averaged Fields for:
   - Temperature (T) and Salinity (S) — for GM-Redi buoyancy
-  - Vertical diffusivity (κV) — computed from monthly MLD
+  - Mixed-layer depth (MLD) — used by `update_κV_from_mld!` in setup_model.jl
+    to derive 3D κV on the fly each iteration when MONTHLY_KAPPAV=yes
 
 Requires: create_grid.jl and periodicaverage.py to have been run first.
 
@@ -16,7 +17,6 @@ Usage:
 using Oceananigans
 using Oceananigans.Architectures: CPU
 using Oceananigans.BoundaryConditions: fill_halo_regions!
-using Oceananigans.Grids: znodes
 using Oceananigans.ImmersedBoundaries: mask_immersed_field!
 using Oceananigans.OutputReaders: Cyclical, OnDisk
 using Oceananigans.Units: days, seconds
@@ -78,7 +78,6 @@ stop_time = 12 * prescribed_Δt
 
 temp_monthly_file = joinpath(monthly_dir, "temp_monthly.jld2")
 salt_monthly_file = joinpath(monthly_dir, "salt_monthly.jld2")
-κV_monthly_file = joinpath(monthly_dir, "kappa_v_monthly.jld2")
 mld_monthly_file = joinpath(monthly_dir, "mld_monthly.jld2")
 
 temp_yearly_file = joinpath(yearly_dir, "temp_yearly.jld2")
@@ -87,7 +86,6 @@ salt_yearly_file = joinpath(yearly_dir, "salt_yearly.jld2")
 # remove old files if they exist
 rm(temp_monthly_file; force = true)
 rm(salt_monthly_file; force = true)
-rm(κV_monthly_file; force = true)
 rm(mld_monthly_file; force = true)
 rm(temp_yearly_file; force = true)
 rm(salt_yearly_file; force = true)
@@ -101,7 +99,6 @@ flush(stdout); flush(stderr)
 
 temp_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = temp_monthly_file, name = "T", time_indexing = Cyclical(stop_time))
 salt_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = salt_monthly_file, name = "S", time_indexing = Cyclical(stop_time))
-κV_monthly_ts = FieldTimeSeries{Center, Center, Center}(grid, fts_times; backend = OnDisk(), path = κV_monthly_file, name = "κV", time_indexing = Cyclical(stop_time))
 mld_monthly_ts = FieldTimeSeries{Center, Center, Nothing}(grid, fts_times; backend = OnDisk(), path = mld_monthly_file, name = "MLD", time_indexing = Cyclical(stop_time))
 
 ################################################################################
@@ -114,12 +111,6 @@ temp_acc = CenterField(grid)
 salt_acc = CenterField(grid)
 
 mld_field = Field{Center, Center, Nothing}(grid)
-
-# κV parameters (same as setup_model.jl)
-κVML = 0.1    # m^2/s in the mixed layer
-κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
-z_center = znodes(grid, Center(), Center(), Center())
-κV_field = CenterField(grid)
 
 ################################################################################
 # Month loop
@@ -147,7 +138,8 @@ for month in 1:12
     fill_halo_regions!(salt_field)
     set!(salt_monthly_ts, salt_field, month)
 
-    # ── MLD (2D field, positive-downward in MOM) ────────────────────────
+    # ── MLD (2D field, positive-downward in MOM; used by setup_model.jl's
+    #        update_κV_from_mld! to derive 3D κV each iteration) ─────────
     println("- MLD"); flush(stdout)
     mld_data = readcubedata(mld_monthly_ds.mld[month = At(month)]).data
     map!(x -> isnan(x) ? zero(x) : x, mld_data, mld_data)
@@ -155,15 +147,6 @@ for month in 1:12
     mask_immersed_field!(mld_field, 0.0)
     fill_halo_regions!(mld_field)
     set!(mld_monthly_ts, mld_field, month)
-
-    # ── κV from MLD (compute 3D diffusivity field from monthly MLD) ─────
-    println("- κV from MLD"); flush(stdout)
-    mld_data .= .-mld_data  # negate for z-comparison (MLD positive-downward → negative z)
-    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-    set!(κV_field, κVML * is_mld + κVBG * .!is_mld)
-    mask_immersed_field!(κV_field, 0.0)
-    fill_halo_regions!(κV_field)
-    set!(κV_monthly_ts, κV_field, month)
 
     # ── Accumulate into time-average ─────────────────────────────────────
     println("- Accumulate into time-average"); flush(stdout)
@@ -177,9 +160,6 @@ println("Done!")
 
 @show salt_monthly_ts
 @info "saved to $(salt_monthly_file)"
-
-@show κV_monthly_ts
-@info "saved to $(κV_monthly_file)"
 
 @show mld_monthly_ts
 @info "saved to $(mld_monthly_file)"
@@ -201,4 +181,3 @@ jldsave(temp_yearly_file; T = Array(interior(temp_acc)))
 jldsave(salt_yearly_file; S = Array(interior(salt_acc)))
 @info "saved yearly T to $(temp_yearly_file)"
 @info "saved yearly S to $(salt_yearly_file)"
-@info "saved monthly κV to $(κV_monthly_file)"

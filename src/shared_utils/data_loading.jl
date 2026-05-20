@@ -128,8 +128,8 @@ Set 3D `κVField` from a 2D `mld_field` whose values are already in
 z-coordinate sign convention (negative in the ocean). Mixed-layer cells
 (z > MLD_z, i.e. shallower than the MLD) get `κVML`; deeper cells get `κVBG`.
 Halo regions are filled before returning. Used by both `load_mld_diffusivity`
-(yearly, called once) and the `MONTHLY_KAPPAV` + `KAPPAV_FROM_MLD` per-iteration
-callback in `setup_model.jl` — keeping the formula in one place.
+(yearly, called once) and the `MONTHLY_KAPPAV` per-iteration callback in
+`setup_model.jl` — keeping the formula in one place.
 """
 function update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
     Nz = length(z_center)
