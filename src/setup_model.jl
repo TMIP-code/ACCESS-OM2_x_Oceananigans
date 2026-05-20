@@ -282,9 +282,7 @@ if MONTHLY_KAPPAV
         TRAF && reverse_fts_time!(mld_ts; flip_sign = false)
         @show mld_ts
         mld_scratch = Field{Center, Center, Nothing}(grid)
-        z_center = arch isa Distributed ?
-            collect(znodes(grid, Center(), Center(), Center())) :
-            znodes(grid, Center(), Center(), Center())
+        z_center = znodes(grid, Center(), Center(), Center())
         set!(mld_scratch, mld_ts[1])
         update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG)
         @info "κVField initialized from first month of MLD FTS (negated to z-coord)"

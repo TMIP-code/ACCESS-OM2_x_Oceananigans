@@ -165,7 +165,7 @@ function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, N
     mld_field = Field{Center, Center, Nothing}(grid)
     set!(mld_field, Array(mld_data_arr))
     fill_halo_regions!(mld_field)
-    z_center = collect(znodes(grid, Center(), Center(), Center()))
+    z_center = znodes(grid, Center(), Center(), Center())
     κVField = CenterField(grid)
     return update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
 end
