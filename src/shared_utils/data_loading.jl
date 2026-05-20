@@ -426,11 +426,13 @@ end
 Parse a colon-delimited source specification string.
 
 Formats:
-- `"serial:MODEL_CONFIG:DURATION_TAG"`  → `(; type=:serial, model_config, duration_tag)`
-- `"NK:MODEL_CONFIG:SOLVER_TAG"`        → `(; type=:NK, model_config, solver_tag)`
+- `"serial:MODEL_CONFIG:DURATION_TAG"`              → `(; type=:serial, model_config, duration_tag)`
+- `"distributed:MODEL_CONFIG:DURATION_TAG:PxxPy"`   → `(; type=:distributed, model_config, duration_tag, partition)`
+- `"NK:MODEL_CONFIG:SOLVER_TAG"`                    → `(; type=:NK, model_config, solver_tag)`
 
 Examples:
 - `"serial:cgridtransports_wdiagnosed_centered2_AB2:1year"`
+- `"distributed:cgridtransports_wdiagnosed_centered2_AB2_mkappaV:1year:1x2"`
 - `"NK:cgridtransports_wdiagnosed_centered2_AB2:Pardiso_LSprec"`
 """
 function parse_source_spec(spec::AbstractString)
@@ -439,11 +441,14 @@ function parse_source_spec(spec::AbstractString)
     if stype == "serial"
         length(parts) == 3 || error("serial spec requires serial:MODEL_CONFIG:DURATION_TAG, got: $spec")
         return (; type = :serial, model_config = String(parts[2]), duration_tag = String(parts[3]))
+    elseif stype == "distributed"
+        length(parts) == 4 || error("distributed spec requires distributed:MODEL_CONFIG:DURATION_TAG:PxxPy, got: $spec")
+        return (; type = :distributed, model_config = String(parts[2]), duration_tag = String(parts[3]), partition = String(parts[4]))
     elseif stype == "nk"
         length(parts) == 3 || error("NK spec requires NK:MODEL_CONFIG:SOLVER_TAG, got: $spec")
         return (; type = :NK, model_config = String(parts[2]), solver_tag = String(parts[3]))
     else
-        error("Unknown source type '$stype' in spec: $spec. Must be serial or NK.")
+        error("Unknown source type '$stype' in spec: $spec. Must be serial, distributed, or NK.")
     end
 end
 
@@ -455,6 +460,9 @@ Load the final age field as an `(Nx, Ny, Nz)` interior array **in seconds**.
 Source types:
 - `:serial` — last iteration from `{outputdir}/standardrun/{model_config}/age_{duration_tag}.jld2`,
   halos stripped automatically.
+- `:distributed` — last iteration stitched from rank files under
+  `{outputdir}/standardrun/{model_config}/{partition}/age_{duration_tag}_rank{r}.jld2`.
+  Halos are stripped using `GRID_HX/GRID_HY/GRID_HZ` env vars (defaults 7/7/2).
 - `:NK` — periodic steady-state from `{outputdir}/periodic/{model_config}/NK/age_{solver_tag}.jld2`,
   already interior-sized.
 """
@@ -476,6 +484,29 @@ function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
         age = Float64.(age_full[(Hx + 1):(Hx + Nx), (Hy + 1):(Hy + Ny), (Hz + 1):(Hz + Nz)])
         @info "  t = $t s, shape = $(size(age))"
         return age
+
+    elseif spec.type == :distributed
+        run_dir = joinpath(outputdir, "standardrun", spec.model_config, spec.partition)
+        pxy = split(spec.partition, 'x')
+        length(pxy) == 2 || error("Bad partition tag '$(spec.partition)'; expected PxxPy like 1x2")
+        px, py = parse(Int, pxy[1]), parse(Int, pxy[2])
+        Hx = parse(Int, get(ENV, "GRID_HX", "7"))
+        Hy = parse(Int, get(ENV, "GRID_HY", "7"))
+        Hz = parse(Int, get(ENV, "GRID_HZ", "2"))
+        # Discover last iteration from rank 0
+        rank0_file = joinpath(run_dir, "age_$(spec.duration_tag)_rank0.jld2")
+        isfile(rank0_file) || error("Rank 0 file not found: $rank0_file")
+        iter_keys = jldopen(rank0_file, "r") do f
+            iters = collect(keys(f["timeseries/age"]))
+            filter!(k -> k != "serialized", iters)
+            sort!(iters; by = k -> parse(Int, k))
+            return iters
+        end
+        last_iter = iter_keys[end]
+        @info "Loading distributed age: $(spec.model_config) $(spec.partition) iter $last_iter"
+        age, t = load_distributed_snapshot(run_dir, "age", spec.duration_tag, last_iter, px, py, Nx, Ny; halo = (Hx, Hy, Hz))
+        @info "  t = $t s, shape = $(size(age))"
+        return Float64.(age)
 
     elseif spec.type == :NK
         nk_file = joinpath(outputdir, "periodic", spec.model_config, "NK", "age_$(spec.solver_tag).jld2")
