@@ -122,29 +122,52 @@ function reverse_fts_time!(fts; flip_sign::Bool = false)
 end
 
 """
+    update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+
+Set 3D `κVField` from a 2D `mld_field` whose values are already in
+z-coordinate sign convention (negative in the ocean). Mixed-layer cells
+(z > MLD_z, i.e. shallower than the MLD) get `κVML`; deeper cells get `κVBG`.
+Halo regions are filled before returning. Used by both `load_mld_diffusivity`
+(yearly, called once) and the `MONTHLY_KAPPAV` + `KAPPAV_FROM_MLD` per-iteration
+callback in `setup_model.jl` — keeping the formula in one place.
+"""
+function update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+    Nz = length(z_center)
+    mld_data = interior(mld_field)
+    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
+    set!(κVField, κVML * is_mld + κVBG * .!is_mld)
+    fill_halo_regions!(κVField)
+    return κVField
+end
+
+"""
     load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
 
-Load MLD data and create a vertical diffusivity field.
+Load 2D MLD from a NetCDF file and derive a 3D vertical diffusivity field
+via `update_κV_from_mld!`. MLD from the parent model is positive-downward;
+we negate at load so the in-memory MLD matches Oceananigans' z sign
+convention (negative in the ocean).
 """
 function load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
     mld_ds = open_dataset(mld_file)
-    mld_data = on_architecture(arch, -replace(readcubedata(mld_ds.mld).data, NaN => 0.0))
+    mld_data_arr = -replace(readcubedata(mld_ds.mld).data, NaN => 0.0)
+    mld_field = Field{Center, Center, Nothing}(grid)
+    set!(mld_field, on_architecture(arch, mld_data_arr))
+    fill_halo_regions!(mld_field)
     z_center = znodes(grid, Center(), Center(), Center())
-    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
     κVField = CenterField(grid)
-    set!(κVField, κVML * is_mld + κVBG * .!is_mld)
-    return κVField
+    return update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
 end
 
 function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, Nz)
     mld_ds = open_dataset(mld_file)
-    mld_data = -replace(readcubedata(mld_ds.mld).data, NaN => 0.0)
+    mld_data_arr = -replace(readcubedata(mld_ds.mld).data, NaN => 0.0)
+    mld_field = Field{Center, Center, Nothing}(grid)
+    set!(mld_field, Array(mld_data_arr))
+    fill_halo_regions!(mld_field)
     z_center = collect(znodes(grid, Center(), Center(), Center()))
-    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
     κVField = CenterField(grid)
-    set!(κVField, Array(κVML * is_mld + κVBG * .!is_mld))
-    fill_halo_regions!(κVField)
-    return κVField
+    return update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
 end
 
 

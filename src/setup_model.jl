@@ -18,6 +18,9 @@ Environment variables:
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   GM_REDI          – no | diff | adv  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
   MONTHLY_KAPPAV   – yes | no  (default: no)  — use monthly time-varying vertical diffusivity from MLD
+  KAPPAV_FROM_MLD  – yes | no  (default: no)  — derive 3D κV on the fly each iteration from a 2D
+                                                monthly MLD FTS instead of loading a precomputed 3D κV FTS;
+                                                only meaningful when MONTHLY_KAPPAV=yes
   IMPLICIT_KAPPAV  – yes | no  (default: yes) — when "no", drop the implicit vertical-diffusion closure
                                                 (Probe B for the GPU seam tracer bug; outputs tagged _noKV)
 """
@@ -66,6 +69,7 @@ GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+KAPPAV_FROM_MLD = lowercase(get(ENV, "KAPPAV_FROM_MLD", "no")) == "yes"
 IMPLICIT_KAPPAV_STR = lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes"))
 IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
 IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
@@ -88,6 +92,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- TIMESTEPPER       = $TIMESTEPPER"
 @info "- GM_REDI           = $GM_REDI"
 @info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
+@info "- KAPPAV_FROM_MLD   = $KAPPAV_FROM_MLD"
 @info "- IMPLICIT_KAPPAV   = $IMPLICIT_KAPPAV"
 @info "- TRAF              = $TRAF"
 @info "- Architecture      = $arch_str"
@@ -255,21 +260,50 @@ flush(stdout); flush(stderr)
 @show κVField
 gpu_mem_log("after yearly MLD-based κVField")
 
-# Optionally load monthly κV FTS for time-varying vertical diffusivity
+# Optionally load monthly κV (time-varying vertical diffusivity). Two paths:
+#   KAPPAV_FROM_MLD=no  → load precomputed 3D κV FTS (kappa_v_monthly.jld2)
+#   KAPPAV_FROM_MLD=yes → load 2D MLD FTS (mld_monthly.jld2) and derive κV on the fly
+# The 2D-MLD path is ~Nz× smaller in memory; needed for OM2-01 distributed runs.
 if MONTHLY_KAPPAV
-    @info "Loading monthly κV FTS (time-varying vertical diffusivity)"
-    flush(stdout); flush(stderr)
-    κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
-    @info "Loading κV (monthly) from: $κV_file"
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
-    κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
-    TRAF && reverse_fts_time!(κV_ts; flip_sign = false)
-    @show κV_ts
-    # Initialize κVField from first month
-    set!(κVField, κV_ts[1])
-    @info "κVField initialized from first month of κV FTS"
-    flush(stdout); flush(stderr)
-    gpu_mem_log("after monthly κV FTS load")
+    if KAPPAV_FROM_MLD
+        @info "Loading monthly 2D MLD FTS (will derive κV on the fly each iteration)"
+        flush(stdout); flush(stderr)
+        mld_monthly_file = joinpath(mld_monthly_dir, "mld_monthly.jld2")
+        @info "Loading MLD (monthly) from: $mld_monthly_file"
+        mld_ts = load_fts(arch, mld_monthly_file, "MLD", grid; backend, time_indexing, fts_kw...)
+        # MLD on disk is positive-downward (see prep_closures.jl:152-157). Negate
+        # every snapshot in place so the in-memory FTS values are in z-coordinate
+        # sign convention (negative in the ocean), matching update_κV_from_mld!
+        # and the yearly load_mld_diffusivity path.
+        for n in 1:length(mld_ts.times)
+            parent(mld_ts[n]) .*= -1
+        end
+        TRAF && reverse_fts_time!(mld_ts; flip_sign = false)
+        @show mld_ts
+        mld_scratch = Field{Center, Center, Nothing}(grid)
+        z_center = arch isa Distributed ?
+            collect(znodes(grid, Center(), Center(), Center())) :
+            znodes(grid, Center(), Center(), Center())
+        set!(mld_scratch, mld_ts[1])
+        update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG)
+        @info "κVField initialized from first month of MLD FTS (negated to z-coord)"
+        flush(stdout); flush(stderr)
+        gpu_mem_log("after monthly MLD FTS load + κV init")
+    else
+        @info "Loading monthly κV FTS (time-varying vertical diffusivity)"
+        flush(stdout); flush(stderr)
+        κV_file = joinpath(mld_monthly_dir, "kappa_v_monthly.jld2")
+        @info "Loading κV (monthly) from: $κV_file"
+        κV_ts = load_fts(arch, κV_file, "κV", grid; backend, time_indexing, fts_kw...)
+        TRAF && reverse_fts_time!(κV_ts; flip_sign = false)
+        @show κV_ts
+        # Initialize κVField from first month
+        set!(κVField, κV_ts[1])
+        @info "κVField initialized from first month of κV FTS"
+        flush(stdout); flush(stderr)
+        gpu_mem_log("after monthly κV FTS load")
+    end
 end
 
 gpu_mem_log("after all preprocessed inputs loaded")
@@ -371,10 +405,23 @@ function prescribe_TS!(sim)
     return set!(sim.model.tracers.S, S_ts[t])
 end
 
-# Update κV from monthly FTS (only called if MONTHLY_KAPPAV is enabled)
-function update_κV!(sim)
-    t = Time(time(sim))
-    return set!(κVField, κV_ts[t])
+# Update κV each iteration (only called if MONTHLY_KAPPAV is enabled).
+# Two flavours depending on KAPPAV_FROM_MLD — keep them as separate top-level
+# methods so each closure captures only the variables it actually needs.
+if MONTHLY_KAPPAV
+    if KAPPAV_FROM_MLD
+        function update_κV!(sim)
+            t = Time(time(sim))
+            set!(mld_scratch, mld_ts[t])  # linearly interpolated 2D MLD (already negated)
+            update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG)
+            return nothing
+        end
+    else
+        function update_κV!(sim)
+            t = Time(time(sim))
+            return set!(κVField, κV_ts[t])
+        end
+    end
 end
 
 n_months = parse(Int, get(ENV, "N_MONTHS", "12"))
