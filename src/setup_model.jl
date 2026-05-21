@@ -107,6 +107,23 @@ grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, arch)
 @show grid
 ug = grid.underlying_grid
+
+# Guard: the halo dimensions baked into grid.jld2 are authoritative at runtime
+# (env GRID_HX/HY/HZ only affect create_grid.jl). Error out if a stale grid.jld2
+# would silently override the submit-time GRID_H{X,Y,Z}.
+let
+    env_Hx = parse(Int, get(ENV, "GRID_HX", string(ug.Hx)))
+    env_Hy = parse(Int, get(ENV, "GRID_HY", string(ug.Hy)))
+    env_Hz = parse(Int, get(ENV, "GRID_HZ", string(ug.Hz)))
+    if (env_Hx, env_Hy, env_Hz) != (ug.Hx, ug.Hy, ug.Hz)
+        error(
+            "Loaded grid.jld2 halo ($(ug.Hx), $(ug.Hy), $(ug.Hz)) does not match " *
+                "GRID_HX/HY/HZ=($env_Hx, $env_Hy, $env_Hz). Rebuild the grid " *
+                "(JOB_CHAIN=grid) with the desired halos, or unset GRID_HX/HY/HZ to " *
+                "accept the saved values. File: $grid_file"
+        )
+    end
+end
 @show typeof(ug.λᶜᶜᵃ) typeof(ug.φᶜᶜᵃ)
 @show typeof(ug.Δxᶜᶜᵃ) typeof(ug.Δyᶜᶜᵃ) typeof(ug.Azᶜᶜᵃ)
 @show typeof(ug.z)
