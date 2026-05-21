@@ -31,7 +31,7 @@ number of wet cells in rank r's y-slab; `displs[r] = sum(counts[1:r-1])`.
 function build_global_permutation(wet3D_global, partition_y_sizes)
     Nx, Ny, Nz = size(wet3D_global)
     nranks = length(partition_y_sizes)
-    @assert sum(partition_y_sizes) == Ny "Sum of per-rank Ny ($(sum(partition_y_sizes))) != global Ny ($Ny)"
+    @assert sum(partition_y_sizes) == Ny "Sum of per-rank Ny ($(sum(partition_y_sizes))) ≠ global Ny ($Ny)"
 
     # Global wet-cell index (column-major order; 0 = dry)
     global_idx_of = zeros(Int, Nx, Ny, Nz)
@@ -63,7 +63,7 @@ function build_global_permutation(wet3D_global, partition_y_sizes)
     end
 
     displs = [sum(view(counts, 1:(r - 1))) for r in 1:nranks]
-    @assert sum(counts) == Nidx_global "Per-rank counts ($(sum(counts))) sum != Nidx_global ($Nidx_global)"
+    @assert sum(counts) == Nidx_global "Per-rank counts ($(sum(counts))) sum ≠ Nidx_global ($Nidx_global)"
 
     # Permutation: walk each rank's slab in local column-major order; record
     # the corresponding global wet-cell index.

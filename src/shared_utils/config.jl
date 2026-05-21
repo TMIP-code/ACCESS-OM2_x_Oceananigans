@@ -33,7 +33,7 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
     lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes")) == "no" && (mc = "$(mc)_noKV")
     M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
-    M !== nothing && M > 1 && (mc = "$(mc)_DTx$(M)")
+    M ≠= nothing && M > 1 && (mc = "$(mc)_DTx$(M)")
     lowercase(get(ENV, "TRAF", "no")) == "yes" && (mc = "$(mc)_traf")
     return mc
 end
@@ -47,7 +47,7 @@ it to "no" also causes `noACM_suffix()` to return "_noACM" so output files
 don't collide with the default runs.
 """
 function active_cells_map_enabled()
-    return lowercase(get(ENV, "ACTIVE_CELLS_MAP", "yes")) != "no"
+    return lowercase(get(ENV, "ACTIVE_CELLS_MAP", "yes")) ≠ "no"
 end
 
 """Suffix to tack onto duration tags / file names when ACTIVE_CELLS_MAP=no."""
@@ -139,7 +139,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     M ≥ 1 || error("TIMESTEP_MULT must be ≥ 1 (got: $M)")
     year_seconds = 365.25 * 86400
     N_base = round(Int, year_seconds / Δt_base)
-    if mod(N_base, M) != 0
+    if mod(N_base, M) ≠ 0
         all_divisors = _divisors(N_base)
         practical_M_max = floor(Int, 18 * 3600 / Δt_base)
         valid_practical = filter(≤(practical_M_max), all_divisors)

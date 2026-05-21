@@ -81,7 +81,7 @@ Nx_global, Ny_global, Nz_global = size(wet3D_global)
 
 partition_y_sizes = collect(Oceananigans.DistributedComputations.local_sizes(Ny_global, arch.partition.y))
 Ny_sum = sum(partition_y_sizes)
-Ny_sum != Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
+Ny_sum ≠ Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
 
 # Per-rank y-offset into the global grid (0-based first row)
 y_rank = arch.local_index[2]  # 1-based
@@ -220,8 +220,8 @@ if rank == 0
     roundtrip_B = age_global_B == expected
     roundtrip_AB = age_global_A == age_global_B
     @info "TEST 2 round-trip" production_matches_input = roundtrip_A reference_matches_input = roundtrip_B prod_eq_ref = roundtrip_AB
-    roundtrip_A || @info "  production diffs: $(count(age_global_A .!= expected)) / $Nidx_global cells"
-    roundtrip_B || @info "  reference  diffs: $(count(age_global_B .!= expected)) / $Nidx_global cells"
+    roundtrip_A || @info "  production diffs: $(count(age_global_A .≠ expected)) / $Nidx_global cells"
+    roundtrip_B || @info "  reference  diffs: $(count(age_global_B .≠ expected)) / $Nidx_global cells"
 end
 roundtrip_pass_int = MPI.bcast(Int(roundtrip_A && roundtrip_B && roundtrip_AB), 0, COMM)
 roundtrip_pass = roundtrip_pass_int == 1

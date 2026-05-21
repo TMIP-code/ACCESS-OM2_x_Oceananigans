@@ -106,7 +106,7 @@ function compare_parent!(name::String, serial_parent, dist_parent)
         end
     end
 
-    if size(serial_slice) != size(dist_parent)
+    if size(serial_slice) ≠ size(dist_parent)
         @error "Rank $rank: $name shape mismatch: dist=$(size(dist_parent)) serial_slice=$(size(serial_slice))"
         return 1
     end

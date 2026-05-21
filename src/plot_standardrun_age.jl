@@ -240,7 +240,7 @@ mld_file = joinpath(mld_monthly_dir, "mld_monthly.jld2")
 if isfile(mld_file)
     @info "Loading MLD FTS from: $mld_file"
     mld_ts = _try_load_diag_fts(mld_file, "MLD"; grid, backend = InMemory(), time_indexing)
-    if mld_ts !== nothing
+    if mld_ts ≠= nothing
         push!(field_specs, ("MLD", mld_ts, nothing))
         push!(field_specs, ("MLK", mld_ts, nothing))
     end
@@ -253,7 +253,7 @@ end
 #   κV[k_200m] = κVML where MLD (positive-down) > 200 m  (k_200m inside ML)
 #              = κVBG otherwise                            (k_200m below ML)
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
-if MONTHLY_KAPPAV && isfile(mld_file) && mld_ts !== nothing
+if MONTHLY_KAPPAV && isfile(mld_file) && mld_ts ≠= nothing
     κVML = 0.1     # m^2/s, same as setup_model.jl
     κVBG = 3.0e-5  # m^2/s, same as setup_model.jl
     depth_200m = 200.0

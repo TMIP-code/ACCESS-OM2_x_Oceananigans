@@ -203,7 +203,7 @@ println("Ground truth (via immersed_cell): total wet cells = $total_wet_cells, t
 println("="^96)
 
 # Plot-only methods: drop `:cell_obsolete` from the visual but keep it in tables.
-plot_methods = filter(!=(:cell_obsolete), method_list)
+plot_methods = filter(≠(:cell_obsolete), method_list)
 
 # Distinct categorical color per RANK (up to 8 ranks). Sampled from
 # Makie's :tab10 palette so adjacent ranks are easy to tell apart.

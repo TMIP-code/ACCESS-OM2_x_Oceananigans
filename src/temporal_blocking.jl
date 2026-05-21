@@ -109,7 +109,7 @@ function multi_time_step!(
     kp = KernelParameters((1 - K):(Nx + K), (1 - K):(Ny + K), 1:Nz)
 
     for k in 1:K
-        euler = (Δt_FT != model.clock.last_Δt)
+        euler = (Δt_FT ≠ model.clock.last_Δt)
         χ = ifelse(euler, convert(FT, -0.5), model.timestepper.χ)
 
         compute_tracer_tendencies_in_halo!(model, kp)

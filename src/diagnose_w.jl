@@ -162,7 +162,7 @@ flush(stdout); flush(stderr)
 
 # Verify saved snapshots
 jldopen("$(w_output_file).jld2", "r") do f
-    iters = filter(k -> k != "serialized", keys(f["timeseries/w"]))
+    iters = filter(k -> k ≠ "serialized", keys(f["timeseries/w"]))
     @info "Saved $(length(iters)) w snapshots"
     for iter in sort(iters; by = k -> parse(Int, k))
         t = f["timeseries/t/$iter"]

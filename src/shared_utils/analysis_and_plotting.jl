@@ -642,7 +642,7 @@ function compute_basin_profile(age_3D, vol_3D, basin_mask, grid; wet3D = nothing
     @inbounds for k in 1:Nz′, j in 1:Ny′, i in 1:Nx′
         mij = m3[i, j, ndims(basin_mask) == 2 ? 1 : k]
         mij || continue
-        wet3D !== nothing && !wet3D[i, j, k] && continue
+        wet3D ≠= nothing && !wet3D[i, j, k] && continue
         a = age_3D[i, j, k]
         isnan(a) && continue
         v = vol_3D[i, j, k]
@@ -904,14 +904,14 @@ function animate_surface_fields(
         field_snap = fts[Time(frame_times[1])]
         if show_halos
             raw = Array(parent(field_snap))
-            if k_index !== nothing
+            if k_index ≠= nothing
                 slice = raw[:, :, k_index]
             else
                 slice = dropdims(raw; dims = 3)
             end
         else
             raw = Array(interior(field_snap))
-            if k_index !== nothing
+            if k_index ≠= nothing
                 slice = raw[:, :, k_index]
             else
                 slice = dropdims(raw; dims = 3)
@@ -1000,14 +1000,14 @@ function animate_surface_fields(
             field_snap = fts[Time(frame_times[i])]
             if show_halos
                 raw = Array(parent(field_snap))
-                if k_index !== nothing
+                if k_index ≠= nothing
                     sl = raw[:, :, k_index]
                 else
                     sl = dropdims(raw; dims = 3)
                 end
             else
                 raw = Array(interior(field_snap))
-                if k_index !== nothing
+                if k_index ≠= nothing
                     sl = raw[:, :, k_index]
                 else
                     sl = dropdims(raw; dims = 3)

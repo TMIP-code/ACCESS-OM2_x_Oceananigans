@@ -151,7 +151,7 @@ if rank == 0
     @info "[rank 0] Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
     flush(stdout); flush(stderr)
 
-    @assert Nidx_global == size(M, 1) "Mismatch: global wet cells ($Nidx_global) != matrix rows ($(size(M, 1)))"
+    @assert Nidx_global == size(M, 1) "Mismatch: global wet cells ($Nidx_global) ≠ matrix rows ($(size(M, 1)))"
 
     ############################################################################
     # LUMP, SPRAY, and preconditioner matrix Q_precond

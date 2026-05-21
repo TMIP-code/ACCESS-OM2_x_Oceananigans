@@ -459,10 +459,10 @@ function build_underlying_grid(gd, arch::Distributed, FT = Float64)
     workers = ranks(arch.partition)
     px = ifelse(isnothing(arch.partition.x), 1, arch.partition.x)
     py = ifelse(isnothing(arch.partition.y), 1, arch.partition.y)
-    if isodd(px) && px != 1
+    if isodd(px) && px ≠ 1
         throw(ArgumentError("Only even partitioning in x is supported with TripolarGrid."))
     end
-    if px != 1 && py == 1
+    if px ≠ 1 && py == 1
         throw(ArgumentError("An x-only partitioning is not supported for TripolarGrid."))
     end
 
@@ -560,7 +560,7 @@ function build_underlying_grid(gd, arch::Distributed, FT = Float64)
     radius = global_grid.radius
 
     # 7. Fix fold connectivity (mirror Oceananigans distributed_tripolar_grid.jl lines 216-238)
-    if workers[1] != 1
+    if workers[1] ≠ 1
         northwest_idx_x = ranks(arch)[1] - arch.local_index[1] + 2
         northeast_idx_x = ranks(arch)[1] - arch.local_index[1]
         if northwest_idx_x > workers[1]

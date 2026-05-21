@@ -81,7 +81,7 @@ if RANK == 0
     flush(stdout); flush(stderr)
     grid = load_tripolar_grid(grid_file, CPU())
     (; wet3D, idx, Nidx) = compute_wet_mask(grid)
-    @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
+    @assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) ≠ matrix rows ($(size(M, 1)))"
 
     v1D = interior(compute_volume(grid))[idx]
 

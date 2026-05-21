@@ -67,7 +67,7 @@ function load_fts_from_rank_file(rank_file, name, grid; backend, time_indexing)
     # instead of letting copyto! bounds-error deep inside CUDA.jl.
     expected = size(parent(dist_fts[1].data))
     actual = size(snapshots[1])
-    if expected != actual
+    if expected ≠ actual
         error(
             "Partition halo-size mismatch in $rank_file for field '$name': " *
                 "runtime grid expects parent shape $expected, but file has $actual. " *
@@ -320,7 +320,7 @@ function list_iterations(dir, field_name, duration_tag)
     isfile(filepath) || error("File not found: $filepath")
     return jldopen(filepath, "r") do f
         iters = collect(keys(f["timeseries/$(field_name)"]))
-        filter!(k -> k != "serialized", iters)
+        filter!(k -> k ≠ "serialized", iters)
         sort!(iters; by = k -> parse(Int, k))
         return iters
     end
@@ -502,7 +502,7 @@ function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
         isfile(rank0_file) || error("Rank 0 file not found: $rank0_file")
         iter_keys = jldopen(rank0_file, "r") do f
             iters = collect(keys(f["timeseries/age"]))
-            filter!(k -> k != "serialized", iters)
+            filter!(k -> k ≠ "serialized", iters)
             sort!(iters; by = k -> parse(Int, k))
             return iters
         end
@@ -517,7 +517,7 @@ function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
         isfile(nk_file) || error("NK file not found: $nk_file")
         @info "Loading NK age: $nk_file"
         age = Float64.(load(nk_file, "age"))
-        @assert size(age) == (Nx, Ny, Nz) "NK age size $(size(age)) != expected ($Nx, $Ny, $Nz)"
+        @assert size(age) == (Nx, Ny, Nz) "NK age size $(size(age)) ≠ expected ($Nx, $Ny, $Nz)"
         return age
     end
 end

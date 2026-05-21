@@ -115,7 +115,7 @@ let
     env_Hx = parse(Int, get(ENV, "GRID_HX", string(ug.Hx)))
     env_Hy = parse(Int, get(ENV, "GRID_HY", string(ug.Hy)))
     env_Hz = parse(Int, get(ENV, "GRID_HZ", string(ug.Hz)))
-    if (env_Hx, env_Hy, env_Hz) != (ug.Hx, ug.Hy, ug.Hz)
+    if (env_Hx, env_Hy, env_Hz) ≠ (ug.Hx, ug.Hy, ug.Hz)
         error(
             "Loaded grid.jld2 halo ($(ug.Hx), $(ug.Hy), $(ug.Hz)) does not match " *
                 "GRID_HX/HY/HZ=($env_Hx, $env_Hy, $env_Hz). Rebuild the grid " *

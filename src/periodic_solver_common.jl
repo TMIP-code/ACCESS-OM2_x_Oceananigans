@@ -116,7 +116,7 @@ if arch isa Distributed && rank == 0
     Ny_global = size(wet3D_global, 2)
     partition_y_sizes = collect(Oceananigans.DistributedComputations.local_sizes(Ny_global, arch.partition.y))
     Ny_sum = sum(partition_y_sizes)
-    Ny_sum != Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
+    Ny_sum ≠ Ny_global && (partition_y_sizes[end] += Ny_global - Ny_sum)
 
     perm, counts, displs = build_global_permutation(wet3D_global, partition_y_sizes)
     @info "[rank 0] Global setup complete" Nidx_global Ny_global partition_y_sizes counts
@@ -206,7 +206,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
         if !loaded
             @warn "INITIAL_AGE=TMage but no matrix age file found in $matrices_dir — starting from zeros"
         end
-    elseif INITIAL_AGE != "0"
+    elseif INITIAL_AGE ≠ "0"
         # Treat as a file path (backwards-compatible with WARM_START_FILE concept)
         if isfile(INITIAL_AGE)
             @info "Loading initial age from file: $INITIAL_AGE"

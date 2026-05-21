@@ -89,7 +89,7 @@ function pick_peers(all_hosts)
         if all_hosts[r + 1] == all_hosts[1] && intra < 0
             intra = r
         end
-        if all_hosts[r + 1] != all_hosts[1] && inter < 0
+        if all_hosts[r + 1] ≠ all_hosts[1] && inter < 0
             inter = r
         end
     end

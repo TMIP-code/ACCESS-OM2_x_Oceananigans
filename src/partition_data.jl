@@ -202,8 +202,8 @@ n_mismatches = 0
 for name in metric_names
     dist_parent = Array(parent(getproperty(ug_dist, name)))
     local_saved = load(grid_rank_file, string(name))
-    if local_saved != dist_parent
-        n_diff = sum(local_saved .!= dist_parent)
+    if local_saved ≠ dist_parent
+        n_diff = sum(local_saved .≠ dist_parent)
         @error "Rank $rank: Grid metric $name MISMATCH ($n_diff cells differ)"
         n_mismatches += n_diff
     end
@@ -305,7 +305,7 @@ for (file_prefix, field_name) in fts_fields
     if local_saved == serial_slice
         @info "Rank $rank: FTS '$field_name' verification PASSED"
     else
-        n_diff = sum(local_saved .!= serial_slice)
+        n_diff = sum(local_saved .≠ serial_slice)
         @error "Rank $rank: FTS '$field_name' verification FAILED ($n_diff cells differ)"
     end
 

@@ -152,7 +152,7 @@ flush(stdout); flush(stderr)
 flush(stdout); flush(stderr)
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 @info "Number of wet cells: $Nidx"
-@assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) != matrix rows ($(size(M, 1)))"
+@assert Nidx == size(M, 1) "Mismatch: wet cells ($Nidx) ≠ matrix rows ($(size(M, 1)))"
 
 v1D = interior(compute_volume(grid))[idx]
 flush(stdout); flush(stderr)

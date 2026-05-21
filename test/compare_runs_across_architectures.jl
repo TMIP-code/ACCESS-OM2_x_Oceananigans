@@ -856,14 +856,14 @@ for field_name in fts_fields
         for rx2 in 0:(px - 1)
             f2 = joinpath(distributed_dir, "$(field_name)_fts_$(DURATION_TAG)_rank$(rx2 * py).jld2")
             isfile(f2) && jldopen(f2, "r") do f
-                it = first(sort(filter(k -> k != "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
+                it = first(sort(filter(k -> k ≠ "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
                 rank_nxs[rx2 + 1] = size(f["timeseries/$(field_name)/$it"], 1) - 2Hx
             end
         end
         for ry2 in 0:(py - 1)
             f2 = joinpath(distributed_dir, "$(field_name)_fts_$(DURATION_TAG)_rank$(ry2).jld2")
             isfile(f2) && jldopen(f2, "r") do f
-                it = first(sort(filter(k -> k != "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
+                it = first(sort(filter(k -> k ≠ "serialized", collect(keys(f["timeseries/$(field_name)"]))); by = k -> parse(Int, k)))
                 rank_nys[ry2 + 1] = size(f["timeseries/$(field_name)/$it"], 2) - 2Hy
             end
         end

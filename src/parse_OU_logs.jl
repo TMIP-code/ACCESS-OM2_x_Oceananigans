@@ -68,34 +68,34 @@ function parse_ou_file(filepath::String)
     for line in lines
         line = strip(line)
 
-        if (m = match(r"Job Id:\s+(\S+)", line)) !== nothing
+        if (m = match(r"Job Id:\s+(\S+)", line)) ≠= nothing
             job_id = m[1]
         end
-        if (m = match(r"Exit Status:\s+(-?\d+)", line)) !== nothing
+        if (m = match(r"Exit Status:\s+(-?\d+)", line)) ≠= nothing
             exit_status = parse(Int, m[1])
         end
-        if (m = match(r"Service Units:\s+([\d.]+)", line)) !== nothing
+        if (m = match(r"Service Units:\s+([\d.]+)", line)) ≠= nothing
             service_units = parse(Float64, m[1])
         end
-        if (m = match(r"NCPUs Requested:\s+(\d+)", line)) !== nothing
+        if (m = match(r"NCPUs Requested:\s+(\d+)", line)) ≠= nothing
             ncpus = parse(Int, m[1])
         end
-        if (m = match(r"CPU Time Used:\s+(\S+)", line)) !== nothing
+        if (m = match(r"CPU Time Used:\s+(\S+)", line)) ≠= nothing
             cpu_time_used = m[1]
         end
-        if (m = match(r"Memory Requested:\s+(\S+)", line)) !== nothing
+        if (m = match(r"Memory Requested:\s+(\S+)", line)) ≠= nothing
             mem_requested = m[1]
         end
-        if (m = match(r"NGPUs Requested:\s+(\d+)", line)) !== nothing
+        if (m = match(r"NGPUs Requested:\s+(\d+)", line)) ≠= nothing
             ngpus = parse(Int, m[1])
         end
-        if (m = match(r"GPU Utilisation:\s+(\S+)", line)) !== nothing
+        if (m = match(r"GPU Utilisation:\s+(\S+)", line)) ≠= nothing
             gpu_utilisation = m[1]
         end
-        if (m = match(r"GPU Memory Used:\s+(\S+)", line)) !== nothing
+        if (m = match(r"GPU Memory Used:\s+(\S+)", line)) ≠= nothing
             gpu_mem_used = m[1]
         end
-        if (m = match(r"Walltime Used:\s+(\S+)", line)) !== nothing
+        if (m = match(r"Walltime Used:\s+(\S+)", line)) ≠= nothing
             walltime_used = m[1]
         end
     end

@@ -61,7 +61,7 @@ M_y = load(file_y, "M")
 flush(stdout); flush(stderr)
 
 # Check sparsity pattern match
-if M_x.colptr != M_y.colptr || M_x.rowval != M_y.rowval
+if M_x.colptr ≠ M_y.colptr || M_x.rowval ≠ M_y.rowval
     error("Sparsity pattern mismatch between $label_x and $label_y")
 end
 

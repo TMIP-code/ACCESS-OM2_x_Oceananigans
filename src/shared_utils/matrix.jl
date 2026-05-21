@@ -44,7 +44,7 @@ function process_sparse_matrix(M, MATRIX_PROCESSING)
         dropzeros!(M)
         M_t = copy(M')
         nnz_before = nnz(M)
-        M = M .* (M_t .!= 0)
+        M = M .* (M_t .≠ 0)
         dropzeros!(M)
         @info "After symdrop: nnz $nnz_before → $(nnz(M))"
     else

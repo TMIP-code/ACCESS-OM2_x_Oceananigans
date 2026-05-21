@@ -178,7 +178,7 @@ function _greedy_split(wet::AbstractVector{<:Real}, nranks_y::Int; min_size::Int
         end
     end
 
-    @assert sum(local_Ny) == Ny "_greedy_split: sum(local_Ny)=$(sum(local_Ny)) != Ny=$Ny"
+    @assert sum(local_Ny) == Ny "_greedy_split: sum(local_Ny)=$(sum(local_Ny)) ≠ Ny=$Ny"
     return Tuple(local_Ny)
 end
 
