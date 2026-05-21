@@ -142,7 +142,7 @@ function find_trace_calls(dir, regex)
     calls = Int[]
     for fn in readdir(dir)
         m = match(regex, fn)
-        m ≠= nothing && push!(calls, parse(Int, m.captures[1]))
+        !isnothing(m) && push!(calls, parse(Int, m.captures[1]))
     end
     return sort!(calls)
 end
@@ -166,7 +166,7 @@ file. Returns (age_array, t_seconds). The array includes halos.
 function _load_final_age_one_file(fpath)
     return jldopen(fpath, "r") do f
         iters = collect(keys(f["timeseries/age"]))
-        iters_int = parse.(Int, filter(k -> tryparse(Int, k) ≠= nothing, iters))
+        iters_int = parse.(Int, filter(k -> !isnothing(tryparse(Int, k)), iters))
         sort!(iters_int)
         last_iter = string(last(iters_int))
         age = f["timeseries/age/$(last_iter)"]

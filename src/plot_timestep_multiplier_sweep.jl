@@ -174,7 +174,7 @@ _strip_halos(arr, Hx, Hy, Hz, Nx, Ny, Nz) =
 function _load_jld2_last_iter(age_file)
     return jldopen(age_file, "r") do f
         ages = f["timeseries/age"]
-        iters = filter(k -> tryparse(Int, k) ≠= nothing, keys(ages))
+        iters = filter(k -> tryparse(Int, k) !== nothing, keys(ages))
         last_key = string(maximum(parse.(Int, iters)))
         return Float64.(ages[last_key])
     end
@@ -186,7 +186,7 @@ end
 function _load_jld2_mean_first_n_minus_one(age_file)
     return jldopen(age_file, "r") do f
         ages = f["timeseries/age"]
-        iters = sort!(parse.(Int, filter(k -> tryparse(Int, k) ≠= nothing, keys(ages))))
+        iters = sort!(parse.(Int, filter(k -> tryparse(Int, k) !== nothing, keys(ages))))
         n_avg = length(iters) - 1
         n_avg ≥ 1 || error("Expected ≥ 2 snapshots in $age_file (got $(length(iters)))")
         acc = Float64.(ages[string(iters[1])])

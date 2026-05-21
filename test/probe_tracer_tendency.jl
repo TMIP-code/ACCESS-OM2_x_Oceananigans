@@ -15,7 +15,7 @@ Dumps land in `{outputdir}/standardrun/{MC}/{px x py}/probe/`:
     probe_age_{cpu|gpu}_iter{N}_post_explicit{_rank{R}}{_noACM}.jld2 # after _ab2_step_tracer_field!
     probe_age_{cpu|gpu}_iter{N}_post_implicit{_rank{R}}{_noACM}.jld2 # after implicit_step!
     probe_implicit_coeffs_{cpu|gpu}_iter{N}{_rank{R}}{_noACM}.jld2   # a/b/c LHS coefficients
-                                                                     # (Probe C, only when implicit_solver ≠ nothing)
+                                                                     # (Probe C, only when !isnothing(implicit_solver))
 
 The full-state dumps now also include the vertical-diffusion `κ` field
 (the `VerticalScalarDiffusivity` component of `model.closure`, if present)

@@ -33,7 +33,7 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
     lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes")) == "no" && (mc = "$(mc)_noKV")
     M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
-    M ≠= nothing && M > 1 && (mc = "$(mc)_DTx$(M)")
+    !isnothing(M) && M > 1 && (mc = "$(mc)_DTx$(M)")
     lowercase(get(ENV, "TRAF", "no")) == "yes" && (mc = "$(mc)_traf")
     return mc
 end
