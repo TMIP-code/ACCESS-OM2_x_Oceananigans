@@ -70,14 +70,16 @@ if TBLOCKING > 0
 
     # MONTHLY_KAPPAV: κV needs the MLD→κV step kernel rather than a simple
     # (field, fts) set!. Wired in as an extra_updates closure on the model
-    # clock time; halos filled locally to keep the batch MPI-free. Captures
-    # mld_scratch, mld_ts, κVField, z_center, κVML, κVBG from setup_model.jl.
+    # clock time. The fused broadcast in update_κV_from_mld! writes halos
+    # too, so no fill_halo_regions! / MPI exchange is needed inside the
+    # batch. Captures mld_scratch, mld_ts, κVField, z_center_3d, κVML,
+    # κVBG from setup_model.jl.
     extra_update_list = Any[]
     if MONTHLY_KAPPAV
         push!(
             extra_update_list, function (t)
                 set!(mld_scratch, mld_ts[Time(t)])
-                update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG; only_local_halos = true)
+                update_κV_from_mld!(κVField, mld_scratch, z_center_3d, κVML, κVBG)
                 return nothing
             end
         )

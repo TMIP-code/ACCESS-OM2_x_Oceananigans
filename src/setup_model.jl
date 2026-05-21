@@ -292,9 +292,9 @@ if MONTHLY_KAPPAV
     TRAF && reverse_fts_time!(mld_ts; flip_sign = false)
     @show mld_ts
     mld_scratch = Field{Center, Center, Nothing}(grid)
-    z_center = znodes(grid, Center(), Center(), Center())
+    z_center_3d = make_z_center_3d(arch, grid)
     set!(mld_scratch, mld_ts[1])
-    update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG)
+    update_κV_from_mld!(κVField, mld_scratch, z_center_3d, κVML, κVBG)
     @info "κVField initialized from first month of MLD FTS (negated to z-coord)"
     flush(stdout); flush(stderr)
     gpu_mem_log("after monthly MLD FTS load + κV init")
@@ -404,7 +404,7 @@ if MONTHLY_KAPPAV
     function update_κV!(sim)
         t = Time(time(sim))
         set!(mld_scratch, mld_ts[t])  # linearly interpolated 2D MLD (already negated)
-        update_κV_from_mld!(κVField, mld_scratch, z_center, κVML, κVBG)
+        update_κV_from_mld!(κVField, mld_scratch, z_center_3d, κVML, κVBG)
         return nothing
     end
 end

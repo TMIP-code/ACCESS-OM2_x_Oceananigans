@@ -122,25 +122,38 @@ function reverse_fts_time!(fts; flip_sign::Bool = false)
 end
 
 """
-    update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG; only_local_halos=false)
+    make_z_center_3d(arch, grid)
+
+Build a `(1, 1, Nz + 2·Hz)`-shaped vector of cell-centre z values, on the
+same architecture as the grid. Halo-inclusive so the fused broadcast in
+`update_κV_from_mld!` writes both interior and halo cells in one pass.
+Allocated once at setup and reused for every per-iteration κV update.
+"""
+function make_z_center_3d(arch, grid)
+    z_vec = znodes(grid, Center(), Center(), Center(); with_halos = true)
+    return on_architecture(arch, reshape(collect(z_vec), 1, 1, length(z_vec)))
+end
+
+"""
+    update_κV_from_mld!(κVField, mld_field, z_center_3d, κVML, κVBG)
 
 Set 3D `κVField` from a 2D `mld_field` whose values are already in
 z-coordinate sign convention (negative in the ocean). Mixed-layer cells
 (z > MLD_z, i.e. shallower than the MLD) get `κVML`; deeper cells get `κVBG`.
-Halo regions are filled before returning. Used by:
-  - `load_mld_diffusivity` (yearly, called once)
-  - the `MONTHLY_KAPPAV` per-iteration callback in `setup_model.jl`
-  - the K-batch sub-step closure in `run_1year_benchmark.jl` — pass
-    `only_local_halos=true` there to skip the MPI exchange inside the batch
-    (matches the `fill_halo_regions!(...; only_local_halos=true)` pattern
-    `temporal_blocking.jl` uses for FTS-backed prescribed fields).
+
+Preconditions (no `fill_halo_regions!` is needed thanks to these):
+  - `z_center_3d` is the `(1, 1, Nz + 2·Hz)`-shaped halo-inclusive z vector
+    on the same architecture as `κVField`, built once via `make_z_center_3d`.
+  - `parent(mld_field)` halos are already filled. True after the FTS-load
+    path (snapshots are halo-inclusive on disk; linear time interpolation
+    preserves halos; `set!(scratch, fts[t])` copies parent incl. halos),
+    and after `fill_halo_regions!(mld_field)` in `load_mld_diffusivity`.
+
+The single fused broadcast over `parent(κVField)` writes interior and halo
+cells in one CUDA kernel — no intermediate allocations, no MPI exchange.
 """
-function update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG; only_local_halos::Bool = false)
-    Nz = length(z_center)
-    mld_data = interior(mld_field)
-    is_mld = reshape(z_center, 1, 1, Nz) .> mld_data
-    set!(κVField, κVML * is_mld + κVBG * .!is_mld)
-    fill_halo_regions!(κVField; only_local_halos)
+function update_κV_from_mld!(κVField, mld_field, z_center_3d, κVML, κVBG)
+    parent(κVField) .= ifelse.(z_center_3d .> parent(mld_field), κVML, κVBG)
     return κVField
 end
 
@@ -158,9 +171,9 @@ function load_mld_diffusivity(arch, grid, mld_file, κVML, κVBG, Nz)
     mld_field = Field{Center, Center, Nothing}(grid)
     set!(mld_field, on_architecture(arch, mld_data_arr))
     fill_halo_regions!(mld_field)
-    z_center = znodes(grid, Center(), Center(), Center())
+    z_center_3d = make_z_center_3d(arch, grid)
     κVField = CenterField(grid)
-    return update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+    return update_κV_from_mld!(κVField, mld_field, z_center_3d, κVML, κVBG)
 end
 
 function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, Nz)
@@ -169,9 +182,9 @@ function load_mld_diffusivity(arch::Distributed, grid, mld_file, κVML, κVBG, N
     mld_field = Field{Center, Center, Nothing}(grid)
     set!(mld_field, Array(mld_data_arr))
     fill_halo_regions!(mld_field)
-    z_center = znodes(grid, Center(), Center(), Center())
+    z_center_3d = make_z_center_3d(arch, grid)
     κVField = CenterField(grid)
-    return update_κV_from_mld!(κVField, mld_field, z_center, κVML, κVBG)
+    return update_κV_from_mld!(κVField, mld_field, z_center_3d, κVML, κVBG)
 end
 
 
