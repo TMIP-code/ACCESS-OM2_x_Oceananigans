@@ -130,8 +130,14 @@ same architecture as the grid. Halo-inclusive so the fused broadcast in
 Allocated once at setup and reused for every per-iteration κV update.
 """
 function make_z_center_3d(arch, grid)
-    z_vec = znodes(grid, Center(), Center(), Center(); with_halos = true)
-    return on_architecture(arch, reshape(collect(z_vec), 1, 1, length(z_vec)))
+    z = znodes(grid, Center(), Center(), Center(); with_halos = true)
+    # On GPU grids, znodes returns a SubArray-of-OffsetArray-of-CuArray that
+    # would scalar-index if collected. Peel wrappers (parent() is identity
+    # for plain Vectors/ranges) to reach the raw storage, then reshape.
+    while parent(z) !== z
+        z = parent(z)
+    end
+    return on_architecture(arch, reshape(z, 1, 1, length(z)))
 end
 
 """
