@@ -123,11 +123,12 @@ function multi_time_step!(
         tick!(model.clock, Δt_FT)
 
         # Per-sub-step FTS-backed field updates (η, optional T/S).
-        # Local only — no MPI.
+        # Local only — no MPI. Use interp_fts! to skip the per-step Field
+        # allocation that `set!(target, source[Time(t)])` triggers internally.
         if !isempty(fts_updates)
-            t_now = Time(model.clock.time)
+            t_now = model.clock.time
             for (target, source) in fts_updates
-                set!(target, source[t_now])
+                interp_fts!(target, source, t_now)
                 fill_halo_regions!(target; only_local_halos = true)
             end
         end

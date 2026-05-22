@@ -9,7 +9,8 @@ using Oceananigans.DistributedComputations: Distributed
 using Oceananigans.Fields: location
 using Oceananigans.Grids: on_architecture, znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid
-using Oceananigans.OutputReaders: FieldTimeSeries, InMemory
+using Oceananigans.OutputReaders: FieldTimeSeries, InMemory,
+    cpu_interpolating_time_indices, memory_index
 using Oceananigans.Architectures: CPU, GPU, architecture
 using Oceananigans.BoundaryConditions: fill_halo_regions!
 using Oceananigans.Utils: worksize
@@ -119,6 +120,38 @@ function reverse_fts_time!(fts; flip_sign::Bool = false)
         end
     end
     return fts
+end
+
+"""
+    interp_fts!(target, fts, t)
+
+Linear time-interpolation of `FieldTimeSeries` `fts` at scalar time `t` directly
+into `target`'s parent storage — **no Field allocation**.
+
+Replaces the `set!(target, fts[Time(t)])` pattern, which internally constructs
+a fresh `Field(ψ₂ * ñ + ψ₁ * (1 - ñ))` per call (Oceananigans
+`field_time_series_indexing.jl:280`). For per-iteration callbacks, that
+allocates ~`length(parent(fts[1]))` × `sizeof(FT)` per step → tens of GB / yr
+of CUDA alloc/free churn, which lands on the GC.
+
+Goes straight to `parent(fts)`/`view`/broadcast on `parent(target)`, so works
+for CPU, GPU, and Distributed without a CPU↔GPU round-trip — provided
+`fts.times isa AbstractRange` (true for our preprocessed monthly inputs; a
+plain `Vector` would force a per-call CPU copy via
+`cpu_interpolating_time_indices` on GPU arch).
+"""
+function interp_fts!(target, fts, t)
+    indices = cpu_interpolating_time_indices(architecture(fts), fts.times, fts.time_indexing, t)
+    ñ, n₁, n₂ = indices.fractional_index, indices.first_index, indices.second_index
+    m₁ = memory_index(fts, n₁)
+    m₂ = memory_index(fts, n₂)
+    p = parent(fts)
+    if n₁ == n₂
+        parent(target) .= view(p, :, :, :, m₁)
+    else
+        parent(target) .= ñ .* view(p, :, :, :, m₂) .+ (1 - ñ) .* view(p, :, :, :, m₁)
+    end
+    return target
 end
 
 """

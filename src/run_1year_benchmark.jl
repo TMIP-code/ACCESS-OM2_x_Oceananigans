@@ -78,7 +78,7 @@ if TBLOCKING > 0
     if MONTHLY_KAPPAV
         push!(
             extra_update_list, function (t)
-                set!(mld_scratch, mld_ts[Time(t)])
+                interp_fts!(mld_scratch, mld_ts, t)
                 update_κV_from_mld!(κVField, mld_scratch, z_center_3d, κVML, κVBG)
                 return nothing
             end

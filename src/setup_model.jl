@@ -392,18 +392,20 @@ model = HydrostaticFreeSurfaceModel(
     buoyancy_kw...,
 )
 
-# Prescribe T and S from FTS at each iteration (only called if GM_REDI is enabled)
+# Prescribe T and S from FTS at each iteration (only called if GM_REDI is enabled).
+# Uses interp_fts! (data_loading.jl) to avoid per-step Field allocation that
+# `set!(field, fts[Time(t)])` triggers under the hood.
 function prescribe_TS!(sim)
-    t = Time(time(sim))
-    set!(sim.model.tracers.T, T_ts[t])
-    return set!(sim.model.tracers.S, S_ts[t])
+    t = time(sim)
+    interp_fts!(sim.model.tracers.T, T_ts, t)
+    interp_fts!(sim.model.tracers.S, S_ts, t)
+    return nothing
 end
 
 # Update κV each iteration (only called if MONTHLY_KAPPAV is enabled).
 if MONTHLY_KAPPAV
     function update_κV!(sim)
-        t = Time(time(sim))
-        set!(mld_scratch, mld_ts[t])  # linearly interpolated 2D MLD (already negated)
+        interp_fts!(mld_scratch, mld_ts, time(sim))
         update_κV_from_mld!(κVField, mld_scratch, z_center_3d, κVML, κVBG)
         return nothing
     end
