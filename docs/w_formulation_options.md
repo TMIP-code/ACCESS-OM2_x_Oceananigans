@@ -137,6 +137,37 @@ undershoots common to all three.)
 - `wprediag` differs from both by **~5× more** (0.14 yr RMS, max ~2.8 yr).
   See the next section.
 
+### Diff and relative-diff maps
+
+Both pairs were rendered by `scripts/plotting/compare_runs.sh` (jobs
+169065420 / 169065421). All slice / basin / zonal-avg outputs live
+under:
+
+- [outputs/.../plots/compare/w_NK_diag_vs_parent/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_parent/)
+- [outputs/.../plots/compare/w_NK_diag_vs_prediag/](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_prediag/)
+
+Each directory contains 11 absolute-diff PNGs (4 basin zonal-averages +
+6 depth slices + 1 colourbar pair) and 11 matching `reldiff_*` PNGs.
+Headline previews:
+
+**`wparent − wdiagnosed`** (zonal-avg global, then 1000 m slice):
+
+![diag_vs_parent zonal-avg global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_parent/diff_cgridtransports_wparent_centered2_AB2_mkappaV_DTx4_minus_cgridtransports_wdiagnosed_centered2_AB2_mkappaV_DTx4_zonal_avg_global.png)
+
+![diag_vs_parent slice 1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_parent/diff_cgridtransports_wparent_centered2_AB2_mkappaV_DTx4_minus_cgridtransports_wdiagnosed_centered2_AB2_mkappaV_DTx4_slice_1000m.png)
+
+**`wprediag − wdiagnosed`** (zonal-avg global, then 1000 m slice):
+
+![diag_vs_prediag zonal-avg global](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_prediag/diff_cgridtransports_wprediag_centered2_AB2_mkappaV_DTx4_minus_cgridtransports_wdiagnosed_centered2_AB2_mkappaV_DTx4_zonal_avg_global.png)
+
+![diag_vs_prediag slice 1000m](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/plots/compare/w_NK_diag_vs_prediag/diff_cgridtransports_wprediag_centered2_AB2_mkappaV_DTx4_minus_cgridtransports_wdiagnosed_centered2_AB2_mkappaV_DTx4_slice_1000m.png)
+
+The maps confirm what the bulk statistics already say: `wparent` ≈
+`wdiagnosed` everywhere (mostly noise-floor colour), while `wprediag −
+wdiagnosed` has a coherent large-scale signal in deep water masses
+(consistent with a slightly different climate state in the saved-w
+provenance run).
+
 ---
 
 ## Reusability caveat for `wprediag`
