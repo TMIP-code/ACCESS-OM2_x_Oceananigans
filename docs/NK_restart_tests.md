@@ -29,6 +29,7 @@ MATRIX_PROCESSING     = symdrop
 LINEAR_SOLVER         = Pardiso
 GPU_QUEUE             = gpuvolta
 TRACE_SOLVER_HISTORY  = yes
+TM_SOURCE             = const
 TM_MODEL_CONFIG       = totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4
 ```
 
@@ -36,6 +37,9 @@ The NK `model_config` resolves to `totaltransport_wparent_centered2_AB2_mkappaV_
 (no matrix on disk). `TM_MODEL_CONFIG` redirects the preconditioner load to
 the existing `wdiagnosed` matrix at
 [outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/TM/totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4/const/M.jld2](../outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/TM/totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4/const/M.jld2).
+Only the `const` subdirectory contains an `M.jld2` for this experiment, so
+both test scripts set `TM_SOURCE=const` explicitly (overriding the
+`avg` default in `scripts/env_defaults.sh`).
 
 `MATRIX_PROCESSING=symdrop` ensures the preconditioner is structurally
 symmetric (required by Pardiso REAL_SYM).
@@ -97,5 +101,7 @@ After both jobs in a driver complete, the corresponding log files and
 
 | Date | Driver | A1 jobid | A2 jobid | Checks 1–6 | Notes |
 |---|---|---|---|---|---|
-| _pending_ | serial | — | — | — | — |
-| _pending_ | 1×2    | — | — | — | — |
+| 2026-05-22 | serial | 169075809.gadi-pbs | 169075810.gadi-pbs | ❌ failed | A1 exit=1: `No file exists at given path: .../avg/M.jld2`. TM_SOURCE defaulted to `avg`; A2 cancelled (afterok). Submitted from main @ 0469008. |
+| 2026-05-22 | 1×2    | 169075833.gadi-pbs | 169075834.gadi-pbs | ❌ failed | Same failure mode as serial. Submitted from main @ 0469008. |
+| 2026-05-23 | serial | 169088807.gadi-pbs | 169088808.gadi-pbs | _running_ | Resubmitted from main @ 25ee4a9 with TM_SOURCE=const. |
+| 2026-05-23 | 1×2    | 169088809.gadi-pbs | 169088810.gadi-pbs | _running_ | Resubmitted from main @ 25ee4a9 with TM_SOURCE=const. |
