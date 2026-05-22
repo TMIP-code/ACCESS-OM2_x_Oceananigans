@@ -154,16 +154,14 @@ for trace_file in trace_files
             continue
         end
 
-        age_years_3D = age_data ./ year
-
         # Summary statistics (wet cells only)
-        age_wet_years = age_years_3D[idx]
+        age_wet_years = age_data[idx] ./ year
         max_age_years = maximum(abs, age_wet_years)
         mean_age_years = mean(age_wet_years)
         @info "Plotting iter=$iter_num phase=$phase" max_age = round(max_age_years; digits = 2) mean_age = round(mean_age_years; digits = 2)
         flush(stdout); flush(stderr)
 
-        # Adaptive colorrange
+        # Adaptive colorrange (years)
         cmax = max(ceil(max_age_years), 1.0)
         crange = (0, cmax)
         nlevels = min(20, max(10, Int(ceil(cmax))))
@@ -172,7 +170,7 @@ for trace_file in trace_files
         label = @sprintf("trace_iter_%04d_%s", iter_num, phase)
 
         plot_age_diagnostics(
-            age_years_3D, grid, wet3D, vol_3D, trace_plots_dir, label;
+            age_data, grid, wet3D, vol_3D, trace_plots_dir, label;
             colorrange = crange, levels = clevels,
         )
     end

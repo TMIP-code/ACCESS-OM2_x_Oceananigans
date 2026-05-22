@@ -164,7 +164,7 @@ Generate 10 diagnostic figures and save as PNG:
   5-10: Horizontal slices at 100, 200, 500, 1000, 2000, 3000 m — heatmap
 
 Arguments:
-- `age_3D`:     (Nx', Ny', Nz') array (years) with 0 for dry cells
+- `age_3D`:     (Nx', Ny', Nz') array (seconds) with 0 for dry cells
 - `grid`:       ImmersedBoundaryGrid (tripolar)
 - `wet3D`:      (Nx', Ny', Nz') Bool mask
 - `vol_3D`:     (Nx', Ny', Nz') volume array (m^3)
@@ -185,9 +185,12 @@ function plot_age_diagnostics(
     )
     mkpath(output_dir)
 
-    # Replace dry cells with NaN for plotting
+    year = 365.25 * 86400  # seconds
+
+    # Replace dry cells with NaN for plotting (and convert seconds → years)
     age_plot = copy(age_3D)
     age_plot[.!wet3D] .= NaN
+    age_plot ./= year
 
     # Extract grid coordinates
     ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid

@@ -331,7 +331,7 @@ if DIFF_PLOTS && length(runs) > 1
         title_prefix = @sprintf "M=%d − M=1 (Δmax≈%.3f yr at 99th pct)" M Δmax
         @info "  M=$M  Δmax=$Δmax yr → $diff_dir"
         plot_age_diagnostics(
-            diff_field, grid, wet3D, vol_3D, diff_dir, label;
+            diff_field .* year_seconds, grid, wet3D, vol_3D, diff_dir, label;
             colorrange = (-Δmax, Δmax),
             levels,
             colormap = cmap,

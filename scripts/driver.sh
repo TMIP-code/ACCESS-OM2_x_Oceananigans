@@ -518,21 +518,15 @@ fi
 # 5. Newton-Krylov solver (filtered by TM_SOURCE)
 # ============================================================
 
-NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION}"
+NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION},TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}"
 
 if has_step NK; then
-    # NK depends on TMbuild (the matrix). When TMsolve is also in the chain we
-    # additionally afterok-depend on the CPU TM age solver so its warm-start
-    # file (steady_age_*.jld2) is on disk before NK opens it under
-    # INITIAL_AGE=TMage. Without this dep NK could start before TMslv_c finishes
-    # and fall back to age=0 (see TRAF_simulations.md, attempt 2 — all 4 NK_c
-    # logs warned `INITIAL_AGE=TMage but no matrix age file found`).
-    # We do not add TMslv_cG (GPU) since the GPU solver is more flaky and we
-    # don't want NK gated on it.
+    # NK depends on TMbuild only (the preconditioner matrix). The previous
+    # TMsolve dep was required by the old INITIAL_AGE=TMage default — now NK
+    # defaults to INITIAL_AGE=0 (or `latest` / explicit path), so the TM age
+    # file is not needed at submit time.
     NK_CONST_DEPS="${TMBUILD_JOB:-}"
-    [ -n "${TMSOLVE_CONST_CPU:-}" ] && NK_CONST_DEPS="${NK_CONST_DEPS}${NK_CONST_DEPS:+:}${TMSOLVE_CONST_CPU}"
     NK_AVG_DEPS="${TMSNAP_JOB:-}"
-    [ -n "${TMSOLVE_AVG_CPU:-}" ] && NK_AVG_DEPS="${NK_AVG_DEPS}${NK_AVG_DEPS:+:}${TMSOLVE_AVG_CPU}"
 
     run_const && \
         NK_CONST=$(submit_job NK_c "$WALLTIME_NK" \

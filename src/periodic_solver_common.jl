@@ -17,15 +17,12 @@ using MPI
 ################################################################################
 
 TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
-trace_job_id = get(ENV, "PBS_JOBID", "interactive")
 
 if TRACE_SOLVER_HISTORY
-    trace_dir = solver_output_dir  # defined by caller before include
-    mkpath(trace_dir)
-    @info "TRACE_SOLVER_HISTORY enabled — saving iterates to $trace_dir (job_id=$trace_job_id)"
+    mkpath(solver_output_dir)
+    @info "TRACE_SOLVER_HISTORY=yes — saving Newton iterates xₙ as newton_iterate_NN.jld2 in $solver_output_dir (n ≥ 1; x₀ not saved). Use INITIAL_AGE=latest to restart."
 else
-    trace_dir = ""
-    @info "TRACE_SOLVER_HISTORY disabled (set TRACE_SOLVER_HISTORY=yes to enable)"
+    @info "TRACE_SOLVER_HISTORY=no — Newton iterates not saved (no restart capability)."
 end
 flush(stdout); flush(stderr)
 
@@ -159,32 +156,33 @@ end
 ################################################################################
 
 """
-    load_initial_age(idx, Nidx, outputdir, model_config; year)
+    load_initial_age(idx, Nidx, outputdir, model_config; year, solver_output_dir)
 
 Load the initial age vector based on the INITIAL_AGE environment variable.
 
 Returns a Vector{Float64} of length `Nidx` (wet cells) in **seconds**.
 
-- `INITIAL_AGE="TMage"` (default): load transport-matrix-computed steady-state age
-- `INITIAL_AGE="0"`: zeros
-  (tries ParU, UMFPACK, then generic full files in the matrices directory)
+- `INITIAL_AGE="0"` (default): zeros.
+- `INITIAL_AGE="TMage"`: load transport-matrix-computed steady-state age 3D
+  field (in seconds) and extract wet cells via `view(age_data, idx)`.
+- `INITIAL_AGE="latest"`: resolve to the highest-numbered
+  `newton_iterate_*.jld2` in `solver_output_dir`, then load it as a vector.
+- Otherwise: treat as a file path; load the saved vector of length `Nidx`
+  (in seconds) and assign without unit conversion.
 """
-function load_initial_age(idx, Nidx, outputdir, model_config; year)
-    INITIAL_AGE = get(ENV, "INITIAL_AGE", "TMage")
+function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_output_dir)
+    INITIAL_AGE = get(ENV, "INITIAL_AGE", "0")
     age_init_vec = zeros(Nidx)
 
-    if INITIAL_AGE == "TMage"
+    if INITIAL_AGE == "0"
+        @info "Starting from zero initial guess (set INITIAL_AGE=TMage|latest|<path> to warm-start)"
+    elseif INITIAL_AGE == "TMage"
         TM_SOURCE = get(ENV, "TM_SOURCE", "const")
         matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)
-        # Try candidate files in priority order. We prefer the variant that
-        # matches the current LUMP_AND_SPRAY setting (since that's the matrix
-        # form NK is actually solving with), then fall back to the other.
-        # solve_matrix_age.jl writes "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING).jld2"
-        # where coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full".
         preferred_coarse_tag = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes" ? "coarse" : "full"
         fallback_coarse_tag = preferred_coarse_tag == "coarse" ? "full" : "coarse"
         candidates = [
-            "steady_age_$(coarse_tag)_$(solver)_$(mp).jld2"
+            "steady_age_seconds_$(coarse_tag)_$(solver)_$(mp).jld2"
                 for coarse_tag in (preferred_coarse_tag, fallback_coarse_tag)
                 for mp in ("raw", "dropzeros", "symfill", "symdrop")
                 for solver in ("ParU", "UMFPACK", "Pardiso")
@@ -196,38 +194,50 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year)
                 @info "Loading TM age from $fpath"
                 flush(stdout); flush(stderr)
                 age_data = load(fpath, "age")
-                # Matrix age files store age in years → convert to seconds
-                age_init_vec .= view(age_data, idx) .* year
+                age_data isa AbstractArray{<:Real, 3} ||
+                    error("TMage file $fpath: expected 3D AbstractArray, got $(typeof(age_data))")
+                age_init_vec .= view(age_data, idx)
                 @info "TM age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
                 loaded = true
                 break
             end
         end
-        if !loaded
-            @warn "INITIAL_AGE=TMage but no matrix age file found in $matrices_dir — starting from zeros"
-        end
-    elseif INITIAL_AGE ≠ "0"
-        # Treat as a file path (backwards-compatible with WARM_START_FILE concept)
-        if isfile(INITIAL_AGE)
-            @info "Loading initial age from file: $INITIAL_AGE"
-            flush(stdout); flush(stderr)
-            age_data = load(INITIAL_AGE, "age")
-            # Detect units: if max age < 100_000, assume years; otherwise seconds
-            max_val = maximum(abs, view(age_data, idx))
-            if max_val < 100_000
-                @info "Detected age in years — converting to seconds"
-                age_init_vec .= view(age_data, idx) .* year
-            else
-                age_init_vec .= view(age_data, idx)
-            end
-            @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
-        else
-            @warn "INITIAL_AGE file not found: $INITIAL_AGE — starting from zeros"
-        end
+        loaded || error("INITIAL_AGE=TMage but no matrix age file found in $matrices_dir")
+    elseif INITIAL_AGE == "latest"
+        iter_files = filter(
+            f -> occursin(r"^newton_iterate_\d+\.jld2$", f),
+            isdir(solver_output_dir) ? readdir(solver_output_dir) : String[]
+        )
+        isempty(iter_files) &&
+            error("INITIAL_AGE=latest but no newton_iterate_*.jld2 files found in $solver_output_dir")
+        # Lexical sort works because NN is zero-padded
+        latest_file = joinpath(solver_output_dir, last(sort(iter_files)))
+        @info "INITIAL_AGE=latest resolved to $latest_file"
+        flush(stdout); flush(stderr)
+        age_data = load(latest_file, "age")
+        age_data isa AbstractVector ||
+            error("newton_iterate file $latest_file: expected AbstractVector, got $(typeof(age_data))")
+        length(age_data) == Nidx ||
+            error("newton_iterate file $latest_file: length $(length(age_data)) ≠ Nidx ($Nidx)")
+        age_init_vec .= age_data
+        @info "Newton iterate loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
     else
-        @info "Starting from zero initial guess (set INITIAL_AGE=TMage or path to warm-start)"
+        # Treat as a file path
+        isfile(INITIAL_AGE) || error("INITIAL_AGE file not found: $INITIAL_AGE")
+        @info "Loading initial age from file: $INITIAL_AGE"
+        flush(stdout); flush(stderr)
+        age_data = load(INITIAL_AGE, "age")
+        age_data isa AbstractVector ||
+            error("INITIAL_AGE file $INITIAL_AGE: expected AbstractVector (in seconds), got $(typeof(age_data))")
+        length(age_data) == Nidx ||
+            error("INITIAL_AGE file $INITIAL_AGE: length $(length(age_data)) ≠ Nidx ($Nidx)")
+        age_init_vec .= age_data
+        @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
     end
     flush(stdout); flush(stderr)
+
+    maximum(abs, age_init_vec) / year > 10_000 &&
+        error("Loaded age has max $(maximum(abs, age_init_vec) / year) years > 10000 yr threshold — likely a units bug or unphysical input")
 
     return age_init_vec
 end
@@ -236,8 +246,9 @@ end
 # Forward map Φ! and residual G!
 ################################################################################
 
-g_call_count = Ref(0)
-jvp_call_count = Ref(0)
+Φ_call_count = Ref(0)   # incremented in Φ!_body
+G_call_count = Ref(0)   # incremented in G!
+jvp_call_count = Ref(0) # incremented in jvp!
 
 """
     Φ!_body(age_out, age_in; source_rate = 1.0)
@@ -257,8 +268,8 @@ The `Φ!` wrapper (defined alongside the rank-0 driver loop) prefixes an
 `MPI.Bcast!` so rank > 0 worker loops join each `Φ!_body` call.
 """
 function Φ!_body(age_out, age_in; source_rate = 1.0)
-    g_call_count[] += 1
-    call_num = g_call_count[]
+    Φ_call_count[] += 1
+    call_num = Φ_call_count[]
     t_start = time()
     if rank == 0
         @info "Φ! call #$call_num starting (source_rate=$source_rate)" norm_age_years = norm(age_in) / year max_age_years = maximum(abs, age_in) / year
@@ -286,24 +297,8 @@ function Φ!_body(age_out, age_in; source_rate = 1.0)
     # Set initial condition (local field set; no MPI inside)
     set!(model, age = age3D_local_gpu)
 
-    if TRACE_SOLVER_HISTORY
-        iter_str = @sprintf("%04d", call_num)
-        trace_prefix = joinpath(trace_dir, "age_trace_iter_$(iter_str)_$(trace_job_id)")
-        simulation.output_writers[:trace] = JLD2Writer(
-            model, Dict("age" => model.tracers.age);
-            schedule = TimeInterval(stop_time),
-            filename = trace_prefix,
-            overwrite_existing = true,
-            array_type = Array{Float64},
-        )
-    end
-
     # Run 1-year simulation (collective across ranks in distributed)
     run!(simulation)
-
-    if TRACE_SOLVER_HISTORY
-        delete!(simulation.output_writers, :trace)
-    end
 
     # Ensure all ranks finish simulation before extracting results
     arch isa Distributed && MPI.Barrier(COMM)
@@ -341,14 +336,35 @@ function Φ!(age_out, age_in; source_rate = 1.0)
 end
 
 """
+    save_newton_iterate!(age_vec)
+
+When `TRACE_SOLVER_HISTORY=yes`, save the current Newton iterate xₙ (the
+input to G!) on rank 0 as `newton_iterate_NN.jld2` in `solver_output_dir`.
+Iterate index NN = G_call_count - 1, so x₁ is saved on the 2nd G! call,
+x₂ on the 3rd, etc.; x₀ (the initial guess) is never saved.
+"""
+function save_newton_iterate!(age_vec)
+    (TRACE_SOLVER_HISTORY && rank == 0 && G_call_count[] > 1) || return nothing
+    NN = G_call_count[] - 1
+    iter_str = @sprintf("%02d", NN)
+    final_path = joinpath(solver_output_dir, "newton_iterate_$(iter_str).jld2")
+    jldsave(final_path; age = age_vec)
+    @info "Saved Newton iterate xₙ" n = NN path = final_path
+    flush(stdout); flush(stderr)
+    return nothing
+end
+
+"""
     G!(dage, age, p)
 
 1-year drift residual: G(x) = Φ(x) − x.
 """
 function G!(dage, age, p)
+    G_call_count[] += 1
+    save_newton_iterate!(age)
     Φ!(dage, age) # dage <- Φ(age)       = age after 1 year
     dage .-= age  # dage <- Φ(age) - age = age drift after after 1 year
-    @info "G! residual" vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
+    @info "G! residual" n = G_call_count[] vol_rms_drift_years = vol_norm(dage) max_drift_years = maximum(abs, dage) / year mean_drift_years = mean(abs, dage) / year
     flush(stdout); flush(stderr)
     return dage
 end
@@ -368,6 +384,7 @@ to compute the Jacobian of Φ applied to `v`.
 `age` and `p` are unused but present for the NonlinearSolve JVP signature.
 """
 function jvp!(Jv, v, age, p)
+    jvp_call_count[] += 1
     Φ!(Jv, v; source_rate = 0.0)
     Jv .-= v
     return Jv

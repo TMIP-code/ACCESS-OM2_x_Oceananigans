@@ -1,0 +1,49 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+export PARENT_MODEL=ACCESS-OM2-1
+export TIME_WINDOW=1968-1977
+export VELOCITY_SOURCE=totaltransport
+export W_FORMULATION=wprescribed
+export PRESCRIBED_W_SOURCE=parent
+export TIMESTEPPER=AB2
+export TIMESTEP_MULT=4
+export MONTHLY_KAPPAV=yes
+export LUMP_AND_SPRAY=yes
+export MATRIX_PROCESSING=symdrop
+export LINEAR_SOLVER=Pardiso
+export PARTITION=1x2
+export GPU_QUEUE=gpuvolta
+export TRACE_SOLVER_HISTORY=yes
+export TM_MODEL_CONFIG=totaltransport_wdiagnosed_centered2_AB2_mkappaV_DTx4
+
+. scripts/env_defaults.sh
+. scripts/submit_job.sh
+
+# Build COMMON_VARS for submit_job (mirrors driver.sh)
+COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
+COMMON_VARS+=",EXPERIMENT=${EXPERIMENT}"
+COMMON_VARS+=",TIME_WINDOW=${TIME_WINDOW}"
+COMMON_VARS+=",VELOCITY_SOURCE=${VELOCITY_SOURCE}"
+COMMON_VARS+=",W_FORMULATION=${W_FORMULATION}"
+COMMON_VARS+=",PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE}"
+COMMON_VARS+=",ADVECTION_SCHEME=${ADVECTION_SCHEME}"
+COMMON_VARS+=",TIMESTEPPER=${TIMESTEPPER}"
+COMMON_VARS+=",TIMESTEP_MULT=${TIMESTEP_MULT}"
+COMMON_VARS+=",MONTHLY_KAPPAV=${MONTHLY_KAPPAV}"
+COMMON_VARS+=",LUMP_AND_SPRAY=${LUMP_AND_SPRAY}"
+COMMON_VARS+=",MATRIX_PROCESSING=${MATRIX_PROCESSING}"
+COMMON_VARS+=",LINEAR_SOLVER=${LINEAR_SOLVER}"
+COMMON_VARS+=",TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY}"
+COMMON_VARS+=",TM_MODEL_CONFIG=${TM_MODEL_CONFIG}"
+COMMON_VARS+=",PARTITION=${PARTITION}"
+
+A1=$(submit_job NK_restart_A1 "${WALLTIME_NK:-01:00:00}" scripts/solvers/solve_periodic_NK.sh \
+    --gpu --vars "INITIAL_AGE=0,NK_MAXITERS=3")
+
+A2=$(submit_job NK_restart_A2 "${WALLTIME_NK:-01:00:00}" scripts/solvers/solve_periodic_NK.sh \
+    --gpu --deps "$A1" --vars "INITIAL_AGE=latest,NK_MAXITERS=2")
+
+echo "Submitted: A1=$A1 A2=$A2"
+echo "Monitor: qstat $A1 $A2"

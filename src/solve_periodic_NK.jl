@@ -84,7 +84,11 @@ else  # "M_traf"
     "M_traf.jld2"
 end
 
-matrices_dir = joinpath(outputdir, "TM", model_config)
+TM_MODEL_CONFIG = get(ENV, "TM_MODEL_CONFIG", model_config)
+matrices_dir = joinpath(outputdir, "TM", TM_MODEL_CONFIG)
+if TM_MODEL_CONFIG != model_config
+    @warn "NK using TM from a different model_config (preconditioner approximation only)" tm_config = TM_MODEL_CONFIG nk_config = model_config
+end
 
 @info "Newton-GMRES periodic solver configuration"
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
@@ -236,7 +240,7 @@ if rank == 0
     @info "- abstol = 0.001 years (volume-weighted RMS norm)"
     flush(stdout); flush(stderr)
 
-    age_init_vec = load_initial_age(idx_global, Nidx_global, outputdir, model_config; year)
+    age_init_vec = load_initial_age(idx_global, Nidx_global, outputdir, model_config; year, solver_output_dir)
     nonlinearprob = NonlinearProblem(f!, age_init_vec)
 
     NK_MAXITERS = parse(Int, get(ENV, "NK_MAXITERS", "1000"))
@@ -253,7 +257,7 @@ if rank == 0
         verbose = true,
     )
 
-    @info "Newton-GMRES solve complete" retcode = sol.retcode total_G_calls = g_call_count[] total_jvp_calls = jvp_call_count[]
+    @info "Newton-GMRES solve complete" retcode = sol.retcode total_Φ_calls = Φ_call_count[] total_G_calls = G_call_count[] total_jvp_calls = jvp_call_count[]
     flush(stdout); flush(stderr)
 
     # Signal workers (rank > 0) that the solve is done

@@ -103,7 +103,7 @@ end
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 M_dir = joinpath(matrices_dir, TM_SOURCE)
-output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+output_tag = "steady_age_seconds_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 matrix_plots_dir = joinpath(M_dir, "plots")
 mkpath(matrix_plots_dir)
 
@@ -206,7 +206,7 @@ if LUMP_AND_SPRAY
     @info "Solving coarsened linear system (Mc \\ -1)"
     flush(stdout); flush(stderr)
     cache = init(LinearProblem(Mc, -ones(n_solve)), solver, rtol = 1.0e-12)
-    @time "1st solve" age_vec = SPRAY * solve!(cache).u / year
+    @time "1st solve" age_vec = SPRAY * solve!(cache).u
 
     # 2nd solve (reuses cached factorization)
     @info "2nd solve with random RHS"
@@ -218,14 +218,14 @@ if LUMP_AND_SPRAY
     age_3D[idx] .= age_vec
 
     vol_mean = sum(age_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean coarsened steady age: $(vol_mean) years"
+    @info "Volume-weighted mean coarsened steady age: $(vol_mean / year) years"
 else
     # ── Full linear solve ──
     n_solve = size(M, 1)
     @info "Solving full linear system (M \\ -1)"
     flush(stdout); flush(stderr)
     cache = init(LinearProblem(M, -ones(n_solve)), solver, rtol = 1.0e-12)
-    @time "1st solve" age_vec = solve!(cache).u / year
+    @time "1st solve" age_vec = solve!(cache).u
 
     # 2nd solve (reuses cached factorization)
     @info "2nd solve with random RHS"
@@ -237,10 +237,10 @@ else
     age_3D[idx] .= age_vec
 
     vol_mean = sum(age_vec .* v1D) / sum(v1D)
-    @info "Volume-weighted mean full steady age: $(vol_mean) years"
+    @info "Volume-weighted mean full steady age: $(vol_mean / year) years"
 end
 
-fig, ax, plt = hist(age_vec)
+fig, ax, plt = hist(age_vec ./ year)
 save(joinpath(matrix_plots_dir, "$(output_tag)_histogram.png"), fig)
 
 output_file = joinpath(M_dir, "$(output_tag).jld2")

@@ -96,7 +96,7 @@ else  # "M_traf"
     "M_traf.jld2"
 end
 
-output_tag = "steady_age_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+output_tag = "steady_age_seconds_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
 
 matrices_dir = joinpath(outputdir, "TM", model_config)
 M_dir = joinpath(matrices_dir, TM_SOURCE)
@@ -210,9 +210,9 @@ x_cpu = Array(x_gpu)
 if LUMP_AND_SPRAY
     @info "Projecting coarsened solution back to full grid (SPRAY * x)"
     flush(stdout); flush(stderr)
-    age_vec = SPRAY * x_cpu / year
+    age_vec = SPRAY * x_cpu
 else
-    age_vec = x_cpu / year
+    age_vec = x_cpu
 end
 
 age_3D = zeros(Float64, Nwet)
@@ -220,9 +220,9 @@ age_3D[idx] .= age_vec
 
 vol_mean = sum(age_vec .* v1D) / sum(v1D)
 tag_label = LUMP_AND_SPRAY ? "coarsened" : "full"
-@info "Volume-weighted mean $tag_label steady age: $(vol_mean) years"
+@info "Volume-weighted mean $tag_label steady age: $(vol_mean / year) years"
 
-fig, ax, plt = hist(age_vec)
+fig, ax, plt = hist(age_vec ./ year)
 save(joinpath(matrix_plots_dir, "$(output_tag)_histogram.png"), fig)
 
 output_file = joinpath(M_dir, "$(output_tag).jld2")

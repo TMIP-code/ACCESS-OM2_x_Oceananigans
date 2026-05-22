@@ -42,12 +42,13 @@ ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | we
 TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
 TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base (see docs/timestep_multiplier.md)
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
-TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no
+TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no — when yes, save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # yes | no
-MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}             # raw | symfill | dropzeros | symdrop
-INITIAL_AGE=${INITIAL_AGE:-TMage}                       # TMage | 0 | <path to .jld2>
+MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropzeros | symdrop
+INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
+TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV)
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
@@ -102,7 +103,7 @@ if [ "$TRAF" = "yes" ]; then
 fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
-export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE
+export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
 export TRAF TRAF_TM_SOURCE
 

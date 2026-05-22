@@ -26,6 +26,7 @@ source scripts/env_defaults.sh
 [ -n "${LUMP_AND_SPRAY:-}" ] && export LUMP_AND_SPRAY && echo "LUMP_AND_SPRAY=$LUMP_AND_SPRAY"
 [ -n "${MATRIX_PROCESSING:-}" ] && export MATRIX_PROCESSING && echo "MATRIX_PROCESSING=$MATRIX_PROCESSING"
 [ -n "${INITIAL_AGE:-}" ] && export INITIAL_AGE && echo "INITIAL_AGE=$INITIAL_AGE"
+[ -n "${TM_MODEL_CONFIG:-}" ] && export TM_MODEL_CONFIG && echo "TM_MODEL_CONFIG=$TM_MODEL_CONFIG"
 
 lumpspray_tag="prec"
 [ "${LUMP_AND_SPRAY:-no}" = "yes" ] && lumpspray_tag="LSprec"

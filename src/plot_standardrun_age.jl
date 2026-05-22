@@ -142,14 +142,13 @@ TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 age_base = TRAF ? "age_traf" : "age"
 tracer_title = TRAF ? "TRAF age (time to re-emergence)" : "age"
 
-age_years_3D = age_data ./ year
 label = "$(age_base)_$(DURATION)_$(ADVECTION_SCHEME)"
 
 @info "Generating static age diagnostic plots"
 flush(stdout); flush(stderr)
 
 plot_age_diagnostics(
-    age_years_3D, grid, wet3D, vol_3D, age_output_dir, label;
+    age_data, grid, wet3D, vol_3D, age_output_dir, label;
     colorrange, levels,
 )
 

@@ -113,7 +113,7 @@ Nx′, Ny′, Nz′ = size(wet3D)
 
 vol_3D = Array(interior(compute_volume(grid)))
 
-age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)    # age in years, NaN-masked
+age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)    # age in seconds, NaN-masked
 
 ################################################################################
 # Plot settings
@@ -160,7 +160,7 @@ n_avg = n_times - 1
 fill!(age_buf, 0.0)
 for n in 1:n_avg
     age_raw = interior(age_fts[n])
-    @. age_buf += ifelse(wet3D, age_raw / year, 0.0)
+    @. age_buf += ifelse(wet3D, age_raw, 0.0)
 end
 @. age_buf = ifelse(wet3D, age_buf / n_avg, NaN)
 
