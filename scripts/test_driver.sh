@@ -162,11 +162,13 @@ has_step reducedfield && \
     submit_job reducedfield 00:10:00 scripts/tests/run_reduced_field_test.sh \
         --queue express --ngpus 0 --ncpus 4 --mem 47GB > /dev/null
 
-# Helper: build MODEL_CONFIG for a given w-formulation tag
+# Helper: build MODEL_CONFIG for a given w-formulation tag.
+# Mirrors `build_model_config` in src/shared_utils/config.jl — keep in sync.
 _wmc() {
     local wf=$1 suffix=""
     [ "$GM_REDI" = "yes" ] && suffix="${suffix}_GMREDI"
     [ "$MONTHLY_KAPPAV" = "yes" ] && suffix="${suffix}_mkappaV"
+    [ "${TIMESTEP_MULT:-1}" -gt 1 ] && suffix="${suffix}_DTx${TIMESTEP_MULT}"
     echo "${VELOCITY_SOURCE}_${wf}_${ADVECTION_SCHEME}_${TIMESTEPPER}${suffix}"
 }
 
