@@ -212,7 +212,10 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
             error("INITIAL_AGE=latest but no newton_iterate_*.jld2 files found in $solver_output_dir")
         # Lexical sort works because NN is zero-padded
         latest_file = joinpath(solver_output_dir, last(sort(iter_files)))
-        @info "INITIAL_AGE=latest resolved to $latest_file"
+        # Parse NN from filename so save_newton_iterate! can continue numbering
+        m = match(r"newton_iterate_(\d+)\.jld2$", latest_file)
+        g_count_base[] = parse(Int, m.captures[1])
+        @info "INITIAL_AGE=latest resolved to $latest_file (g_count_base=$(g_count_base[]))"
         flush(stdout); flush(stderr)
         age_data = load(latest_file, "age")
         age_data isa AbstractVector ||
@@ -232,7 +235,11 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
         length(age_data) == Nidx ||
             error("INITIAL_AGE file $INITIAL_AGE: length $(length(age_data)) ≠ Nidx ($Nidx)")
         age_init_vec .= age_data
-        @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year
+        # If the explicit path matches newton_iterate_NN.jld2, parse NN so a
+        # manual restart from a specific iterate also continues numbering.
+        m = match(r"newton_iterate_(\d+)\.jld2$", INITIAL_AGE)
+        m === nothing || (g_count_base[] = parse(Int, m.captures[1]))
+        @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year g_count_base = g_count_base[]
     end
     flush(stdout); flush(stderr)
 
@@ -249,6 +256,13 @@ end
 Φ_call_count = Ref(0)   # incremented in Φ!_body
 G_call_count = Ref(0)   # incremented in G!
 jvp_call_count = Ref(0) # incremented in jvp!
+
+# When restarting via INITIAL_AGE=latest (or an explicit
+# newton_iterate_NN.jld2 path), `load_initial_age` sets this to the NN
+# parsed from the loaded filename. `save_newton_iterate!` then numbers
+# subsequent iterates as NN+1, NN+2, ... so a chain of restarts produces
+# a monotonically growing sequence on disk instead of overwriting from 01.
+g_count_base = Ref(0)
 
 """
     Φ!_body(age_out, age_in; source_rate = 1.0)
@@ -340,12 +354,15 @@ end
 
 When `TRACE_SOLVER_HISTORY=yes`, save the current Newton iterate xₙ (the
 input to G!) on rank 0 as `newton_iterate_NN.jld2` in `solver_output_dir`.
-Iterate index NN = G_call_count - 1, so x₁ is saved on the 2nd G! call,
-x₂ on the 3rd, etc.; x₀ (the initial guess) is never saved.
+Iterate index `NN = G_call_count - 1 + g_count_base`, so on a fresh run
+(`g_count_base = 0`) x₁ is saved on the 2nd G! call, x₂ on the 3rd, etc.;
+on a restart (`g_count_base = N` parsed from the loaded
+`newton_iterate_N.jld2`), the 2nd G! call saves x_{N+1} and so on, so
+chained restarts produce a monotonically growing sequence.
 """
 function save_newton_iterate!(age_vec)
     (TRACE_SOLVER_HISTORY && rank == 0 && G_call_count[] > 1) || return nothing
-    NN = G_call_count[] - 1
+    NN = G_call_count[] - 1 + g_count_base[]
     iter_str = @sprintf("%02d", NN)
     final_path = joinpath(solver_output_dir, "newton_iterate_$(iter_str).jld2")
     jldsave(final_path; age = age_vec)
