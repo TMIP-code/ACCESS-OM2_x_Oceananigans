@@ -123,3 +123,25 @@ After both jobs in a driver complete, the corresponding log files and
 | 2026-05-23 | 1×2    | 169088809.gadi-pbs | 169088810.gadi-pbs | ❌ failed (unrelated) | A1 exit=1 (05:23) with "Partition halo-size mismatch": pre-partitioned 1×2 FTS files on disk were built with halo=13 but env_defaults.sh uses GRID_HX/HY=7. Rebuild via `PARTITION=1x2 JOB_CHAIN=partition bash scripts/driver.sh` (or match halos). Not a bug in the restart/units work — serial pair validates the restart machinery; the 1×2 pair would additionally validate that `save_newton_iterate!` is rank-0-only. |
 | 2026-05-23 | partition | 169092989.gadi-pbs | — | ✅ pass | Partition rebuild on express (03:38, exit 0) to fix the halo mismatch above. Rewrites `preprocessed_inputs/.../1968-1977/partitions/1x2/{u,v,w}_from_total_transport_monthly_rank{0,1}.jld2` with current GRID_HX/HY/HZ=7,7,2. Prerequisite for the next 1×2 NK pair. |
 | 2026-05-23 | 1×2    | 169107705.gadi-pbs | 169107707.gadi-pbs | ✅ pass (1, 2, 3, 4, 5, 6) | A1 exit=0 (21:34, 5 saves NN=01..05); A2 exit=0 (13:17, resolved to newton_iterate_05.jld2, 3 saves overwriting NN=01..03). NN=04..05 from A1 preserved. Check 4: retcode=Success, total_Φ_calls=6. JLD2 inspection: Vector{Float64}, length 2 707 869, extrema in years ≈ (−143, 2371). Confirms `save_newton_iterate!` rank-0-only path works under distributed NK. |
+
+### Chain-restart numbering test (no NK_MAXITERS)
+
+After commit `057e1b7` (restart-aware iterate numbering), I cleaned the
+serial and 1×2 NK output dirs down to `newton_iterate_05.jld2` only and
+resubmitted a single A2 run in each layout, both with `INITIAL_AGE=latest`
+and **no `NK_MAXITERS`** (default cap = 1000).
+
+Both pairs converged identically:
+
+| Driver | Job | Exit | Wall | Solver result | Saved iterates | Notes |
+|---|---|---|---|---|---|---|
+| serial | 169110479.gadi-pbs | 0 | 09:17 | retcode=Success, total_Φ_calls=6, total_G_calls=4, total_jvp_calls=2 | NN=06, 07, 08 (n= values match) | g_count_base=5 confirmed in log |
+| 1×2    | 169110480.gadi-pbs | 0 | 13:16 | retcode=Success, total_Φ_calls=6, total_G_calls=4, total_jvp_calls=2 | NN=06, 07, 08 | g_count_base=5 confirmed in log |
+
+Resulting `solver_output_dir` contents (both layouts):
+`newton_iterate_05.jld2` (preserved from prior A1) + `newton_iterate_{06,07,08}.jld2` (this run).
+
+This validates: (a) free-running NK (no MaxIters) reaches the same
+convergence in both layouts (`Success`, 4 G! calls, 6 Φ! calls), and
+(b) chained restarts produce a monotonically growing
+`newton_iterate_NN.jld2` sequence instead of overwriting from 01.
