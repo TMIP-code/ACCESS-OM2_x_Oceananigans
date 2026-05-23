@@ -53,6 +53,19 @@ bash test/run_NK_restart_test_1x2.sh
 
 Each script prints the two PBS job IDs (A1, A2). Monitor with `qstat <A1> <A2>`.
 
+The 1×2 test additionally depends on pre-partitioned FTS files matching
+the runtime halo (default `GRID_HX/HY/HZ=7,7,2`). If they were built with
+different halos you will hit a `Partition halo-size mismatch` error on
+load. Rebuild via:
+
+```bash
+PARENT_MODEL=ACCESS-OM2-1 TIME_WINDOW=1968-1977 \
+    VELOCITY_SOURCE=totaltransport W_FORMULATION=wprescribed \
+    PRESCRIBED_W_SOURCE=parent TIMESTEPPER=AB2 TIMESTEP_MULT=4 \
+    MONTHLY_KAPPAV=yes GPU_QUEUE=gpuvolta PARTITION=1x2 \
+    JOB_CHAIN=partition bash scripts/driver.sh
+```
+
 ## Expected log paths
 
 Logs land under
@@ -108,3 +121,5 @@ After both jobs in a driver complete, the corresponding log files and
 | 2026-05-22 | 1×2    | 169075833.gadi-pbs | 169075834.gadi-pbs | ❌ failed | Same failure mode as serial. Submitted from main @ 0469008. |
 | 2026-05-23 | serial | 169088807.gadi-pbs | 169088808.gadi-pbs | ✅ pass (1, 2, 3, 4, 5, 6) | A1 exit=0 (18:12, 5 saves NN=01..05); A2 exit=0 (08:29, resolved to newton_iterate_05.jld2, 3 saves). JLD2 inspection: Vector{Float64}, length 2 707 869, extrema in years ≈ (−143, 2371). |
 | 2026-05-23 | 1×2    | 169088809.gadi-pbs | 169088810.gadi-pbs | ❌ failed (unrelated) | A1 exit=1 (05:23) with "Partition halo-size mismatch": pre-partitioned 1×2 FTS files on disk were built with halo=13 but env_defaults.sh uses GRID_HX/HY=7. Rebuild via `PARTITION=1x2 JOB_CHAIN=partition bash scripts/driver.sh` (or match halos). Not a bug in the restart/units work — serial pair validates the restart machinery; the 1×2 pair would additionally validate that `save_newton_iterate!` is rank-0-only. |
+| 2026-05-23 | partition | 169092989.gadi-pbs | — | ✅ pass | Partition rebuild on express (03:38, exit 0) to fix the halo mismatch above. Rewrites `preprocessed_inputs/.../1968-1977/partitions/1x2/{u,v,w}_from_total_transport_monthly_rank{0,1}.jld2` with current GRID_HX/HY/HZ=7,7,2. Prerequisite for the next 1×2 NK pair. |
+| 2026-05-23 | 1×2    | 169107705.gadi-pbs | 169107707.gadi-pbs | ✅ pass (1, 2, 3, 4, 5, 6) | A1 exit=0 (21:34, 5 saves NN=01..05); A2 exit=0 (13:17, resolved to newton_iterate_05.jld2, 3 saves overwriting NN=01..03). NN=04..05 from A1 preserved. Check 4: retcode=Success, total_Φ_calls=6. JLD2 inspection: Vector{Float64}, length 2 707 869, extrema in years ≈ (−143, 2371). Confirms `save_newton_iterate!` rank-0-only path works under distributed NK. |
