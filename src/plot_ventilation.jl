@@ -51,14 +51,25 @@ TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 leg_tag = TRAF ? "adjoint" : "forward"
 field_label = TRAF ? raw"$\mathcal{V}\!\!\downarrow_\mathrm{traf}$" : raw"$\mathcal{V}\!\!\downarrow_\mathrm{iaf}$"
 
+ls = parse_lump_and_spray()
+
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
-nk_output_dir = isempty(gpu_tag) ?
-    joinpath(outputdir, "periodic", model_config, "NK") :
-    joinpath(outputdir, "periodic", model_config, gpu_tag, "NK")
+
+periodic_root = isempty(gpu_tag) ?
+    joinpath(outputdir, "periodic", model_config) :
+    joinpath(outputdir, "periodic", model_config, gpu_tag)
+
+# Mirror compute_ventilation_diagnostic.jl's search: prefer the new naming, fall back to legacy `NK/`.
+candidate_dirs = unique([joinpath(periodic_root, "NK$(ls.dir_suffix)"), joinpath(periodic_root, "NK")])
+hit = findfirst(d -> isfile(joinpath(d, "ventilation.jld2")), candidate_dirs)
+hit === nothing && error(
+    "ventilation.jld2 not found. Tried: " * join(candidate_dirs, ", ") *
+        ". Run compute_ventilation_diagnostic.jl first.",
+)
+nk_output_dir = candidate_dirs[hit]
 ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
-isfile(ventilation_file) || error("Ventilation file not found: $ventilation_file (run compute_ventilation_diagnostic.jl first)")
 
 plot_dir = joinpath(nk_output_dir, "plots")
 mkpath(plot_dir)

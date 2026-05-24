@@ -79,16 +79,28 @@ LUMP_AND_SPRAY = ls.on
 lumpspray_tag = ls.tag
 
 # Match solve_periodic_NK.jl's output directory layout: serial → periodic/{MC}/NK[_QAxB],
-# distributed → periodic/{MC}/{px}x{py}/NK[_QAxB].
+# distributed → periodic/{MC}/{px}x{py}/NK[_QAxB]. Pre-refactor runs saved under
+# plain `NK/` with `age_<solver>_LSprec.jld2`; we accept either.
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
-nk_dirname = "NK$(ls.dir_suffix)"
-nk_output_dir = isempty(gpu_tag) ?
-    joinpath(outputdir, "periodic", model_config, nk_dirname) :
-    joinpath(outputdir, "periodic", model_config, gpu_tag, nk_dirname)
-nk_file = joinpath(nk_output_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
-isfile(nk_file) || error("Converged NK solution not found: $nk_file")
+
+periodic_root = isempty(gpu_tag) ?
+    joinpath(outputdir, "periodic", model_config) :
+    joinpath(outputdir, "periodic", model_config, gpu_tag)
+
+candidates = [
+    (joinpath(periodic_root, "NK$(ls.dir_suffix)"), "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2"),
+    (joinpath(periodic_root, "NK"), "age_$(LINEAR_SOLVER)_LSprec.jld2"),
+    (joinpath(periodic_root, "NK"), "age_$(LINEAR_SOLVER)_prec.jld2"),
+]
+hit = findfirst(((d, f),) -> isfile(joinpath(d, f)), candidates)
+hit === nothing && error(
+    "No converged NK age file found. Tried:\n" *
+        join(["  " * joinpath(d, f) for (d, f) in candidates], "\n"),
+)
+nk_output_dir, nk_filename = candidates[hit]
+nk_file = joinpath(nk_output_dir, nk_filename)
 
 ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
 
