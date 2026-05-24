@@ -21,9 +21,15 @@
   - To compare against `no`/`cell`/`mix`/`minmax`, rebuild the
     corresponding partitions first (`JOB_CHAIN=partition LOAD_BALANCE=…`).
     Not on the critical path — LB=surface is good enough to proceed.
-- **TMbuild + NK_5x5**: to be submitted as a chain at `LOAD_BALANCE=surface`
-  (NK depends on TMbuild via PBS afterok). MC =
-  `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
+- **TMbuild + NK_5x5 (in flight)**: ⏳ chain at `LOAD_BALANCE=surface`,
+  `LUMP_AND_SPRAY=5x5`. TMbuild = `169132266` (normal queue, 4 h walltime),
+  NK_5x5 = `169132267` (gpuhopper 1×4, 24 h walltime, afterok on TMbuild).
+  MC = `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
+- **Partition rebuilds + run1yr (in flight)**:
+  - LB=no: partition `169132252` (megamem 1.4 TB) → run1yr `169132253`.
+  - LB=cell: partition `169132264` (megamem 1.4 TB) → run1yr `169132265`.
+  - These complete the LB sweep retroactively; the NK chain doesn't wait
+    on them.
 
 ## Context
 
@@ -373,6 +379,12 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 | 2026-05-24 | `169128254` | run1yr LB sweep | LB=no | ❌ 11 min | partition halo mismatch — `1x4` was built at halo=(13,13,7); runtime wants (7,7,2). Needs `JOB_CHAIN=partition` to rebuild. |
 | 2026-05-24 | `169128255` | run1yr LB sweep | LB=surface | ✅ 52 min | 337 GB used. Only working LB so far. **Picked for TMbuild + NK.** |
 | 2026-05-24 | `169128256` | run1yr LB sweep | LB=cell | 🗑 killed | `1x4_LB` partition halo=(19,19,7), also stale. Killed before run to save compute. |
+| 2026-05-24 | `169132252` | partition rebuild | LB=no | ⏳ running | Megamem 1.4 TB, 2 h walltime. Rebuilds `1x4` with halo=(7,7,2). |
+| 2026-05-24 | `169132253` | run1yr rerun | LB=no | ⏸ held (afterok 169132252) | |
+| 2026-05-24 | `169132264` | partition rebuild | LB=cell | ⏳ running | Megamem 1.4 TB. Rebuilds `1x4_LB`. |
+| 2026-05-24 | `169132265` | run1yr rerun | LB=cell | ⏸ held (afterok 169132264) | |
+| 2026-05-24 | `169132266` | TMbuild | LBS | ⏳ queued | normal queue, 192 GB, 4 h. Builds `M.jld2` at the target MC. |
+| 2026-05-24 | `169132267` | **NK_5x5** | LBS / 5×5 | ⏸ held (afterok 169132266) | gpuhopper 1×4, 24 h walltime. First real NK at OM2-01. |
 
 ## Out of scope
 
