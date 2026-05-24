@@ -206,13 +206,13 @@ gridmetrics = (; lon = lon2D, lat = lat2D, lon_vertices, lat_vertices)
 lon_window_start = 20  # matches plotmap!'s default
 
 function add_coastlines!(ax)
-    coast = GeoMakie.coastlines()
-    lines!(ax, coast; color = :black, linewidth = 0.7)
+    coast = GeoMakie.coastlines()   # Vector{LineString{2, Float32}}
+    cl1 = lines!(ax, coast; color = :black, linewidth = 0.7)
+    translate!(cl1, 0, 0, 50)
     # Add a +360-shifted copy so coastlines cover the full [20, 380] window.
-    coast_shifted = map(coast) do pt
-        x, y = pt[1], pt[2]
-        return isnan(x) ? pt : typeof(pt)(x + 360, y)
-    end
+    coast_shifted = [
+        LineString([Point2f(p[1] + 360, p[2]) for p in pts]) for pts in coast
+    ]
     cl2 = lines!(ax, coast_shifted; color = :black, linewidth = 0.7)
     translate!(cl2, 0, 0, 50)
     return nothing
@@ -222,16 +222,40 @@ end
 # Colour scales and palettes
 ################################################################################
 
+# Pasquier 2024 spec is [0, 10, 30, 100, 300, 1000] %v_tot/(10,000 km²), tuned to
+# sub-basin v_tot (deep ETP, etc.). Whole-ocean v_tot here is ~50× larger, so the
+# data falls well below 10 — pick a log-decade ladder of the same shape sized to
+# the actual data max. Override by setting VENT_LEVELS_P (the lowest non-zero
+# level) explicitly, e.g. VENT_LEVELS_P=10 to recover the Pasquier set.
+function pick_levels(maxv; user_p = nothing)
+    p = if user_p !== nothing
+        user_p
+    else
+        # Place maxv between the 4th (30p) and 5th (100p) levels.
+        k = floor(Int, log10(maxv / 30))
+        10.0^k
+    end
+    return Float32[0, p, 3p, 10p, 30p, 100p]
+end
+
+user_p = (haskey(ENV, "VENT_LEVELS_P") && !isempty(ENV["VENT_LEVELS_P"])) ?
+    parse(Float64, ENV["VENT_LEVELS_P"]) : nothing
+maxv_mean = max(maximum(filter(isfinite, calV1)), maximum(filter(isfinite, calV2)))
+levels_mean = pick_levels(maxv_mean; user_p)
+@info "Mean panel levels = $levels_mean  (data max ≈ $maxv_mean)"
+
 # Mean panels: orange ramp with white at low end.
-levels_mean = Float32[0, 10, 30, 100, 300, 1000]
 cm_mean = cgrad(withwhitelow(Makie.ColorSchemes.Oranges), length(levels_mean); categorical = true)
 highclip_mean = cm_mean[end]
 cm_mean = cgrad(collect(cm_mean[1:(end - 1)]); categorical = true)
 scale_mean = mk_piecewise_linear(levels_mean)
 plot_levels_mean = scale_mean.(levels_mean)
 
-# Diff panels: diverging :tol_bu_rd with white at zero (ACCESS-TMIP pattern).
-levels_diff = Float32[-300, -100, -30, -10, 0, 10, 30, 100, 300]
+# Diff panels: same ladder, mirrored around 0.
+maxv_diff = maximum(abs, filter(isfinite, calV_diff))
+diff_pos = pick_levels(maxv_diff; user_p)
+levels_diff = Float32[-reverse(diff_pos[2:end]); 0; diff_pos[2:end]]
+@info "Diff panel levels = $levels_diff  (data |max| ≈ $maxv_diff)"
 cm_diff_full = cgrad(
     cgrad(:tol_bu_rd, length(levels_diff), categorical = true)[[1:(end ÷ 2 + 1); (end ÷ 2 + 1):end]],
     categorical = true,
