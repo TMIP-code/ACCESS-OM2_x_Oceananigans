@@ -11,13 +11,19 @@
   (job `169125041`, in `../ACCESS-TMIP/`). Didn't reach Pardiso —
   yields no memory/time data for the sweep. Probe needs an input path
   fix before retry.
-- **LB sweep (in flight)**: ⏳ jobs `169128254` (no), `169128255` (surface),
-  `169128256` (cell) submitted at 2026-05-24 16:00 UTC — 1-year run1yr at
-  OM2-01 1×4 wparent; pick the LB with the lowest walltime to use for
-  TMbuild + NK. `mix`/`minmax` skipped (partitions not built).
-- **TMbuild for OM2-01**: ❌ M.jld2 does **not** exist in this repo.
-  Will submit TMbuild → NK_5x5 chain once LB sweep picks a winner (the
-  LB tag enters MODEL_CONFIG and changes the M.jld2 path).
+- **LB sweep (done, winner = `surface`)**: only `1x4_LBS` had a current
+  halo=(7,7,2) partition — `1x4` and `1x4_LB` were stale (halo=(13,13,7)
+  and (19,19,7) respectively, from earlier experiments).
+  - `169128254` (LB=no): ❌ failed at 11 min — partition halo mismatch.
+  - `169128255` (LB=surface): ✅ 52 min, 337 GB.
+  - `169128256` (LB=cell): killed before running (partition stale; would
+    have failed identically).
+  - To compare against `no`/`cell`/`mix`/`minmax`, rebuild the
+    corresponding partitions first (`JOB_CHAIN=partition LOAD_BALANCE=…`).
+    Not on the critical path — LB=surface is good enough to proceed.
+- **TMbuild + NK_5x5**: to be submitted as a chain at `LOAD_BALANCE=surface`
+  (NK depends on TMbuild via PBS afterok). MC =
+  `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
 
 ## Context
 
@@ -364,9 +370,9 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 |---|---|---|---|---|---|
 | 2026-05-24 | `169124672` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed in 24 s | quick fail; presumed config/path issue (no log content captured here) |
 | 2026-05-24 | `169125041` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed at 8 min | NetCDF "no such file or directory" at `compute_age_ACCESS-OM2-01_5x5.jl:61`; never reached Pardiso. Used 16 GB / 24 CPU on hugemem. |
-| 2026-05-24 | `169128254` | run1yr LB sweep | LB=no | ⏳ queued | OM2-01 1×4 wparent; pick winner for TMbuild + NK |
-| 2026-05-24 | `169128255` | run1yr LB sweep | LB=surface | ⏳ queued | same |
-| 2026-05-24 | `169128256` | run1yr LB sweep | LB=cell | ⏳ queued | same |
+| 2026-05-24 | `169128254` | run1yr LB sweep | LB=no | ❌ 11 min | partition halo mismatch — `1x4` was built at halo=(13,13,7); runtime wants (7,7,2). Needs `JOB_CHAIN=partition` to rebuild. |
+| 2026-05-24 | `169128255` | run1yr LB sweep | LB=surface | ✅ 52 min | 337 GB used. Only working LB so far. **Picked for TMbuild + NK.** |
+| 2026-05-24 | `169128256` | run1yr LB sweep | LB=cell | 🗑 killed | `1x4_LB` partition halo=(19,19,7), also stale. Killed before run to save compute. |
 
 ## Out of scope
 
