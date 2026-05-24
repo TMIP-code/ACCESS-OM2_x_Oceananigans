@@ -21,10 +21,16 @@
   - To compare against `no`/`cell`/`mix`/`minmax`, rebuild the
     corresponding partitions first (`JOB_CHAIN=partition LOAD_BALANCE=…`).
     Not on the critical path — LB=surface is good enough to proceed.
-- **TMbuild + NK_5x5 (in flight)**: ⏳ chain at `LOAD_BALANCE=surface`,
-  `LUMP_AND_SPRAY=5x5`. TMbuild = `169132266` (normal queue, 4 h walltime),
-  NK_5x5 = `169132267` (gpuhopper 1×4, 24 h walltime, afterok on TMbuild).
-  MC = `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
+- **TMbuild + NK_5x5**:
+  - 1st attempt: TMbuild `169132266` (normal, 192 GB) ❌ **OOM** at 34 min
+    (used 186 GB, SIGKILL/exit 137); NK `169132267` purged when afterok
+    failed.
+  - 2nd attempt (in flight, commit `d1cc86d`): TMbuild `169134142` on
+    **hugemem 24 CPU / 768 GB / 4 h**; NK `169134143` held on it.
+  - Per-model TMbuild mem/queue/ncpus overrides now wired through driver
+    (`TMBUILD_QUEUE`/`MEM`/`NCPUS`); OM2-01 model config sets hugemem +
+    768 GB. OM2-1/025 unchanged.
+  - MC = `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
 - **Partition rebuilds + run1yr (in flight)**:
   - LB=no: partition `169132252` (megamem 1.4 TB) → run1yr `169132253`.
   - LB=cell: partition `169132264` (megamem 1.4 TB) → run1yr `169132265`.
@@ -383,8 +389,12 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 | 2026-05-24 | `169132253` | run1yr rerun | LB=no | ⏸ held (afterok 169132252) | |
 | 2026-05-24 | `169132264` | partition rebuild | LB=cell | ⏳ running | Megamem 1.4 TB. Rebuilds `1x4_LB`. |
 | 2026-05-24 | `169132265` | run1yr rerun | LB=cell | ⏸ held (afterok 169132264) | |
-| 2026-05-24 | `169132266` | TMbuild | LBS | ⏳ queued | normal queue, 192 GB, 4 h. Builds `M.jld2` at the target MC. |
-| 2026-05-24 | `169132267` | **NK_5x5** | LBS / 5×5 | ⏸ held (afterok 169132266) | gpuhopper 1×4, 24 h walltime. First real NK at OM2-01. |
+| 2026-05-24 | `169132252` | partition rebuild | LB=no | ✅ 47 min | 1.30 TB used. Rebuilt `1x4` at halo=(7,7,2). |
+| 2026-05-24 | `169132264` | partition rebuild | LB=cell | ✅ 42 min | 1.26 TB used. Rebuilt `1x4_LB` at halo=(7,7,2). |
+| 2026-05-24 | `169132266` | TMbuild (1st) | LBS | ❌ 34 min OOM | exit 137; used 186 GB of 192 GB on normal queue. Triggered TMBUILD_MEM override (hugemem 768 GB) in `d1cc86d`. |
+| 2026-05-24 | `169132267` | NK_5x5 (1st) | LBS / 5×5 | 🗑 purged | afterok dep failed when TMbuild OOM'd. |
+| 2026-05-24 | `169134142` | TMbuild (2nd) | LBS | ⏳ running | hugemem 24 CPU / 768 GB / 4 h. Should land `M.jld2`. |
+| 2026-05-24 | `169134143` | **NK_5x5 (2nd)** | LBS / 5×5 | ⏸ held (afterok 169134142) | gpuhopper 1×4, 24 h walltime. First real NK at OM2-01. |
 
 ## Out of scope
 
