@@ -1,26 +1,35 @@
 """
-Compute the surface ventilation diagnostic `calVdown` from a converged
-periodic-NK age solution.
+Compute the surface ventilation diagnostic `calVdown` from the annual mean of
+the 1-year re-run of a converged periodic-NK age solution.
 
 For each (parent model, experiment, time window, model config) combination,
-this script loads the converged 3D age field from
-  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK/age_{LINEAR_SOLVER}_{tag}.jld2
-and writes the 2D surface ventilation field to
+this script loads the 1-year periodic age `FieldTimeSeries` from
+  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/1year/{solver_tag}/age_periodic_1year.jld2
+time-averages the surface layer over the first N−1 of the N half-monthly
+snapshots (the last snapshot is the periodicity check — redundant with n=1),
+and writes both the raw (m³/m² = m) and the normalised (`% v_tot / (10,000 km²)`)
+ventilation fields to
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK/ventilation.jld2
 
 Definition (Pasquier *et al.* 2024, doi:10.1029/2024JC021043; see also
-docs/TRAF_simulations.md):
+docs/ventilation_figures.md):
 
-  calVdown(i, j) = V(i, j, Nz) * age(i, j, Nz) / (τ * A(i, j))
-                 = Δz_top * age(i, j, Nz) / τ
+  calVdown_raw(i, j) = V(i, j, Nz) * mean_n age(i, j, Nz, n) / (τ * A(i, j, Nz))
+                     = Δz_top * mean_n age(i, j, Nz, n) / τ      [units: m]
 
-where Nz is the top (surface) k-index, V the cell volume, A the horizontal
-cell area, and τ = 3·Δt the same surface-sink relaxation timescale used
-inside the forward integrator. Units: metres.
+  calVdown_norm(i, j) = calVdown_raw(i, j) * 1e12 / v_tot         [% v_tot / (10,000 km²)]
+
+with τ = 3·Δt (matches `setup_model.jl:347` — `relaxation_timescale = 3Δt`),
+v_tot = Σ V(i, j, k) over all wet cells, and the 1e12 prefactor coming from
+1e10 m²/(10,000 km²) × 100 (percent of v_tot).
+
+The script writes a self-describing JLD2 with keys
+  calVdown_raw, calVdown_norm, wet_surf, Az_surf, V_surf, age_surf,
+  vtot, tau_seconds, n_avg, units, formula
 
 This script handles both the forward (IAF) and adjoint (TRAF) legs
 uniformly — the `_traf` suffix on `model_config` is appended automatically
-by `build_model_config` when `TRAF=yes`, and the NK output directory is
+by `build_model_config` when `TRAF=yes`, and the directory layouts are
 resolved accordingly.
 
 Runs on CPU only; no GPU required.
@@ -54,6 +63,7 @@ using Oceananigans
 using Oceananigans.Architectures: CPU
 using JLD2
 using Printf
+using Statistics
 
 @info "Packages loaded"
 flush(stdout); flush(stderr)
@@ -78,9 +88,15 @@ ls = parse_lump_and_spray()
 LUMP_AND_SPRAY = ls.on
 lumpspray_tag = ls.tag
 
-# Match solve_periodic_NK.jl's output directory layout: serial → periodic/{MC}/NK[_QAxB],
-# distributed → periodic/{MC}/{px}x{py}/NK[_QAxB]. Pre-refactor runs saved under
-# plain `NK/` with `age_<solver>_LSprec.jld2`; we accept either.
+# Path resolution. Two roots:
+#   - periodic_root: parent of both NK and 1year subtrees
+#   - fts_dir:       1year/{solver_tag}/  (data source for the diagnostic)
+#   - nk_output_dir: NK[_QAxB]/           (where ventilation.jld2 is written;
+#                                          stays in NK/ to match plot script's
+#                                          existing layout & old comparisons)
+# Both are searched against new (`{LINEAR_SOLVER}_{lumpspray_tag}`) and legacy
+# (`{LINEAR_SOLVER}_LSprec`, `{LINEAR_SOLVER}_prec`) tag variants, so this
+# script works on the in-flight historical naming.
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
@@ -89,22 +105,35 @@ periodic_root = isempty(gpu_tag) ?
     joinpath(outputdir, "periodic", model_config) :
     joinpath(outputdir, "periodic", model_config, gpu_tag)
 
-candidates = [
-    (joinpath(periodic_root, "NK$(ls.dir_suffix)"), "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2"),
-    (joinpath(periodic_root, "NK"), "age_$(LINEAR_SOLVER)_LSprec.jld2"),
-    (joinpath(periodic_root, "NK"), "age_$(LINEAR_SOLVER)_prec.jld2"),
-]
-hit = findfirst(((d, f),) -> isfile(joinpath(d, f)), candidates)
-hit === nothing && error(
-    "No converged NK age file found. Tried:\n" *
-        join(["  " * joinpath(d, f) for (d, f) in candidates], "\n"),
+# Locate the 1-year FTS (input). Try the new tag first, then legacy "LSprec"/"prec".
+fts_candidates = unique(
+    [
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_$(lumpspray_tag)", "age_periodic_1year.jld2"),
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_LSprec", "age_periodic_1year.jld2"),
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_prec", "age_periodic_1year.jld2"),
+    ]
 )
-nk_output_dir, nk_filename = candidates[hit]
-nk_file = joinpath(nk_output_dir, nk_filename)
+fts_hit = findfirst(isfile, fts_candidates)
+fts_hit === nothing && error(
+    "No 1-year periodic age FieldTimeSeries found. Tried:\n" *
+        join(["  " * f for f in fts_candidates], "\n") *
+        "\nRun the 1-year re-run step (`run1yrNK` in driver.sh) first.",
+)
+fts_file = fts_candidates[fts_hit]
+
+# NK output dir — written next to NK/age_*.jld2 so plot scripts find it where
+# they already look. Same dual-naming fallback as the input.
+nk_candidates = [
+    joinpath(periodic_root, "NK$(ls.dir_suffix)"),
+    joinpath(periodic_root, "NK"),
+]
+nk_hit = findfirst(isdir, nk_candidates)
+nk_output_dir = nk_hit === nothing ? nk_candidates[1] : nk_candidates[nk_hit]
+mkpath(nk_output_dir)
 
 ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
 
-τ = 3 * Δt_seconds   # surface-sink relaxation timescale (s); matches setup_model.jl:351
+τ = 3 * Δt_seconds   # surface-sink relaxation timescale (s); matches setup_model.jl:347
 
 @info "compute_ventilation_diagnostic.jl configuration"
 @info "- PARENT_MODEL    = $parentmodel"
@@ -113,7 +142,7 @@ ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
 @info "- model_config    = $model_config"
 @info "- LINEAR_SOLVER   = $LINEAR_SOLVER"
 @info "- LUMP_AND_SPRAY  = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
-@info "- NK input        = $nk_file"
+@info "- FTS input       = $fts_file"
 @info "- output          = $ventilation_file"
 @info "- τ = 3·Δt        = $(τ) s (= $(τ / 3600) h)"
 flush(stdout); flush(stderr)
@@ -131,71 +160,119 @@ Nx, Ny, Nz = size(grid)
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Load converged NK age
+# Load periodic 1-year age FieldTimeSeries and compute annual mean (surface)
 ################################################################################
 
-@info "Loading converged periodic NK age from $nk_file"
-flush(stdout); flush(stderr)
-nk_data = load(nk_file)
-age_3D = nk_data["age"]                    # (Nx′, Ny′, Nz′), units: seconds (per solve_periodic_NK.jl)
-wet3D = nk_data["wet3D"]
-Nx′, Ny′, Nz′ = size(age_3D)
-@info "Loaded age: size = $(size(age_3D)), wet cells = $(count(wet3D))"
-@assert (Nx′, Ny′, Nz′) == size(wet3D) "age and wet3D shapes disagree"
+@info "Loading age FieldTimeSeries from $fts_file"
 flush(stdout); flush(stderr)
 
-################################################################################
-# Compute surface cell metrics
-################################################################################
-
-@info "Computing surface cell volumes"
+age_fts = FieldTimeSeries(fts_file, "age")
+n_times = length(age_fts.times)
+@info "Found $n_times output timesteps in 1-year FTS"
 flush(stdout); flush(stderr)
 
-vol_3D = interior(compute_volume(grid))    # (Nx′, Ny′, Nz′), m³
-@assert size(vol_3D) == size(age_3D) "volume and age shapes disagree"
+# Wet mask (interior-sized; excludes the tripolar fold point in y)
+(; wet3D, idx, Nidx) = compute_wet_mask(grid)
+Nx′, Ny′, Nz′ = size(wet3D)
+@info "Interior grid: (Nx′=$Nx′, Ny′=$Ny′, Nz′=$Nz′); wet cells = $Nidx"
+flush(stdout); flush(stderr)
 
-# Top (surface) layer is k = Nz′ in Oceananigans (k=1 is bottom).
+# Time-average over snapshots 1..(n_times-1) — skip the final snapshot, which
+# is the periodicity check (redundant with n=1). Mirrors plot_periodic_1year_age.jl
+# lines 159-165 but restricted to the surface layer (k = Nz′).
 k_surf = Nz′
-V_surf = vol_3D[:, :, k_surf]              # (Nx′, Ny′), m³
+wet_surf = wet3D[:, :, k_surf]
+n_avg = n_times - 1
 
-# Horizontal cell area at center: read from grid.jld2 (saved with halos around
-# the full tripolar size; interior fields exclude the fold point in y, so we
-# slice to match age_3D's (Nx′, Ny′) shape).
-Az_full = load(grid_file, "Azᶜᶜᵃ")         # (Nx + 2Hx, Ny_full + 2Hy)
+@info "Time-averaging surface age over first $n_avg of $n_times snapshots"
+flush(stdout); flush(stderr)
+
+age_surf_accum = zeros(Float64, Nx′, Ny′)
+for n in 1:n_avg
+    age_n = interior(age_fts[n])           # (Nx′, Ny′, Nz′), seconds
+    age_surf_n = @view age_n[:, :, k_surf]
+    @. age_surf_accum += ifelse(wet_surf, age_surf_n, 0.0)
+end
+age_surf = similar(age_surf_accum)
+@. age_surf = ifelse(wet_surf, age_surf_accum / n_avg, NaN)
+
+################################################################################
+# Surface cell metrics (V, A) and total wet-cell volume
+################################################################################
+
+@info "Computing cell volumes and total wet-cell volume"
+flush(stdout); flush(stderr)
+
+vol_3D = Array(interior(compute_volume(grid)))  # (Nx′, Ny′, Nz′), m³
+@assert size(vol_3D) == size(wet3D) "compute_volume and wet3D shapes disagree"
+
+V_surf = vol_3D[:, :, k_surf]              # (Nx′, Ny′), m³
+vtot = sum(vol_3D[idx])                    # m³, sum over all wet cells
+
+# Horizontal cell area at center: read from grid.jld2 (stored with halos around
+# the full tripolar size; interior fields exclude the fold point in y).
+Az_full = load(grid_file, "Azᶜᶜᵃ")
 Hx = grid.underlying_grid.Hx
 Hy = grid.underlying_grid.Hy
-Az_surf = Az_full[Hx .+ (1:Nx′), Hy .+ (1:Ny′)]  # (Nx′, Ny′), m²
+Az_surf = Az_full[Hx .+ (1:Nx′), Hy .+ (1:Ny′)]   # (Nx′, Ny′), m²
 @assert size(Az_surf) == size(V_surf) "Az and V shapes disagree after trim"
 
-Δz_top = V_surf[1, 1] / Az_surf[1, 1]      # report only; calVdown uses V/A elementwise
-@info "Surface Δz ≈ $(Δz_top) m (from V/A at (1,1))"
+Δz_top = V_surf[1, 1] / Az_surf[1, 1]      # report only
+@info @sprintf("Surface Δz ≈ %.3f m (from V/A at (1,1))", Δz_top)
+@info @sprintf("Total wet-cell volume v_tot = %.3e m³", vtot)
 
 ################################################################################
-# Ventilation diagnostic
+# Ventilation diagnostic — raw (m) and normalised (% v_tot / (10,000 km²))
 ################################################################################
 
-@info "Computing calVdown = V · age / τ / A (units: m)"
+@info "Computing calVdown_raw = V_surf · ⟨age_surf⟩ / (τ · Az_surf)   [m]"
 flush(stdout); flush(stderr)
 
-age_surf = age_3D[:, :, k_surf]            # (Nx′, Ny′), s
-calVdown = (V_surf .* age_surf) ./ (τ .* Az_surf)  # m³ · s / s / m² = m
+calVdown_raw = (V_surf .* age_surf) ./ (τ .* Az_surf)   # m³ · s / s / m² = m
+calVdown_raw[.!wet_surf] .= NaN
 
-# Mask dry surface cells with NaN
-wet_surf = wet3D[:, :, k_surf]
-calVdown[.!wet_surf] .= NaN
+# Normalisation:  raw [m³/m²] × (1e10 m²/(10,000 km²)) × (100 / v_tot [m³])
+#               =       raw × 1e12 / v_tot              [%·(10,000 km²)⁻¹]
+norm_factor = 1.0e12 / vtot
+calVdown_norm = calVdown_raw .* norm_factor
+calVdown_norm[.!wet_surf] .= NaN
 
 # Sanity check: finite where wet
 n_wet = count(wet_surf)
-n_finite_wet = count(isfinite, calVdown[wet_surf])
-@info "Wet surface cells: $n_wet; finite calVdown among them: $n_finite_wet"
-@assert n_finite_wet == n_wet "Non-finite calVdown at wet surface cells"
+n_finite_wet_raw = count(isfinite, calVdown_raw[wet_surf])
+n_finite_wet_norm = count(isfinite, calVdown_norm[wet_surf])
+@info "Wet surface cells: $n_wet; finite calVdown_raw: $n_finite_wet_raw, finite calVdown_norm: $n_finite_wet_norm"
+@assert n_finite_wet_raw == n_wet "Non-finite calVdown_raw at wet surface cells"
+@assert n_finite_wet_norm == n_wet "Non-finite calVdown_norm at wet surface cells"
 
-cv_min, cv_max = extrema(filter(isfinite, calVdown))
-cv_mean = sum(x for x in calVdown if isfinite(x)) / n_finite_wet
+raw_vals = filter(isfinite, calVdown_raw)
+nrm_vals = filter(isfinite, calVdown_norm)
+raw_min, raw_max = extrema(raw_vals)
+nrm_min, nrm_max = extrema(nrm_vals)
 @info @sprintf(
-    "calVdown stats over wet surface: min = %.3e m, mean = %.3e m, max = %.3e m",
-    cv_min, cv_mean, cv_max
+    "calVdown_raw  [m]:        min = %.3e   mean = %.3e   max = %.3e",
+    raw_min, mean(raw_vals), raw_max
 )
+@info @sprintf(
+    "calVdown_norm [%% / 1e4km²]: min = %.3e   mean = %.3e   max = %.3e",
+    nrm_min, mean(nrm_vals), nrm_max
+)
+for q in (0.5, 0.9, 0.99, 0.999)
+    @info @sprintf("calVdown_norm quantile q=%.3f → %.3e", q, quantile(nrm_vals, q))
+end
+
+# Warn if the data sits well below the plotted lowest level (10) — the user
+# specified [0, 10, 30, 100, 300, 1000] for parity with Pasquier 2024 but the
+# v_tot scaling here uses the *global* ocean (~1.3e18 m³) vs sub-basins in
+# the paper, so absolute %-values are much smaller.
+if quantile(nrm_vals, 0.99) < 1.0
+    @warn """calVdown_norm 99th percentile < 1.0 % v_tot / (10,000 km²), well below
+    the plotted lowest contour level of 10. The map will appear nearly
+    empty with the default level set [0, 10, 30, 100, 300, 1000]. Consider
+    an alternative level set such as [0, 0.01, 0.03, 0.1, 0.3, 1] for a
+    global-ocean v_tot normalisation — but keep the spec'd values as
+    the default per the user's preference.""" q99 = quantile(nrm_vals, 0.99) qmax = nrm_max
+end
 
 ################################################################################
 # Save
@@ -206,14 +283,17 @@ flush(stdout); flush(stderr)
 
 jldsave(
     ventilation_file;
-    calVdown = calVdown,
+    calVdown_raw = calVdown_raw,
+    calVdown_norm = calVdown_norm,
     wet_surf = wet_surf,
     Az_surf = Az_surf,
     V_surf = V_surf,
     age_surf = age_surf,
+    vtot = vtot,
     tau_seconds = τ,
-    units = "metres",
-    formula = "V_surf .* age_surf ./ (tau .* Az_surf)",
+    n_avg = n_avg,
+    units = (raw = "m³/m² (= m)", norm = "% v_tot / (10,000 km²)"),
+    formula = "raw = V_surf .* mean_n(age_surf_n) ./ (tau .* Az_surf); norm = raw .* 1e12 / vtot",
 )
 
 @info "compute_ventilation_diagnostic.jl complete"
