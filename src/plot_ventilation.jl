@@ -362,7 +362,7 @@ hidexdecorations!(ax11; ticks = false, grid = false, ticklabels = true, label = 
 cb1 = Colorbar(
     fig[2, 1], co11;
     vertical = false, flipaxis = false,
-    ticks = (plot_levels_mean, string.(Int.(levels_mean))),
+    ticks = (plot_levels_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
     label = rich("% v", subscript("tot"), " / (10,000 km", superscript("2"), ")"),
 )
 cb1.width = Relative(2 / 3)
