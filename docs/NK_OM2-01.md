@@ -2,19 +2,22 @@
 
 ## Status
 
-- **Code changes**: ✅ landed. Parser + downstream wire-through + shell
-  validator implemented; parser unit tests pass; shell validator accepts
-  `no | AxB` and rejects `yes`/malformed. Hardcoded `(2,2,1)` removed from
-  both call sites (see "Code changes" below).
+- **Code changes**: ✅ landed in commit `7b581cb`. Parser + downstream
+  wire-through + shell validator implemented; parser unit tests pass;
+  shell validator accepts `no | AxB` and rejects `yes`/malformed.
+  Hardcoded `(2,2,1)` removed from both call sites.
 - **5×5 probe (TM age, separate repo)**: ❌ failed at 8 min with NetCDF
   "no such file or directory" at `compute_age_ACCESS-OM2-01_5x5.jl:61`
   (job `169125041`, in `../ACCESS-TMIP/`). Didn't reach Pardiso —
   yields no memory/time data for the sweep. Probe needs an input path
   fix before retry.
-- **5×5 NK test in this repo**: not yet submitted. Can now be submitted
-  cleanly under the new `LUMP_AND_SPRAY=5x5` machinery.
-- **Pre-flight**: TMbuild for OM2-01 is **done** (anchored on the 2×2
-  TM-solve run). 1×4 partition state + LB sweep still TODO.
+- **LB sweep (in flight)**: ⏳ jobs `169128254` (no), `169128255` (surface),
+  `169128256` (cell) submitted at 2026-05-24 16:00 UTC — 1-year run1yr at
+  OM2-01 1×4 wparent; pick the LB with the lowest walltime to use for
+  TMbuild + NK. `mix`/`minmax` skipped (partitions not built).
+- **TMbuild for OM2-01**: ❌ M.jld2 does **not** exist in this repo.
+  Will submit TMbuild → NK_5x5 chain once LB sweep picks a winner (the
+  LB tag enters MODEL_CONFIG and changes the M.jld2 path).
 
 ## Context
 
@@ -357,10 +360,13 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 
 ## Outcome log
 
-| Date | Job ID | Kind | Factor | Result | Notes |
+| Date | Job ID | Kind | Factor / LB | Result | Notes |
 |---|---|---|---|---|---|
 | 2026-05-24 | `169124672` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed in 24 s | quick fail; presumed config/path issue (no log content captured here) |
 | 2026-05-24 | `169125041` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed at 8 min | NetCDF "no such file or directory" at `compute_age_ACCESS-OM2-01_5x5.jl:61`; never reached Pardiso. Used 16 GB / 24 CPU on hugemem. |
+| 2026-05-24 | `169128254` | run1yr LB sweep | LB=no | ⏳ queued | OM2-01 1×4 wparent; pick winner for TMbuild + NK |
+| 2026-05-24 | `169128255` | run1yr LB sweep | LB=surface | ⏳ queued | same |
+| 2026-05-24 | `169128256` | run1yr LB sweep | LB=cell | ⏳ queued | same |
 
 ## Out of scope
 
