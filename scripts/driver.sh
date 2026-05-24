@@ -476,8 +476,12 @@ if has_step TMbuild; then
     TMBUILD_DEPS="$VEL_DEP"
     [ -n "${UPSTREAM_TMBUILD_JOB:-}" ] && \
         TMBUILD_DEPS="${UPSTREAM_TMBUILD_JOB}${TMBUILD_DEPS:+:}${TMBUILD_DEPS}"
+    tmbuild_flags=(--deps "$TMBUILD_DEPS")
+    [ -n "${TMBUILD_QUEUE:-}" ] && tmbuild_flags+=(--queue "${TMBUILD_QUEUE}")
+    [ -n "${TMBUILD_NCPUS:-}" ] && tmbuild_flags+=(--ncpus "${TMBUILD_NCPUS}")
+    [ -n "${TMBUILD_MEM:-}" ]   && tmbuild_flags+=(--mem "${TMBUILD_MEM}")
     TMBUILD_JOB=$(submit_job TMbuild "$WALLTIME_TM_BUILD" \
-        scripts/preprocessing/build_TMconst.sh --deps "$TMBUILD_DEPS")
+        scripts/preprocessing/build_TMconst.sh "${tmbuild_flags[@]}")
 fi
 
 has_step TMsnapshot && \
