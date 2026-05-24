@@ -7,9 +7,13 @@ this script loads the 1-year periodic age `FieldTimeSeries` from
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/1year/{solver_tag}/age_periodic_1year.jld2
 time-averages the surface layer over the first N−1 of the N half-monthly
 snapshots (the last snapshot is the periodicity check — redundant with n=1),
-and writes both the raw (m³/m² = m) and the normalised (`% v_tot / (10,000 km²)`)
-ventilation fields to
+and writes the raw (m³/m² = m) ventilation field to
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK/ventilation.jld2
+
+The `% v_tot / (10,000 km²)` normalisation from Pasquier *et al.* 2024 is
+applied in the plot script `src/plot_ventilation.jl`, not here — the saved
+JLD2 is unit-neutral. The total ocean volume `vtot` is saved so the plot
+script doesn't have to recompute it.
 
 Definition (Pasquier *et al.* 2024, doi:10.1029/2024JC021043; see also
 docs/ventilation_figures.md):
@@ -17,14 +21,12 @@ docs/ventilation_figures.md):
   calVdown_raw(i, j) = V(i, j, Nz) * mean_n age(i, j, Nz, n) / (τ * A(i, j, Nz))
                      = Δz_top * mean_n age(i, j, Nz, n) / τ      [units: m]
 
-  calVdown_norm(i, j) = calVdown_raw(i, j) * 1e12 / v_tot         [% v_tot / (10,000 km²)]
-
 with τ = 3·Δt (matches `setup_model.jl:347` — `relaxation_timescale = 3Δt`),
-v_tot = Σ V(i, j, k) over all wet cells, and the 1e12 prefactor coming from
-1e10 m²/(10,000 km²) × 100 (percent of v_tot).
+v_tot = Σ V(i, j, k) over all wet cells. The plot script applies the
+`1e12 / vtot` prefactor (1e10 m²/(10,000 km²) × 100 % of v_tot).
 
 The script writes a self-describing JLD2 with keys
-  calVdown_raw, calVdown_norm, wet_surf, Az_surf, V_surf, age_surf,
+  calVdown_raw, wet_surf, Az_surf, V_surf, age_surf,
   vtot, tau_seconds, n_avg, units, formula
 
 This script handles both the forward (IAF) and adjoint (TRAF) legs
@@ -222,7 +224,8 @@ Az_surf = Az_full[Hx .+ (1:Nx′), Hy .+ (1:Ny′)]   # (Nx′, Ny′), m²
 @info @sprintf("Total wet-cell volume v_tot = %.3e m³", vtot)
 
 ################################################################################
-# Ventilation diagnostic — raw (m) and normalised (% v_tot / (10,000 km²))
+# Ventilation diagnostic — raw (m). The %v_tot / (10,000 km²) normalisation is
+# applied in plot_ventilation.jl; here we just log it for sanity.
 ################################################################################
 
 @info "Computing calVdown_raw = V_surf · ⟨age_surf⟩ / (τ · Az_surf)   [m]"
@@ -231,47 +234,30 @@ flush(stdout); flush(stderr)
 calVdown_raw = (V_surf .* age_surf) ./ (τ .* Az_surf)   # m³ · s / s / m² = m
 calVdown_raw[.!wet_surf] .= NaN
 
-# Normalisation:  raw [m³/m²] × (1e10 m²/(10,000 km²)) × (100 / v_tot [m³])
-#               =       raw × 1e12 / v_tot              [%·(10,000 km²)⁻¹]
-norm_factor = 1.0e12 / vtot
-calVdown_norm = calVdown_raw .* norm_factor
-calVdown_norm[.!wet_surf] .= NaN
-
 # Sanity check: finite where wet
 n_wet = count(wet_surf)
 n_finite_wet_raw = count(isfinite, calVdown_raw[wet_surf])
-n_finite_wet_norm = count(isfinite, calVdown_norm[wet_surf])
-@info "Wet surface cells: $n_wet; finite calVdown_raw: $n_finite_wet_raw, finite calVdown_norm: $n_finite_wet_norm"
+@info "Wet surface cells: $n_wet; finite calVdown_raw: $n_finite_wet_raw"
 @assert n_finite_wet_raw == n_wet "Non-finite calVdown_raw at wet surface cells"
-@assert n_finite_wet_norm == n_wet "Non-finite calVdown_norm at wet surface cells"
 
 raw_vals = filter(isfinite, calVdown_raw)
-nrm_vals = filter(isfinite, calVdown_norm)
 raw_min, raw_max = extrema(raw_vals)
-nrm_min, nrm_max = extrema(nrm_vals)
 @info @sprintf(
-    "calVdown_raw  [m]:        min = %.3e   mean = %.3e   max = %.3e",
+    "calVdown_raw  [m]:                  min = %.3e   mean = %.3e   max = %.3e",
     raw_min, mean(raw_vals), raw_max
 )
+
+# Log the normalised form too (computed locally) so the level set is sane.
+norm_factor = 1.0e12 / vtot
+nrm_vals = raw_vals .* norm_factor
+nrm_min, nrm_max = extrema(nrm_vals)
 @info @sprintf(
-    "calVdown_norm [%% / 1e4km²]: min = %.3e   mean = %.3e   max = %.3e",
+    "calVdown_norm [%% v_tot / 1e4 km²]:  min = %.3e   mean = %.3e   max = %.3e",
     nrm_min, mean(nrm_vals), nrm_max
 )
+@info @sprintf("Plot-script prefactor 1e12 / v_tot = %.3e (m⁻³)", norm_factor)
 for q in (0.5, 0.9, 0.99, 0.999)
     @info @sprintf("calVdown_norm quantile q=%.3f → %.3e", q, quantile(nrm_vals, q))
-end
-
-# Warn if the data sits well below the plotted lowest level (10) — the user
-# specified [0, 10, 30, 100, 300, 1000] for parity with Pasquier 2024 but the
-# v_tot scaling here uses the *global* ocean (~1.3e18 m³) vs sub-basins in
-# the paper, so absolute %-values are much smaller.
-if quantile(nrm_vals, 0.99) < 1.0
-    @warn """calVdown_norm 99th percentile < 1.0 % v_tot / (10,000 km²), well below
-    the plotted lowest contour level of 10. The map will appear nearly
-    empty with the default level set [0, 10, 30, 100, 300, 1000]. Consider
-    an alternative level set such as [0, 0.01, 0.03, 0.1, 0.3, 1] for a
-    global-ocean v_tot normalisation — but keep the spec'd values as
-    the default per the user's preference.""" q99 = quantile(nrm_vals, 0.99) qmax = nrm_max
 end
 
 ################################################################################
@@ -284,7 +270,6 @@ flush(stdout); flush(stderr)
 jldsave(
     ventilation_file;
     calVdown_raw = calVdown_raw,
-    calVdown_norm = calVdown_norm,
     wet_surf = wet_surf,
     Az_surf = Az_surf,
     V_surf = V_surf,
@@ -292,8 +277,8 @@ jldsave(
     vtot = vtot,
     tau_seconds = τ,
     n_avg = n_avg,
-    units = (raw = "m³/m² (= m)", norm = "% v_tot / (10,000 km²)"),
-    formula = "raw = V_surf .* mean_n(age_surf_n) ./ (tau .* Az_surf); norm = raw .* 1e12 / vtot",
+    units = "m³/m² (= m); plot script normalises by 1e12 / vtot to obtain % v_tot / (10,000 km²)",
+    formula = "calVdown_raw = V_surf .* mean_n(age_surf_n) ./ (tau .* Az_surf)",
 )
 
 @info "compute_ventilation_diagnostic.jl complete"

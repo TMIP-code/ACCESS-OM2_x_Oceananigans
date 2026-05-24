@@ -1,53 +1,65 @@
-# Plan: ventilation-figure refactor (annual-mean, contourf, Pasquier 2024 normalisation)
+# Plan: ventilation-figure refactor (annual-mean, 2×2 panel, plotmap! tripolar mesh)
 
 ## Context
 
-The first cut of the surface ventilation diagnostic in this repo
+The surface ventilation diagnostic in this repo
 ([src/compute_ventilation_diagnostic.jl](../src/compute_ventilation_diagnostic.jl),
 [src/plot_ventilation.jl](../src/plot_ventilation.jl)) computes
-$\mathcal V^\downarrow = V \cdot \Gamma / (\tau\,A)$ from the **NK snapshot**
-(`age_Pardiso_LSprec.jld2`), reports it in metres, and plots it with
-`scatter!` on a linear colourbar. The user wants this replaced with the
-treatment from Pasquier *et al.* 2024 (JGR-Oceans, doi:10.1029/2024JC021043):
+$\mathcal V^\downarrow = V \cdot \Gamma / (\tau\,A)$ from the annual mean
+of a 1-year re-run of the converged NK solution. This second iteration
+brings the figure up to the layout used in Pasquier *et al.* 2024
+(JGR-Oceans, doi:10.1029/2024JC021043) and Pasquier *et al.* 2025 (GRL),
+adapted to our (2 time-windows × 1 ocean) layout:
 
-1. Diagnostic is computed from the **annual mean** of a 1-year re-run from
-   the converged NK solution, not the NK snapshot.
-2. Plotting uses **`contourf!`** (not `scatter!`).
-3. Units shift from m to **`% vtot / (10,000 km²)`** — fraction of the
-   *total* ocean volume ventilated per 10,000 km² of surface — on a
-   **semilog (pseudo-log)** colour scale with levels
-   `[0, 10, 30, 100, 300, 1000]`.
-4. Use the Pasquier 2024 plotting script as the visual reference, but
-   adapted to our (2 time-windows × 1 ocean = 2) layout rather than the
-   original (3 scenarios × 2 sub-volumes = 6). Skip everything related
-   to coastlines, the Ω sub-basin mask, and the zonal-integral side
-   panels — just panel (a) of the original layout, one PNG per case.
+1. Each output PNG is a **2 × 2 panel** for one (parent-model, leg) pair:
+   - `[1,1]` — `calVdown_norm` map at 1968-1977 (Pasquier 2024 orange ramp,
+     pseudo-log scale, levels `[0, 10, 30, 100, 300, 1000]`,
+     units `% v_tot / (10,000 km²)`).
+   - `[1,2]` — zonal-integral side panel, both time windows overlaid as
+     lines, units `% v_tot / °lat`.
+   - `[2,1]` — decadal-difference map `(1999-2008 − 1968-1977)` on a
+     diverging colour scale (`:tol_bu_rd`, symmetric, white at zero).
+   - `[2,2]` — zonal integral of the difference, bicolour band split at 0.
+2. Use **`plotmap!`** (per-cell quad mesh) from the ACCESS-TMIP plotting
+   stack — same MOM5 tripolar grid that ACCESS-ESM1.5 (and ACCESS-OM2-1)
+   uses, so no re-grid is needed and the tripolar fold is rendered faithfully.
+3. Reuse the Pasquier 2024 colour ramp and `mk_piecewise_linear` scale so
+   the map levels and ticks line up cleanly with the contour level set.
 
-A later round will add seasonality (per-snapshot maps from the same FTS),
-the (1999-2008 − 1968-1977) decadal-difference panel, and any
-zonal-integral side panels. **Not in this round.**
+A later round will add seasonality (per-snapshot maps from the same FTS)
+and any sub-basin Ω masks. **Not in this round.**
 
-## Reference template
+## Reference plotting code
 
-[/home/561/bp3051/Projects/MatrixMarineCarbonCycleModel/src/plotting/paper3/plot_paper3_calVdown_maps_ZINT2.jl](/home/561/bp3051/Projects/MatrixMarineCarbonCycleModel/src/plotting/paper3/plot_paper3_calVdown_maps_ZINT2.jl)
+The plotting style is lifted from two upstream files:
 
-Re-use directly:
-- The `myscale = ReversibleScale(x -> sign(x) * log10(abs(x/5) + 1), x -> sign(x) * (exp10(abs(x)) - 1) * 5; limits=(0f0, 3f0), name=:myscale)` pseudo-log mapping.
-- The `cbarticklabelformatPI` tick formatter.
-- The `withwhitelow` colour-bar tweak for the preindustrial-style ramp.
-- The `lonticklabel` / `latticklabel` axis-tick formatters.
-- The `lon` axis duplication trick (`lonext = [lon; lon .+ 360]; ilonkeep = @. lonlims[1] ≤ lonext ≤ lonlims[2]`) so the map wraps cleanly past the dateline.
-- Per the template: `levelsPI = unique(Float32, clamp.([0; kron(10 .^ (1:3), [1, 3])], 0, 1000))` — that gives exactly `[0, 10, 30, 100, 300, 1000]`.
+1. [/home/561/bp3051/Projects/TMIP/ACCESS-TMIP/src/plotting_functions.jl](/home/561/bp3051/Projects/TMIP/ACCESS-TMIP/src/plotting_functions.jl)
+   — same MOM5 tripolar grid that ACCESS-OM2-1 uses (via ACCESS-ESM1.5),
+   so the helpers port directly. Re-use:
+   - `plotmap!(ax, x2D, gridmetrics; colorrange, colormap, highclip, lowclip, levels, colorscale)` — per-cell quad mesh from `(lon_vertices, lat_vertices)` via `mesh!`, plus coastlines.
+   - `mk_piecewise_linear(vs)` — `ReversibleScale` whose forward map sends
+     the user-supplied levels to integer pixel positions; cleaner than the
+     fixed `myscale` from the Pasquier paper template because the colour-bar
+     ticks land exactly on the level boundaries.
+   - `lonticklabel` / `latticklabel` / `xtickformat` / `ytickformat`.
+   - `divergingcbarticklabel` / `divergingcbarticklabelformat` — `+`/`−`
+     sign-aware tick formatter for the diff panels.
+   - `myhidexdecorations!` / `myhideydecorations!`.
 
-**Skip from the template** (do not port):
-- `coastlines.jld2` load and the `lines!(axmap, coastlinesext; ...)` calls (no coastlines this round — placeholder grey background only).
-- `Ω2D` / `Ωline` annotations (no sub-basin mask — we plot the whole ocean).
-- The zonal-integral side panel (`x1D`, `band!`, `lines!` on `axs`).
-- The PI/RCP difference structure (`Delta_v2D`, `extendlow`, the two-colour difference colormap from `PRGn`).
-- The `MAT.matread` data path — our inputs are JLD2.
+2. [/home/561/bp3051/Projects/MatrixMarineCarbonCycleModel/src/plotting/paper3/plot_paper3_calVdown_maps_ZINT2.jl](/home/561/bp3051/Projects/MatrixMarineCarbonCycleModel/src/plotting/paper3/plot_paper3_calVdown_maps_ZINT2.jl)
+   — supplies the colour-ramp recipe, the level set, and the bicolour band
+   pattern for the diff zonal integral. Re-use:
+   - `withwhitelow` colour-bar tweak (white at the bottom of the orange ramp).
+   - `levelsPI = unique(Float32, clamp.([0; kron(10 .^ (1:3), [1, 3])], 0, 1000))` → `[0, 10, 30, 100, 300, 1000]`.
+   - `dataforbicolorband(x, y1, y2)` — splits a band crossing zero into
+     positive / negative segments so the zonal-integral-of-diff fill can be
+     coloured by sign.
+   - The mean / diff colour-bar label `% v_tot / (10,000 km²)`.
+
+Skip from the templates:
+- The `MAT.matread` data path (our inputs are JLD2).
+- The Ω sub-basin mask annotations.
 - The "EPAC" / "above500m" / "below2000m" sub-region selection.
-
-What survives in essence is **just panel (a) — a single contourf map of `calVdown_norm` on the pseudo-log scale** with the orange colour ramp from `withwhitelow(ColorSchemes.Oranges)`.
 
 ## Diagnostic — new definition
 
@@ -74,146 +86,160 @@ averaging over the first $N-1 = 24$ of the 25 half-monthly snapshots
 
 The raw per-cell ventilation volume per unit area (m³/m²) is then
 
-$$\mathcal V^\downarrow_{i,j}^{\text{raw}} \;=\; \frac{V_{i,j,N_z}\,\bar\Gamma_{i,j}}{\tau\,A_{i,j,N_z}} \;=\; \frac{\Delta z_{N_z}\,\bar\Gamma_{i,j}}{\tau},$$
+$$\mathcal V^{\downarrow,\text{raw}}_{i,j} \;=\; \frac{V_{i,j,N_z}\,\bar\Gamma_{i,j}}{\tau\,A_{i,j,N_z}} \;=\; \frac{\Delta z_{N_z}\,\bar\Gamma_{i,j}}{\tau},$$
 
 with $\tau = 3\,\Delta t$ in seconds and $\bar\Gamma_{i,j}$ in seconds (the NK
-output is in seconds; `setup_model.jl:351` defines $\tau = 3\Delta t$). Units: m.
+output is in seconds; `setup_model.jl:347` defines $\tau = 3\Delta t$). Units: m.
 
-Normalisation to `% vtot / (10,000 km²)`:
+Normalisation to `% v_tot / (10,000 km²)` is applied in the **plot script**,
+not in the compute script — the saved diagnostic JLD2 stays unit-neutral:
 
-$$\mathcal V^\downarrow_{i,j} \;=\; \mathcal V^\downarrow_{i,j}^{\text{raw}} \times \underbrace{\frac{10^{10}\,\text{m}^2}{10{,}000\,\text{km}^2}}_{=1} \times \frac{100}{V_{\text{tot}}}\quad\bigl[\% \cdot (10{,}000\,\text{km}^2)^{-1}\bigr]$$
+$$\mathcal V^\downarrow_{i,j} \;=\; \mathcal V^{\downarrow,\text{raw}}_{i,j} \times \underbrace{\frac{10^{10}\,\text{m}^2}{10{,}000\,\text{km}^2}}_{=1} \times \frac{100}{V_{\text{tot}}}\quad\bigl[\% \cdot (10{,}000\,\text{km}^2)^{-1}\bigr]$$
 
 i.e. multiply the raw m³/m² value by `1e10 * 100 / vtot = 1e12 / vtot`,
 where $V_{\text{tot}} = \sum_{\text{wet cells}} V_{i,j,k}$ is the total
-ocean volume (m³) computed once from the grid.
+ocean volume (m³). $V_{\text{tot}}$ is computed in
+`compute_ventilation_diagnostic.jl` and saved into `ventilation.jld2` as
+the `vtot` key so the plot script doesn't recompute it.
 
-> **Calibration note for the implementer:** the global-ocean $V_{\text{tot}}$
-> is ~1.3 × 10¹⁸ m³, much larger than any sub-basin used in Pasquier 2024,
-> so the absolute %-values of `calVdown_norm` here will be much smaller
-> than the EPAC values that motivated `[0, 10, 30, 100, 300, 1000]`. Print
-> `extrema(calVdown_norm)` and the 50/90/99th percentiles from
-> `compute_ventilation_diagnostic.jl` so the user can sanity-check the
-> level set. If the data is consistently below the lowest level, leave a
-> `@warn` note suggesting alternative level sets such as
-> `[0, 0.01, 0.03, 0.1, 0.3, 1]` — but **keep the user-specified
-> `[0, 10, 30, 100, 300, 1000]` as the default**.
+The level set `[0, 10, 30, 100, 300, 1000]` was validated in Pasquier 2024
+across sub-basin volumes spanning 2 orders of magnitude (upper-ETP vs deep-ETP).
+Whole-ocean $V_{\text{tot}}$ rescales both numerator (sources like the
+Southern Ocean / NA deep-water-formation regions are themselves larger
+contributors at the global scale) and denominator proportionally, so the
+level set is expected to remain useful for the global normalisation.
 
 ## Files to modify
 
-### 1. [src/compute_ventilation_diagnostic.jl](../src/compute_ventilation_diagnostic.jl) — rewrite the data source
+### 1. [src/compute_ventilation_diagnostic.jl](../src/compute_ventilation_diagnostic.jl) — save raw only
 
-Currently loads `NK/age_Pardiso_LSprec.jld2` (3-D snapshot). Change to:
+The compute script already loads the 1-year FTS and time-averages the
+surface layer. The only outstanding change is to **drop the
+`% v_tot / (10,000 km²)` normalisation** from the saved file — the plot
+script applies it. The `vtot` key stays so the plot script doesn't
+recompute it.
 
-- Load `1year/Pardiso_LSprec/age_periodic_1year.jld2` as a
-  `FieldTimeSeries` (the loader pattern is in
-  [src/plot_periodic_1year_age.jl](../src/plot_periodic_1year_age.jl) line 99:
-  `age_fts = FieldTimeSeries(output_filepath, "age")`).
-- Time-average snapshots `1:(N-1)` of the surface layer
-  (`age_fts[n]` returns a `Field`; use `interior(age_fts[n])[:, :, Nz]`
-  inside a NaN-masked accumulator the same way
-  [src/plot_periodic_1year_age.jl](../src/plot_periodic_1year_age.jl) lines
-  159-165 does it for the whole 3-D volume).
-- Compute `vtot = sum(interior(compute_volume(grid))[wet3D])`. The
-  `compute_volume`, `compute_wet_mask`, and `load_tripolar_grid` helpers
-  are all available via `include("shared_functions.jl")` (see
-  [src/solve_matrix_age.jl](../src/solve_matrix_age.jl) line 132-157 for
-  the pattern).
-- Compute the raw m³/m² field and the normalised
-  `% vtot / (10,000 km²)` field. Save both to `ventilation.jld2` so the
-  plotting script can choose, with keys:
-  - `calVdown_raw` — m³/m² (= m), same definition as the previous round.
-  - `calVdown_norm` — `% vtot / (10,000 km²)`.
-  - `wet_surf`, `Az_surf`, `vtot`, `tau_seconds`, `units` (descriptive),
-    `formula` (string).
+- Remove the `calVdown_norm` assignment, NaN-mask, and `norm_factor`
+  multiplication.
+- Keep printing the normalised extrema / percentiles for logs (compute
+  them locally just for the `@info` line).
+- Delete the calibration `@warn` block (the level set is fine for global
+  `vtot` — see the rationale above).
+- `jldsave` keys become: `calVdown_raw, wet_surf, Az_surf, V_surf,
+  age_surf, vtot, tau_seconds, n_avg, units, formula`. Update `units` to
+  drop the `norm` entry; `formula` describes the raw form only.
 
-The path resolution (matching either the new `NK_Q2x2/` layout or the
-legacy `NK/age_*_LSprec.jld2`) currently in
-[src/compute_ventilation_diagnostic.jl](../src/compute_ventilation_diagnostic.jl) lines 81-99 stays — apply the same fallback logic to find the **`1year/{solver_tag}/`** dir.
+### 2. [src/shared_utils/plotting_functions.jl](../src/shared_utils/plotting_functions.jl) — NEW helper file
 
-### 2. [src/plot_ventilation.jl](../src/plot_ventilation.jl) — rewrite as a contourf map
+Port (with minimal edits) the small set of plotting helpers from
+[ACCESS-TMIP/src/plotting_functions.jl](/home/561/bp3051/Projects/TMIP/ACCESS-TMIP/src/plotting_functions.jl)
+that we need:
 
-Replace the current `heatmap!` / `scatter!` layout with a single contourf
-map per (PM, TW, leg) using:
+- `plotmap!(ax, x2D, gridmetrics; …)` — per-cell quad mesh on a
+  curvilinear grid via `mesh!`. `gridmetrics` is a NamedTuple with
+  `lon, lat, lon_vertices, lat_vertices` (cell centres and 4-corner
+  vertices, all 2-D).
+- `lonticklabel`, `latticklabel`, `xtickformat`, `ytickformat`,
+  `loninsamewindow`.
+- `divergingcbarticklabel`, `divergingcbarticklabelformat`.
+- `mk_piecewise_linear(vs)` — `ReversibleScale` mapping `vs[i]` → `i-1`.
+- `myhidexdecorations!`, `myhideydecorations!`.
+- `withwhitelow`, `withwhitecenter`, `dataforbicolorband` — supporting
+  helpers from the Pasquier paper template.
 
-- `levelsPI = unique(Float32, clamp.([0; kron(10 .^ (1:3), [1, 3])], 0, 1000))`
-  → `[0, 10, 30, 100, 300, 1000]`.
-- `myscale = ReversibleScale(x -> sign(x) * log10(abs(x/5) + 1), x -> sign(x) * (exp10(abs(x)) - 1) * 5; limits=(0f0, 3f0), name=:myscale)`.
-- `pseudologlevelsPI = myscale.(levelsPI)`.
-- `colormapPI = cgrad(withwhitelow(ColorSchemes.Oranges), length(levelsPI); categorical=true)`; `extendhighPI = colormapPI[end]`; `colormapPI = colormapPI[1:end-1]`.
-- `co = contourf!(ax, lonext[ilonkeep], lat, pseudologx2Dext[ilonkeep, :]; levels = pseudologlevelsPI, colormap = colormapPI, nan_color = :lightgray, extendhigh = extendhighPI)`.
-- `Colorbar(...; ticks = (pseudologlevelsPI, string.(Int.(levelsPI))), label = rich("% v", subscript("tot"), " / (10,000 km)", superscript("2")))`.
+Skip the `GeoMakie.land()` / `LibGEOS` / `GeometryOps` land-poly section
+of the upstream file. Add coastlines via `lines!(ax, GeoMakie.coastlines(),
+color = :black, linewidth = 0.85)` directly (only depends on `GeoMakie`).
 
-**Tripolar caveat.** Our grid is tripolar — `λᶜᶜᵃ` and `φᶜᶜᵃ` are 2-D
-matrices (not vectors), and `contourf!(ax, lon::Vector, lat::Vector, field::Matrix; ...)` won't work directly. Two options for the implementer to pick from, listed in preference order:
+### 3. [src/plot_ventilation.jl](../src/plot_ventilation.jl) — full rewrite as 2 × 2 panel
 
-1. **Quick win for this round**: re-grid the field to a regular
-   `(lon_1d, lat_1d)` grid using a one-shot nearest-neighbour or
-   bilinear projection (e.g.
-   [Interpolations.jl](https://github.com/JuliaMath/Interpolations.jl)
-   or a simple `imresize`-style binning) before calling `contourf!`.
-   This loses tripolar accuracy north of the fold but the surface
-   ventilation diagnostic is dominated by Southern Ocean and North
-   Atlantic features that are well-represented by a regular projection.
-2. **Faithful**: keep the tripolar mesh and use
-   `Makie.poly!` / `Makie.mesh!` with a per-cell colour, or
-   `Makie.tricontourf!` on a Delaunay triangulation of the cell centres.
-   This is what the existing
-   [src/shared_utils/analysis_and_plotting.jl](../src/shared_utils/analysis_and_plotting.jl)
-   helpers already do for some plots — see
-   `animate_depth_slices` for the established pattern in this repo.
+The script loads **both** time windows' `ventilation.jld2` (1968-1977 and
+1999-2008), computes the decadal diff, and produces one PNG per
+(parent-model, leg). Outline:
 
-Recommend (1) for the first cut; revisit (2) if the user wants tripolar
-fidelity.
+- Read env vars: `PARENT_MODEL`, `EXPERIMENT`, `VS/WF/AS/TS`, `LS`, `TRAF`.
+  `TIME_WINDOW` is **not** read — both windows are hard-coded.
+- Build path for each TW (mirror the dual-naming fallback `NK_Q2x2` →
+  `NK` that the compute script uses); hard-error if either is missing.
+- Load both files, assert grid shape and `vtot` agree (same grid, same
+  wet mask), then `calV_tw = calVdown_raw_tw .* 1e12 / vtot` for each.
+- Build a `gridmetrics` NamedTuple from the Oceananigans grid:
+  - `lon = ug.λᶜᶜᵃ[1:Nx, 1:Ny]` (interior, trim halos)
+  - `lat = ug.φᶜᶜᵃ[1:Nx, 1:Ny]`
+  - `lon_vertices, lat_vertices` of shape `(4, Nx, Ny)` built from
+    `ug.λᶠᶠᵃ`, `ug.φᶠᶠᵃ` (the 4 corner indices `(i,j), (i+1,j),
+    (i+1,j+1), (i,j+1)`).
+- Set up the mean colormap: `cm_mean = cgrad(withwhitelow(:Oranges),
+  length(levels_mean); categorical=true)`, then peel off `highclip` and
+  trim. Use `scale_mean = mk_piecewise_linear(Float32.(levels_mean))`
+  as the `colorscale` so ticks land on level boundaries.
+- Set up the diff colormap: `cm_diff` from `:tol_bu_rd` with the
+  ACCESS-TMIP white-middle trick (peel off `low/highclip`, drop the
+  middle band). `levels_diff` is a symmetric subset of `levels_mean`,
+  e.g. `[-300, -100, -30, -10, 0, 10, 30, 100, 300]`.
+- Draw the 4 panels into a `(4 rows × 2 cols)` layout where the colour
+  bars sit in their own rows (rows 1 & 3 = colour bars, rows 2 & 4 = maps).
+- `[1,1]` and `[2,1]` use `plotmap!`; `[1,2]` and `[2,2]` are ordinary
+  `Axis` with `lines!` / `band!`. `linkyaxes!` the zonal panels to the
+  matching map.
+- Zonal integral: bin `(calV[i,j] * Az[i,j])` into 1° latitude bands
+  using `lat2D[i,j]` and divide by `(10,000 km²)` to keep units
+  consistent (`% v_tot / °lat`).
+- Diff zonal integral uses `dataforbicolorband` to split into positive /
+  negative segments coloured by sign.
+- Save to `outputs/{PM}/{EXP}/plots/{MC}/calVdown_{leg}.png` (new
+  experiment-level `plots/` dir, sibling to the per-TW `periodic/`,
+  `standardrun/`, `TM/` trees). Use `dirname(outputdir)` (where
+  `outputdir = outputs/{PM}/{EXP}/{TW}` from `load_project_config()`) to
+  get the experiment level.
 
-Output filename: `calVdown_{forward,adjoint}_contourf.png`, alongside
-the existing `calVdown_{forward,adjoint}_{ij,lonlat}.png` (keep those
-for comparison; they can be removed later).
+### 4. [Project.toml](../Project.toml) — add `GeoMakie`
 
-### 3. [scripts/solvers/compute_ventilation.sh](../scripts/solvers/compute_ventilation.sh) and [scripts/plotting/plot_ventilation.sh](../scripts/plotting/plot_ventilation.sh) — no change
+Needed for `GeoMakie.coastlines()`. UUID:
+`db073c08-6b98-4ee5-b6a4-5efafb3259c6`. After adding, run `]resolve` to
+update `Manifest.toml`.
 
-Same PBS resources (`express`, 4 CPU, 24 GB, 30 min). The compute script
-now loads a larger FTS but still fits comfortably; if memory becomes
-tight, bump `mem` to 48 GB at OM2-025.
+### 5. [scripts/solvers/compute_ventilation.sh](../scripts/solvers/compute_ventilation.sh) and [scripts/plotting/plot_ventilation.sh](../scripts/plotting/plot_ventilation.sh) — no change
 
-### 4. [docs/private/cross_resolution_ventilation_paper.md](private/cross_resolution_ventilation_paper.md) — update the `Source*` paths and the figure-caption units to `% vtot / (10,000 km²)`
+Same PBS resources (`express`, 4 CPU, 24 GB, 30 min). The plot script
+now loads two `ventilation.jld2` files (one per TW) rather than one;
+still well under memory.
+
+### 6. [docs/private/cross_resolution_ventilation_paper.md](private/cross_resolution_ventilation_paper.md) — update `Source*` paths and figure-caption units (DEFERRED)
 
 The 2×2 tables in section 3.3 reference
 `calVdown_{forward,adjoint}_lonlat.png`. Point them at the new
-`calVdown_{forward,adjoint}_contourf.png` filenames once the
-re-plotting is done. Update the caption text where it says "linear in
-metres" to the new normalisation. **Defer this edit until after the
-plots are regenerated** — the markdown links going stale for a few
-hours is OK.
+`calVdown_{forward,adjoint}.png` filenames once the re-plotting is done.
+Update the caption text where it says "linear in metres" to the new
+normalisation. **Defer this edit until after the plots are regenerated.**
 
 ## Verification (for the implementer)
 
 This round writes code only; **do not run the PBS jobs**. The user will
 re-run `ventilation` + `plotventilation` via `scripts/driver.sh` in a
-follow-up session. Concretely, after editing, the implementer should:
+follow-up session.
 
-1. **Syntax check**: `julia --project -e 'include("src/compute_ventilation_diagnostic.jl")'`
-   on a single test case (set the env vars manually, the same way the
-   existing test in this session worked: `PARENT_MODEL=ACCESS-OM2-1
-   TIME_WINDOW=1968-1977 VELOCITY_SOURCE=totaltransport TIMESTEPPER=SRK3
-   TIMESTEP_MULT=12 MONTHLY_KAPPAV=yes TM_SOURCE=const julia
-   --project src/compute_ventilation_diagnostic.jl`). Confirm
-   `ventilation.jld2` is written with both `calVdown_raw` and
-   `calVdown_norm` keys, and that the printed extrema are finite.
-2. **Plot check**: same env vars, run `julia --project src/plot_ventilation.jl`.
-   Confirm `calVdown_forward_contourf.png` is written and visually
-   has a coherent surface-ventilation pattern (Weddell + Ross + NA peaks).
-3. Commit the changes with a message like:
-   `ventilation: annual-mean from 1-year FTS, contourf, %vtot/10000km² normalisation`
+1. **Syntax check on `compute_ventilation_diagnostic.jl`** (single TW
+   needed): `PARENT_MODEL=ACCESS-OM2-1 TIME_WINDOW=1968-1977
+   VELOCITY_SOURCE=totaltransport TIMESTEPPER=SRK3 TIMESTEP_MULT=12
+   MONTHLY_KAPPAV=yes TM_SOURCE=const julia --project
+   src/compute_ventilation_diagnostic.jl`. Confirm `ventilation.jld2`
+   has `calVdown_raw, vtot, …` and **no** `calVdown_norm`. Printed
+   extrema finite.
+2. **Syntax check on `plot_ventilation.jl`** — needs **both**
+   `ventilation.jld2` files present (1968-1977 and 1999-2008). If they
+   aren't yet, the script should fail cleanly pointing the user at
+   driver.sh. Once both are present, run `julia --project
+   src/plot_ventilation.jl` and confirm `calVdown_forward.png` is
+   written into `outputs/{PM}/{EXP}/plots/{MC}/` with the 2×2 layout and
+   no visible artifacts at the tripolar fold or Antarctic margin.
+3. Commit:
+   `ventilation: 2×2 layout (both windows), plotmap! tripolar mesh, raw-only save`
 4. **Stop**; do not submit any PBS jobs and do not edit
    [docs/private/cross_resolution_ventilation_paper.md](private/cross_resolution_ventilation_paper.md).
-   The user will pick up from here.
 
 ## Out of scope (explicitly deferred)
 
 - Seasonality plots (per-snapshot maps from the same FTS).
-- Decadal-difference panel: `(1999–2008) − (1968–1977)` for $\mathcal V^\downarrow$.
-- Zonal-integral side panel (the `x1D` band/lines in the template).
-- Coastlines.
 - Sub-basin Ω masks.
-- Tripolar-faithful rendering (use the regular-grid re-grid for now).
 - Renaming legacy `LSprec` files to `Q2x2` (separately discussed; on hold).
