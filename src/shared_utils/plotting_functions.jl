@@ -98,6 +98,7 @@ function mk_piecewise_linear(vs)
     d2 = vs[end] - vs[end - 1]
     un = size(vs, 1) - 1
     function piecewise_linear(v)
+        isnan(v) && return v
         return if v ≤ vs[1]
             (v - vs[1]) / d1
         elseif v ≥ vs[end]
@@ -109,6 +110,7 @@ function mk_piecewise_linear(vs)
         end
     end
     function its_inverse(u)
+        isnan(u) && return u
         return if u ≤ 0
             u * d1 + vs[1]
         elseif u ≥ un
