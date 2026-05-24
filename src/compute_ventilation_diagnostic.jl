@@ -43,7 +43,7 @@ Environment variables:
   ADVECTION_SCHEME  – centered2 | weno3 | weno5
   TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK (default: Pardiso)
-  LUMP_AND_SPRAY    – yes | no (default: yes)
+  LUMP_AND_SPRAY    – no | AxB (default: no; e.g. 5x5)
   TRAF              – yes | no (default: no)
 """
 
@@ -74,17 +74,19 @@ LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) ||
     error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
-LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "yes")) == "yes"
-lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+ls = parse_lump_and_spray()
+LUMP_AND_SPRAY = ls.on
+lumpspray_tag = ls.tag
 
-# Match solve_periodic_NK.jl's output directory layout: serial → periodic/{MC}/NK,
-# distributed → periodic/{MC}/{px}x{py}/NK.
+# Match solve_periodic_NK.jl's output directory layout: serial → periodic/{MC}/NK[_QAxB],
+# distributed → periodic/{MC}/{px}x{py}/NK[_QAxB].
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
+nk_dirname = "NK$(ls.dir_suffix)"
 nk_output_dir = isempty(gpu_tag) ?
-    joinpath(outputdir, "periodic", model_config, "NK") :
-    joinpath(outputdir, "periodic", model_config, gpu_tag, "NK")
+    joinpath(outputdir, "periodic", model_config, nk_dirname) :
+    joinpath(outputdir, "periodic", model_config, gpu_tag, nk_dirname)
 nk_file = joinpath(nk_output_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
 isfile(nk_file) || error("Converged NK solution not found: $nk_file")
 

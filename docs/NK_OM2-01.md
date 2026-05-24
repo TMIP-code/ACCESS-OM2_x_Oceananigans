@@ -1,5 +1,21 @@
 # NK solver at OM2-01: settings, code changes, coarsening sweep
 
+## Status
+
+- **Code changes**: ✅ landed. Parser + downstream wire-through + shell
+  validator implemented; parser unit tests pass; shell validator accepts
+  `no | AxB` and rejects `yes`/malformed. Hardcoded `(2,2,1)` removed from
+  both call sites (see "Code changes" below).
+- **5×5 probe (TM age, separate repo)**: ❌ failed at 8 min with NetCDF
+  "no such file or directory" at `compute_age_ACCESS-OM2-01_5x5.jl:61`
+  (job `169125041`, in `../ACCESS-TMIP/`). Didn't reach Pardiso —
+  yields no memory/time data for the sweep. Probe needs an input path
+  fix before retry.
+- **5×5 NK test in this repo**: not yet submitted. Can now be submitted
+  cleanly under the new `LUMP_AND_SPRAY=5x5` machinery.
+- **Pre-flight**: TMbuild for OM2-01 is **done** (anchored on the 2×2
+  TM-solve run). 1×4 partition state + LB sweep still TODO.
+
 ## Context
 
 OM2-01 (0.1°) is ~9.4× the cells of OM2-025 (6.25× horizontal at 2.5× linear, 1.5× vertical
@@ -282,41 +298,69 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 
 ## Deliverables
 
-- `src/shared_utils/config.jl`: new `parse_lump_and_spray()` helper.
-- `src/solve_periodic_NK.jl`, `src/shared_utils/matrix.jl`: parser-driven
-  `(di, dj, dk)` and `Q{A}x{B}`-tagged outputs (incl. `solver_output_dir`,
-  steady age file, `LUMP.jld2`/`SPRAY.jld2`/`Mc.jld2`).
-- Downstream wire-through: `run_periodic_1year.jl`, `plot_periodic_1year_age.jl`,
-  `compute_ventilation_diagnostic.jl`, `solve_matrix_age.jl`,
-  `solve_matrix_age_gpu.jl`, `periodic_solver_common.jl:182`.
-- `scripts/env_defaults.sh`: case-statement validator for `LUMP_AND_SPRAY`;
-  reject `yes`.
-- `scripts/driver.sh`: change default `LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-yes}`
-  → `no` at line 228.
-- 1-year LB sweep submission for OM2-01 1×4 `wparent` to pick `LOAD_BALANCE`.
-- TMbuild submission for OM2-01 at the target `MODEL_CONFIG`.
-- Three NK submission scripts under `test/` (5×5, 4×4, 3×3); each a single
-  48 h job, no chain.
-- A doc analogous to `docs/NK_restart_tests.md` to log outcomes (per-job
-  retcode, iteration count if any, rank-0 peak RSS, walltime spent).
+### Code (done)
+
+- ✅ `src/shared_utils/config.jl`: new `parse_lump_and_spray()` helper
+  returning `(; di, dj, dk, on, tag, dir_suffix)`. Accepts `no | AxB`;
+  rejects legacy `yes` with a clear redirect.
+- ✅ `src/shared_utils/matrix.jl`: `compute_and_save_coarsening` now takes
+  `di/dj/dk/on/tag` kwargs and writes `LUMP.jld2`/`SPRAY.jld2`/`Mc.jld2`
+  into `{matrices_dir}/{tag}/` (e.g. `…/const/Q5x5/Mc.jld2`).
+- ✅ `src/solve_periodic_NK.jl`: parser-driven coarsening, NK output dir
+  becomes `…/NK{dir_suffix}` (e.g. `NK_Q5x5/`); steady file unchanged
+  format-wise (`age_{LINEAR_SOLVER}_{tag}.jld2`).
+- ✅ `src/solve_matrix_age.jl` and `src/solve_matrix_age_gpu.jl`:
+  `coarse_tag` migrated to `Q{A}x{B}` (when on) or `"full"` (when off).
+- ✅ `src/periodic_solver_common.jl`: TMage warm-start fallback uses the
+  parser; tries the preferred `Q{A}x{B}` (or `full`) tag, falls back to
+  `full` only.
+- ✅ `src/run_periodic_1year.jl`, `src/plot_periodic_1year_age.jl`,
+  `src/compute_ventilation_diagnostic.jl`: all consume the parser; NK
+  output paths now resolve to `NK{dir_suffix}` (matches the writer).
+- ✅ `scripts/env_defaults.sh`: validator added (no | AxB; reject yes);
+  derives `Q_TAG` for logging.
+- ✅ `scripts/driver.sh`: default flipped `LUMP_AND_SPRAY=${...:-yes}` →
+  `no` at line 228.
+- ✅ `test/test_parse_lump_and_spray.jl`: unit tests for the parser
+  (off/on cases, error cases). Passes on login node.
+
+### Operational (pending)
+
+- ⏳ Wait for 5×5 NK test job to complete (submitted before code landed).
+  Compare against post-landing behaviour to confirm output paths align.
+- ☐ 1-year LB sweep submission for OM2-01 1×4 `wparent` to pick
+  `LOAD_BALANCE`.
+- ☐ Submit 4×4 and 3×3 NK jobs after 5×5 result is known (one job per
+  factor, manual restart via `INITIAL_AGE=latest`; no chains).
+- ☐ Outcome log section below.
 
 ## Verification
 
-- Unit-level: parser tests in a small `test/test_parse_lump_and_spray.jl`
-  asserting `"no"`, `"2x2"`, `"5x5"`, error on `"yes"`, error on `"5"` /
-  `"5x"` / `"5xfoo"`.
-- Integration on OM2-1 (cheap): rerun an existing OM2-1 NK config with
-  `LUMP_AND_SPRAY=2x2` and confirm it produces the same numeric result as
-  the legacy `LUMP_AND_SPRAY=yes` run (different filename/dir, same age
-  field within machine precision). This is the regression check that the
-  `yes`→`2x2` rename hasn't silently changed semantics.
-- Path collision check: after the 5×5 + 4×4 (or 5×5 + manual 2×2) submissions,
-  `ls outputs/.../periodic/{MC}/1x4/` should show two disjoint `NK_Q?x?`
-  directories with their own `newton_iterate_NN.jld2` series — confirm via
-  `find … -name 'newton_iterate_*.jld2'` that no file is shared.
-- End-to-end at OM2-01: pre-flight LB sweep job completes; TMbuild produces
-  the expected `M.jld2`; NK 5×5 job either converges or fails with a clean
-  diagnosable error (OOM is fine — we log it).
+- ✅ **Unit-level**: `julia --project test/test_parse_lump_and_spray.jl`
+  passes (off cases, on cases incl. asymmetric/case-insensitive, error
+  cases incl. `yes`, empty, `"5"`, `"5x"`, `"5xfoo"`, `"0x5"`, `"5x0"`).
+- ✅ **Shell validator smoke test**:
+  `LUMP_AND_SPRAY={no,5x5,2x2,yes,bad,10x10}` produces the expected
+  `Q_TAG` (or non-zero exit for `yes`/`bad`).
+- ☐ **Integration on OM2-1**: rerun an existing OM2-1 NK config with
+  `LUMP_AND_SPRAY=2x2` and compare numerics against the legacy `yes`
+  run (different filename/dir, same age within machine precision). This
+  is the regression check that the `yes`→`2x2` rename hasn't silently
+  changed semantics.
+- ☐ **Path collision check**: after 5×5 + 4×4 submissions,
+  `ls outputs/.../periodic/{MC}/1x4/` should show `NK_Q5x5/` and
+  `NK_Q4x4/` as disjoint dirs; `find … -name 'newton_iterate_*.jld2'`
+  confirms no file is shared.
+- ☐ **End-to-end at OM2-01**: pre-flight LB sweep completes; NK 5×5 job
+  either converges or fails with a clean diagnosable error (OOM is fine
+  — we log it).
+
+## Outcome log
+
+| Date | Job ID | Kind | Factor | Result | Notes |
+|---|---|---|---|---|---|
+| 2026-05-24 | `169124672` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed in 24 s | quick fail; presumed config/path issue (no log content captured here) |
+| 2026-05-24 | `169125041` | TM age (ACCESS-TMIP) | 5×5 | ❌ failed at 8 min | NetCDF "no such file or directory" at `compute_age_ACCESS-OM2-01_5x5.jl:61`; never reached Pardiso. Used 16 GB / 24 CPU on hugemem. |
 
 ## Out of scope
 

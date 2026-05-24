@@ -23,7 +23,7 @@ Environment variables:
   ADVECTION_SCHEME  – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER       – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   LINEAR_SOLVER     – Pardiso | ParU | UMFPACK  (default: Pardiso)
-  LUMP_AND_SPRAY    – yes | no  (default: no)
+  LUMP_AND_SPRAY    – no | AxB  (default: no; e.g. 5x5 for di=5, dj=5, dk=1)
   MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
   TM_SOURCE         – const | avg  (default: const)
                       Subdirectory under TM/{model_config}/ to load M from.
@@ -77,8 +77,9 @@ LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 (MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
 
-LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
-coarse_tag = LUMP_AND_SPRAY ? "coarse" : "full"
+ls = parse_lump_and_spray()
+LUMP_AND_SPRAY = ls.on
+coarse_tag = ls.on ? ls.tag : "full"
 
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
@@ -115,7 +116,7 @@ mkpath(matrix_plots_dir)
 @info "- TIMESTEPPER       = $TIMESTEPPER"
 @info "- LINEAR_SOLVER     = $LINEAR_SOLVER"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
-@info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (tag: $coarse_tag)"
+@info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk), tag: $coarse_tag)"
 @info "- TM_SOURCE         = $TM_SOURCE"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
@@ -170,7 +171,10 @@ M = process_sparse_matrix(M, MATRIX_PROCESSING)
 # LUMP/SPRAY coarsening (if requested)
 ################################################################################
 
-(; Mc, SPRAY) = compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY)
+(; Mc, SPRAY) = compute_and_save_coarsening(
+    M, wet3D, v1D, matrices_dir;
+    ls.di, ls.dj, ls.dk, ls.on, ls.tag,
+)
 
 ################################################################################
 # Linear solver setup

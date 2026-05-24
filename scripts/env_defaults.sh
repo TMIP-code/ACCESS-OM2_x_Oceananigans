@@ -44,7 +44,7 @@ TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = T
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no — when yes, save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # yes | no
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropzeros | symdrop
 INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
@@ -62,6 +62,16 @@ TRAF=${TRAF:-no}                                        # yes | no — Time-Reve
 case "$TRAF" in yes|no) ;; *) echo "ERROR: TRAF must be yes or no (got: $TRAF)" >&2; exit 1 ;; esac
 TRAF_TM_SOURCE=${TRAF_TM_SOURCE:-invVMtV}               # invVMtV | M_traf — matrix to use for TMsolve/NK when TRAF=yes (ignored when TRAF=no)
 case "$TRAF_TM_SOURCE" in invVMtV|M_traf) ;; *) echo "ERROR: TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)" >&2; exit 1 ;; esac
+# Validate LUMP_AND_SPRAY and derive Q_TAG (used only for logging; the
+# NK subdir/file naming is composed Julia-side from parse_lump_and_spray).
+case "$LUMP_AND_SPRAY" in
+    no)            Q_TAG="" ;;
+    yes)           echo "ERROR: LUMP_AND_SPRAY=yes is no longer supported; use 'no' or 'AxB' (e.g. 2x2)." >&2; exit 1 ;;
+    [0-9]*x[0-9]*) Q_TAG="_Q${LUMP_AND_SPRAY}" ;;
+    *) echo "ERROR: LUMP_AND_SPRAY must be 'no' or '<int>x<int>' (got: $LUMP_AND_SPRAY)" >&2; exit 1 ;;
+esac
+export Q_TAG
+
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
 case "$LOAD_BALANCE" in
     no)             LB_TAG="" ;;

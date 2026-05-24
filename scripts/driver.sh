@@ -225,7 +225,7 @@ run_avg() { [[ "$TM_SOURCE" == "avg" || "$TM_SOURCE" == "both" ]]; }
 # --- Solver configuration (shared by TMsolve and NK) ---
 JVP_METHOD=${JVP_METHOD:-exact}
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-yes}
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}
 INITIAL_AGE=${INITIAL_AGE:-0}
 

@@ -19,6 +19,46 @@ function parse_config_env()
     return (; VELOCITY_SOURCE = VS, W_FORMULATION = WF, ADVECTION_SCHEME = AS, TIMESTEPPER = TS)
 end
 
+"""
+    parse_lump_and_spray(s = get(ENV, "LUMP_AND_SPRAY", "no"))
+        -> (; di, dj, dk, on, tag, dir_suffix)
+
+Parse the `LUMP_AND_SPRAY` env var into coarsening factors and naming tags.
+
+Accepted values:
+- `"no"` — no coarsening: `(di=0, dj=0, dk=0, on=false, tag="prec", dir_suffix="")`.
+- `"<A>x<B>"` (positive ints) — coarsen horizontally only: `(di=A, dj=B, dk=1,
+  on=true, tag="Q{A}x{B}", dir_suffix="_Q{A}x{B}")`.
+
+The `tag` replaces today's `lumpspray_tag = "LSprec" | "prec"` everywhere it's
+used to compose output filenames. The `dir_suffix` is appended to the NK
+subdir name (e.g. `NK` → `NK_Q5x5`) and to the matrix subdir holding the
+coarsened-matrix artefacts (`Mc.jld2`, `LUMP.jld2`, `SPRAY.jld2`).
+
+The legacy `"yes"` alias is no longer accepted (use `"2x2"` for the previous
+hardcoded default).
+"""
+function parse_lump_and_spray(s::AbstractString = get(ENV, "LUMP_AND_SPRAY", "no"))
+    sl = lowercase(s)
+    if sl == "no"
+        return (; di = 0, dj = 0, dk = 0, on = false, tag = "prec", dir_suffix = "")
+    elseif sl == "yes"
+        error(
+            "LUMP_AND_SPRAY=yes is no longer supported; use 'no' or '<int>x<int>' " *
+                "(e.g. '2x2' for the previous hardcoded default).",
+        )
+    end
+    m = match(r"^(\d+)x(\d+)$", sl)
+    m === nothing &&
+        error("LUMP_AND_SPRAY must be 'no' or '<int>x<int>' (got: $s)")
+    di = parse(Int, m.captures[1])
+    dj = parse(Int, m.captures[2])
+    (di > 0 && dj > 0) ||
+        error("LUMP_AND_SPRAY factors must be positive integers (got: $s)")
+    tag = "Q$(di)x$(dj)"
+    return (; di, dj, dk = 1, on = true, tag, dir_suffix = "_$tag")
+end
+
 """Build the unified MODEL_CONFIG directory tag from parsed config + optional env flags."""
 function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
     wf_tag = W_FORMULATION

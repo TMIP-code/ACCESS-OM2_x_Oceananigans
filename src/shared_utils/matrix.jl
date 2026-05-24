@@ -55,24 +55,32 @@ function process_sparse_matrix(M, MATRIX_PROCESSING)
 end
 
 """
-    compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY=false)
+    compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; di, dj, dk, on, tag)
 
-If LUMP_AND_SPRAY is true, compute LUMP, SPRAY, Mc and save to matrices_dir.
-Returns (; Mc, LUMP, SPRAY) — all `nothing` if LUMP_AND_SPRAY is false.
+When `on=true`, compute LUMP, SPRAY, Mc for a (`di`, `dj`, `dk`) coarsening
+and save them to `matrices_dir/{tag}/` (e.g. `matrices_dir/Q5x5/Mc.jld2`).
+When `on=false`, returns named-tuple of `nothing`.
+
+The parsed kwargs come from `parse_lump_and_spray()`.
 """
-function compute_and_save_coarsening(M, wet3D, v1D, matrices_dir; LUMP_AND_SPRAY = false)
-    if LUMP_AND_SPRAY
-        @info "Computing LUMP and SPRAY matrices"
+function compute_and_save_coarsening(
+        M, wet3D, v1D, matrices_dir;
+        di::Integer, dj::Integer, dk::Integer, on::Bool, tag::AbstractString,
+    )
+    if on
+        @info "Computing LUMP and SPRAY matrices (di=$di, dj=$dj, dk=$dk)"
         flush(stdout); flush(stderr)
-        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di = 2, dj = 2, dk = 1)
+        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D, v1D, M; di, dj, dk)
         @info "LUMP ($(size(LUMP, 1))×$(size(LUMP, 2)), nnz=$(nnz(LUMP)))"
         @info "SPRAY ($(size(SPRAY, 1))×$(size(SPRAY, 2)), nnz=$(nnz(SPRAY)))"
         Mc = LUMP * M * SPRAY
         @info "Coarsened matrix Mc ($(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc)))"
 
-        jldsave(joinpath(matrices_dir, "LUMP.jld2"); LUMP)
-        jldsave(joinpath(matrices_dir, "SPRAY.jld2"); SPRAY)
-        jldsave(joinpath(matrices_dir, "Mc.jld2"); Mc)
+        save_dir = joinpath(matrices_dir, tag)
+        mkpath(save_dir)
+        jldsave(joinpath(save_dir, "LUMP.jld2"); LUMP)
+        jldsave(joinpath(save_dir, "SPRAY.jld2"); SPRAY)
+        jldsave(joinpath(save_dir, "Mc.jld2"); Mc)
         flush(stdout); flush(stderr)
         return (; Mc, LUMP, SPRAY)
     else

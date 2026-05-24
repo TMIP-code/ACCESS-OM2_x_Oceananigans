@@ -179,11 +179,15 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
     elseif INITIAL_AGE == "TMage"
         TM_SOURCE = get(ENV, "TM_SOURCE", "const")
         matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)
-        preferred_coarse_tag = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes" ? "coarse" : "full"
-        fallback_coarse_tag = preferred_coarse_tag == "coarse" ? "full" : "coarse"
+        ls = parse_lump_and_spray()
+        preferred_coarse_tag = ls.on ? ls.tag : "full"
+        # Always fall back to "full" if the preferred Q-tagged steady-age file
+        # isn't on disk; we don't try to enumerate alternative coarsening
+        # factors (e.g. a Q5x5 run wouldn't fall back to Q4x4).
+        tag_order = preferred_coarse_tag == "full" ? ("full",) : (preferred_coarse_tag, "full")
         candidates = [
             "steady_age_seconds_$(coarse_tag)_$(solver)_$(mp).jld2"
-                for coarse_tag in (preferred_coarse_tag, fallback_coarse_tag)
+                for coarse_tag in tag_order
                 for mp in ("raw", "dropzeros", "symfill", "symdrop")
                 for solver in ("ParU", "UMFPACK", "Pardiso")
         ]

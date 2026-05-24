@@ -23,9 +23,10 @@ Environment variables (in addition to setup_model.jl):
                    Pardiso: MKL Pardiso iterative solver
                    ParU:    ParU parallel sparse LU factorization
                    UMFPACK: UMFPACK sparse LU factorization (ships with Julia)
-  LUMP_AND_SPRAY – yes | no  (default: no)
-                   yes: lump-and-spray coarsening (Bardin et al., 2014)
-                   no:  direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
+  LUMP_AND_SPRAY – no | AxB  (default: no)
+                   no:    direct preconditioner P = Q⁻¹ - I where Q = stop_time * M
+                   AxB:   lump-and-spray coarsening with di=A, dj=B, dk=1
+                          (Bardin et al., 2014). Example: 5x5, 4x4, 2x2.
   MATRIX_PROCESSING – raw | symfill | dropzeros | symdrop  (default: raw)
                    Processing applied to Q_precond before Pardiso factorization.
                    raw:       no processing (Pardiso requires structurally symmetric M)
@@ -57,8 +58,9 @@ const nprocs = parse(Int, get(ENV, "PARDISO_NPROCS", ENV["PBS_NCPUS"]))
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
-LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
-lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+ls = parse_lump_and_spray()
+LUMP_AND_SPRAY = ls.on
+lumpspray_tag = ls.tag
 
 MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
 (MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
@@ -93,7 +95,7 @@ end
 @info "Newton-GMRES periodic solver configuration"
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
 @info "- TM_SOURCE = $TM_SOURCE"
-@info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
+@info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk), tag: $lumpspray_tag)"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout); flush(stderr)
@@ -105,9 +107,10 @@ flush(stdout); flush(stderr)
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
+nk_dirname = "NK$(ls.dir_suffix)"
 solver_output_dir = isempty(gpu_tag) ?
-    joinpath(outputdir, "periodic", model_config, "NK") :
-    joinpath(outputdir, "periodic", model_config, gpu_tag, "NK")
+    joinpath(outputdir, "periodic", model_config, nk_dirname) :
+    joinpath(outputdir, "periodic", model_config, gpu_tag, nk_dirname)
 mkpath(solver_output_dir)
 
 ################################################################################
@@ -162,9 +165,11 @@ if rank == 0
     ############################################################################
 
     if LUMP_AND_SPRAY
-        @info "Computing LUMP and SPRAY matrices"
+        @info "Computing LUMP and SPRAY matrices (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk))"
         flush(stdout); flush(stderr)
-        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(wet3D_global, v1D, M; di = 2, dj = 2, dk = 1)
+        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(
+            wet3D_global, v1D, M; di = ls.di, dj = ls.dj, dk = ls.dk,
+        )
         Mc = LUMP * M * SPRAY
         @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
         Q_precond = copy(Mc)

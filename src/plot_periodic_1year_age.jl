@@ -25,7 +25,7 @@ Environment variables:
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   LINEAR_SOLVER    – Pardiso | ParU | UMFPACK  (default: Pardiso)
-  LUMP_AND_SPRAY   – yes | no  (default: no)
+  LUMP_AND_SPRAY   – no | AxB  (default: no; e.g. 5x5)
 """
 
 @info "Loading packages for periodic age plotting"
@@ -59,8 +59,9 @@ include("shared_functions.jl")
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
-LUMP_AND_SPRAY = lowercase(get(ENV, "LUMP_AND_SPRAY", "no")) == "yes"
-lumpspray_tag = LUMP_AND_SPRAY ? "LSprec" : "prec"
+ls = parse_lump_and_spray()
+LUMP_AND_SPRAY = ls.on
+lumpspray_tag = ls.tag
 solver_tag = "$(LINEAR_SOLVER)_$(lumpspray_tag)"
 
 periodic_1year_dir = joinpath(outputdir, "periodic", model_config, "1year", solver_tag)
