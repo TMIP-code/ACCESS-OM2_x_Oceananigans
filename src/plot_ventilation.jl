@@ -208,13 +208,11 @@ lon_window_start = 20  # matches plotmap!'s default
 function add_coastlines!(ax)
     coast = GeoMakie.coastlines()   # Vector{LineString{2, Float32}}
     cl1 = lines!(ax, coast; color = :black, linewidth = 0.7)
+    cl2 = lines!(ax, coast; color = :black, linewidth = 0.7)
+    # Shift the second copy by +360° in lon so coastlines cover both halves
+    # of the [20, 380] window. Bring both to front in z.
     translate!(cl1, 0, 0, 50)
-    # Add a +360-shifted copy so coastlines cover the full [20, 380] window.
-    coast_shifted = [
-        LineString([Point2f(p[1] + 360, p[2]) for p in pts]) for pts in coast
-    ]
-    cl2 = lines!(ax, coast_shifted; color = :black, linewidth = 0.7)
-    translate!(cl2, 0, 0, 50)
+    translate!(cl2, 360, 0, 50)
     return nothing
 end
 
