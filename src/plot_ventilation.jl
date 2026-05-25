@@ -250,17 +250,17 @@ cm_mean = cgrad(collect(cm_mean[1:(end - 1)]); categorical = true)
 scale_mean = mk_piecewise_linear(levels_mean)
 plot_levels_mean = scale_mean.(levels_mean)
 
-# Diff panels: same ladder, mirrored around 0.
+# Diff panels: same ladder, mirrored around 0. No explicit 0 in levels — the
+# middle interval [-p, p] is rendered as one white band centered on zero
+# (Pasquier 2024 convention).
 maxv_diff = maximum(abs, filter(isfinite, calV_diff))
 diff_pos = pick_levels(maxv_diff; user_p)
-levels_diff = Float32[-reverse(diff_pos[2:end]); 0; diff_pos[2:end]]
+levels_diff = Float32[-reverse(diff_pos[2:end]); diff_pos[2:end]]
 @info "Diff panel levels = $levels_diff  (data |max| ≈ $maxv_diff)"
-cm_diff_full = cgrad(
-    cgrad(:tol_bu_rd, length(levels_diff), categorical = true)[[1:(end ÷ 2 + 1); (end ÷ 2 + 1):end]],
-    categorical = true,
-)
-highclip_diff = cm_diff_full[end]
+# PRGn with white center, Pasquier 2024 convention.
+cm_diff_full = cgrad(withwhitecenter(Makie.ColorSchemes.PRGn), length(levels_diff) + 1; categorical = true)
 lowclip_diff = cm_diff_full[1]
+highclip_diff = cm_diff_full[end]
 cm_diff = cgrad(collect(cm_diff_full[2:(end - 1)]); categorical = true)
 scale_diff = mk_piecewise_linear(levels_diff)
 plot_levels_diff = scale_diff.(levels_diff)
@@ -345,7 +345,7 @@ ax11 = Axis(
 )
 co11 = plotmap!(
     ax11, calV1, gridmetrics;
-    colorrange = extrema(plot_levels_mean),
+    colorrange = extrema(levels_mean),     # data space; Makie applies colorscale itself
     colormap = cm_mean,
     highclip = highclip_mean,
     colorscale = scale_mean,
@@ -363,7 +363,7 @@ hidexdecorations!(ax11; ticks = false, grid = false, ticklabels = true, label = 
 cb1 = Colorbar(
     fig[2, 1], co11;
     vertical = false, flipaxis = false,
-    ticks = (plot_levels_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
+    ticks = (levels_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
     label = rich("% v", subscript("tot"), " / (10,000 km)", superscript("2")),
 )
 cb1.width = Relative(2 / 3)
@@ -402,7 +402,7 @@ ax21 = Axis(
 )
 co21 = plotmap!(
     ax21, calV_diff, gridmetrics;
-    colorrange = extrema(plot_levels_diff),
+    colorrange = extrema(levels_diff),     # data space; Makie applies colorscale itself
     colormap = cm_diff,
     highclip = highclip_diff,
     lowclip = lowclip_diff,
@@ -420,7 +420,7 @@ text!(
 cb2 = Colorbar(
     fig[4, 1], co21;
     vertical = false, flipaxis = false,
-    ticks = (plot_levels_diff, divergingcbarticklabelformat(levels_diff)),
+    ticks = (levels_diff, divergingcbarticklabelformat(levels_diff)),
     label = rich("Δ % v", subscript("tot"), " / (10,000 km)", superscript("2")),
 )
 cb2.width = Relative(2 / 3)
@@ -471,10 +471,12 @@ Label(
 )
 
 # ----- Spacing tweaks -------------------------------------------------------
+# Pasquier 2024 template uses Auto(0.28) on the zonal-integral column to make
+# it ~28% the width of the map column; matched here. Map aspect is driven by
+# the Axis `aspect = DataAspect()`, no explicit Aspect colsize needed.
 rowgap!(fig.layout, 5)
 colgap!(fig.layout, 10)
-colsize!(fig.layout, 1, Aspect(1, 2.0))
-colsize!(fig.layout, 2, Auto(0.3))
+colsize!(fig.layout, 2, Auto(0.28))
 resize_to_layout!(fig)
 
 ################################################################################
