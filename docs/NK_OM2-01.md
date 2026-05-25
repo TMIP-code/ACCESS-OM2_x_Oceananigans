@@ -28,8 +28,11 @@
     exceeded** (exit -29) — completed sparsity (3h 12m) + prep (7m) but
     ran out before computing the Jacobian. Used 692 GB of 768 GB
     (memory fine); NK `169134143` purged.
-  - 3rd attempt (in flight, commit `7deb7a3`): TMbuild `169141749`
-    (hugemem, 24 CPU / 768 GB / **10 h walltime**), NK `169141750` held.
+  - 3rd attempt (`7deb7a3`): TMbuild `169141749` (hugemem 24 CPU / 768 GB / 10 h)
+    🗑 killed before completion to bump resources (only ~1 h in).
+  - 4th attempt (in flight, `6a60ca9`): TMbuild `169148432` on **hugemem
+    48 CPU / 1470 GB / 10 h** (PBS rejected 1536 GB; node max is 1470 GB).
+    NK `169148433` held.
   - Per-model TMbuild mem/queue/ncpus overrides + walltime now wired
     through driver and `model_configs/ACCESS-OM2-01.sh`. OM2-1/025
     unchanged.
@@ -80,6 +83,17 @@ the final age + checkpoint iterates via one-shot `jldsave(...)`, not via
 `JLD2Writer`/`MmapIO`, so it doesn't touch the buggy code path.
 
 run1yr fix is a follow-up; it doesn't gate the NK_5x5 evaluation.
+
+**Reproducer in flight**: `169159227` — OM2-1 `run1yr` at PARTITION=1x2,
+wparent, MONTHLY_KAPPAV=yes, DTx2, LB=no. Tiny (~8 min compute) but with
+the same writer setup. If it reproduces, the bug is JLD2/writer related,
+not OM2-01-specific.
+
+**For future LB sweeps**, switch from `run1yr` to `run1yrfast`
+(`scripts/standard_runs/run_1year_benchmark.sh` / `src/run_1year_benchmark.jl`)
+— same simulation, no output writers, no JLD2 risk. Walltime alone is
+all we need for an LB winner pick. The `run1yr` writer outputs are only
+useful for diagnostic plotting, which we don't need during the LB sweep.
 - **Partition rebuilds + run1yr (in flight)**:
   - LB=no: partition `169132252` (megamem 1.4 TB) → run1yr `169132253`.
   - LB=cell: partition `169132264` (megamem 1.4 TB) → run1yr `169132265`.
@@ -446,8 +460,11 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 | 2026-05-24 | `169132265` | run1yr LB=cell | LB=cell | ❌ 21 min, exit 1 | Same CUDA sync error. 317 GB used. |
 | 2026-05-24 | `169134142` | TMbuild (2nd) | LBS | ❌ 4h01m walltime | exit -29; used 692 GB. Done with sparsity+prep, ran out before Jacobian compute. |
 | 2026-05-24 | `169134143` | NK_5x5 (2nd) | LBS / 5×5 | 🗑 purged | afterok 169134142 failed. |
-| 2026-05-25 | `169141749` | TMbuild (3rd) | LBS | ⏳ submitted | hugemem 24 CPU / 768 GB / **10 h walltime** (`7deb7a3`). |
-| 2026-05-25 | `169141750` | **NK_5x5 (3rd)** | LBS / 5×5 | ⏸ held (afterok 169141749) | gpuhopper 1×4, 24 h. |
+| 2026-05-25 | `169141749` | TMbuild (3rd) | LBS | 🗑 killed at 1 h | resource bump after the fact — see 4th attempt. |
+| 2026-05-25 | `169141750` | NK_5x5 (3rd) | LBS / 5×5 | 🗑 killed | qdel together with parent. |
+| 2026-05-25 | `169148432` | TMbuild (4th) | LBS | ⏳ running | hugemem **48 CPU / 1470 GB / 10 h** (`6a60ca9`). Max usable hugemem. |
+| 2026-05-25 | `169148433` | **NK_5x5 (4th)** | LBS / 5×5 | ⏸ held (afterok 169148432) | gpuhopper 1×4, 24 h. |
+| 2026-05-25 | `169159227` | OM2-1 reproducer | LB=no | ⏳ queued | OM2-1 run1yr at 1×2 wparent mkappaV DTx2 LB=no. Tiny test of the JLD2 failure path. |
 
 ## Out of scope
 
