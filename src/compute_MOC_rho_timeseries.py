@@ -1,14 +1,14 @@
 # Compute density-space MOC streamfunction as a full monthly timeseries.
 #
-# Output: one NetCDF file per model with the global streamfunction
+# Output: one NetCDF file per (model, basin) with the streamfunction
 #   psi_tot(time, potrho, grid_yu_ocean)  in Sv
 # computed from ty_trans_rho + ty_trans_rho_gm (resolved + GM), summed
-# zonally and cumsummed over potrho.
+# zonally and cumsummed over potrho. `BASIN=atlantic` applies an Atlantic
+# mask before the zonal sum (mask built by src/build_atlantic_mask_rhospace.jl).
 #
 # Usage:
 #   python3 src/compute_MOC_rho_timeseries.py ACCESS-OM2-1   1deg_jra55_iaf_omip2_cycle6
-#   python3 src/compute_MOC_rho_timeseries.py ACCESS-OM2-025 025deg_jra55_iaf_omip2_cycle6
-#   python3 src/compute_MOC_rho_timeseries.py ACCESS-OM2-01  01deg_jra55v140_iaf_cycle4
+#   BASIN=atlantic python3 src/compute_MOC_rho_timeseries.py ACCESS-OM2-1 1deg_jra55_iaf_omip2_cycle6
 
 import sys
 import traceback
@@ -16,6 +16,7 @@ from os import environ, makedirs
 
 environ["PYTHONWARNINGS"] = "ignore"
 
+import xarray as xr
 from dask.distributed import Client
 import intake
 
@@ -28,6 +29,10 @@ model = sys.argv[1]
 subcatalog = sys.argv[2]
 
 PROJECT = environ["PROJECT"]
+BASIN = environ.get("BASIN", "global").lower()
+if BASIN not in ("global", "atlantic"):
+    print(f"ERROR: BASIN must be 'global' or 'atlantic', got '{BASIN}'")
+    sys.exit(1)
 
 # Reference density for kg/s → Sv conversion
 rho0 = 1035.0
@@ -83,6 +88,24 @@ if __name__ == "__main__":
     outputdir = f"{datadir}/{model}/{subcatalog}/rhospace"
     makedirs(outputdir, exist_ok=True)
     print(f"Output directory: {outputdir}")
+    print(f"BASIN: {BASIN}")
+
+    # If Atlantic, load the mask (built by build_atlantic_mask_rhospace.jl).
+    # Cast to float32 so dask broadcasts cleanly against ty_trans_rho.
+    atlantic_mask = None
+    if BASIN == "atlantic":
+        mask_path = f"{outputdir}/atlantic_mask.nc"
+        try:
+            print(f"Loading Atlantic mask from {mask_path}")
+            atlantic_mask = (
+                xr.open_dataset(mask_path)["atlantic_mask"].astype("float32")
+            )
+        except FileNotFoundError:
+            print(
+                f"ERROR: {mask_path} not found. Run "
+                f"scripts/prepreprocessing/build_atlantic_mask_rhospace.sh first."
+            )
+            sys.exit(1)
 
     # Resolved: ty_trans_rho → zonal sum, then cumsum over potrho, minus total
     # (same convention as compute_AABW_depthspace.py: ψ = 0 at densest)
@@ -98,6 +121,9 @@ if __name__ == "__main__":
             frequency="1mon",
         )
         ty = ty.fillna(0.0)
+        if atlantic_mask is not None:
+            print("Applying Atlantic mask before zonal sum")
+            ty = ty * atlantic_mask
         print("Zonal sum + cumsum over potrho")
         psi_res = ty.sum("grid_xt_ocean")
         psi_res = psi_res.cumulative("potrho").sum() - psi_res.sum("potrho")
@@ -119,6 +145,9 @@ if __name__ == "__main__":
                 frequency="1mon",
             )
             ty_gm = ty_gm.fillna(0.0)
+            if atlantic_mask is not None:
+                print("Applying Atlantic mask to GM before zonal sum")
+                ty_gm = ty_gm * atlantic_mask
             print("Zonal sum (no cumsum — already a transport)")
             psi_gm = ty_gm.sum("grid_xt_ocean")
         except Exception:
@@ -143,9 +172,9 @@ if __name__ == "__main__":
         psi_tot = psi_tot.to_dataset(name="psi_tot")
         psi_tot["psi_tot"].attrs["units"] = "Sv"
         psi_tot["psi_tot"].attrs["long_name"] = (
-            "Global density-space meridional overturning streamfunction"
+            f"{BASIN.capitalize()} density-space meridional overturning streamfunction"
         )
-        outfile = f"{outputdir}/psi_tot_global.nc"
+        outfile = f"{outputdir}/psi_tot_{BASIN}.nc"
         print(f"Saving to {outfile}")
         psi_tot.to_netcdf(outfile, compute=True)
     except Exception:
@@ -170,9 +199,9 @@ if __name__ == "__main__":
         psi_rollingyear = psi_rolling_weighted.mean("window", skipna=False)
         psi_rollingyear["psi_tot"].attrs["units"] = "Sv"
         psi_rollingyear["psi_tot"].attrs["long_name"] = (
-            "Global density-space MOC, 12-month day-weighted rolling mean"
+            f"{BASIN.capitalize()} density-space MOC, 12-month day-weighted rolling mean"
         )
-        outfile = f"{outputdir}/psi_tot_rollingyear_global.nc"
+        outfile = f"{outputdir}/psi_tot_rollingyear_{BASIN}.nc"
         print(f"Saving to {outfile}")
         psi_rollingyear.to_netcdf(outfile, compute=True)
     except Exception:

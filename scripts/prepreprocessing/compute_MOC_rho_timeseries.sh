@@ -8,9 +8,10 @@
 #
 # Usage:
 #   qsub -v "PARENT_MODEL=ACCESS-OM2-1" scripts/prepreprocessing/compute_MOC_rho_timeseries.sh
+#   qsub -v "PARENT_MODEL=ACCESS-OM2-1,BASIN=atlantic" scripts/prepreprocessing/compute_MOC_rho_timeseries.sh
 #
-# Writes:  /scratch/y99/TMIP/data/{PARENT_MODEL}/{EXPERIMENT}/rhospace/psi_tot_global.nc
-# Logs to: logs/python/{PARENT_MODEL}/{EXPERIMENT}/compute_MOC_rho_timeseries_<jobid>.log
+# Writes:  /scratch/y99/TMIP/data/{PARENT_MODEL}/{EXPERIMENT}/rhospace/psi_tot_{BASIN}.nc
+# Logs to: logs/python/{PARENT_MODEL}/{EXPERIMENT}/compute_MOC_rho_timeseries_<basin>_<jobid>.log
 
 #PBS -P y99
 #PBS -q express
@@ -38,8 +39,11 @@ if [ -z "${EXPERIMENT:-}" ]; then
     esac
 fi
 
+BASIN=${BASIN:-global}
+
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
+echo "BASIN=$BASIN"
 
 job_id="${PBS_JOBID:-interactive}"
 
@@ -51,7 +55,7 @@ module purge
 module use /g/data/xp65/public/modules
 module load conda/analysis3
 
-echo "Running compute_MOC_rho_timeseries.py"
-python3 src/compute_MOC_rho_timeseries.py "$PARENT_MODEL" "$EXPERIMENT" \
-    &> "$log_dir/compute_MOC_rho_timeseries_${job_id}.log"
-echo "Done; logs in $log_dir/compute_MOC_rho_timeseries_${job_id}.log"
+echo "Running compute_MOC_rho_timeseries.py (BASIN=$BASIN)"
+BASIN=$BASIN python3 src/compute_MOC_rho_timeseries.py "$PARENT_MODEL" "$EXPERIMENT" \
+    &> "$log_dir/compute_MOC_rho_timeseries_${BASIN}_${job_id}.log"
+echo "Done; logs in $log_dir/compute_MOC_rho_timeseries_${BASIN}_${job_id}.log"

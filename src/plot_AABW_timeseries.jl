@@ -20,6 +20,8 @@ using CairoMakie
 using Dates
 using Statistics
 
+include("shared_utils/water_mass_metrics.jl")
+
 # ── Configuration ──────────────────────────────────────────────────────────
 
 PROJECT = get(ENV, "PROJECT", "y99")
@@ -126,49 +128,6 @@ function compute_aabw_monthly(filepath)
     aabw_50S = [minimum(skipmissing(psi_50S[:, :, i])) for i in 1:nt] .* to_sv
 
     return time_frac, time_vals, aabw_upper, aabw_deep, aabw_50S
-end
-
-"""
-    yearly_mean_of_monthly(time_vals, monthly_vals)
-
-Compute mean(metric(month)) per year — i.e., apply the spatial metric to each month
-first, then average over the 12 months. This differs from metric(mean(month)) which
-averages the field first then applies the spatial metric.
-"""
-function yearly_mean_of_monthly(time_vals, monthly_vals)
-    yrs = [Dates.year(t) for t in time_vals]
-    unique_yrs = sort(unique(yrs))
-    yearly_means = Float64[]
-    for y in unique_yrs
-        idx = findall(yrs .== y)
-        push!(yearly_means, mean(monthly_vals[idx]))
-    end
-    return unique_yrs, yearly_means
-end
-
-"""
-Load density-space ψ from a NetCDF written by `compute_MOC_rho_timeseries.py`.
-Returns (psi, lat, potrho, time_vals) with ψ already in Sv.
-"""
-function load_rho_psi(filepath)
-    ds = NCDataset(filepath, "r"; maskingvalue = NaN)
-    psi = ds["psi_tot"][:, :, :]    # (grid_yu_ocean, potrho, time)
-    lat = ds["grid_yu_ocean"][:]
-    potrho = ds["potrho"][:]
-    time_vals = ds["time"][:]
-    close(ds)
-    return psi, lat, potrho, time_vals
-end
-
-"""
-Apply the density-space AABW metric to each time step of `psi`:
-min ψ over (lat < LAT_MAX, σ₀ ≥ RHO_THRESHOLD). ψ is already in Sv.
-"""
-function rho_aabw_metric(psi, lat, potrho; lat_max, rho_threshold)
-    lat_mask = lat .< lat_max
-    rho_mask = potrho .>= rho_threshold
-    sub = psi[lat_mask, rho_mask, :]
-    return [minimum(skipmissing(sub[:, :, i])) for i in axes(sub, 3)]
 end
 
 function find_rolling_extrema(years, vals, window_length)
