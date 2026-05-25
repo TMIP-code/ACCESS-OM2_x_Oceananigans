@@ -86,7 +86,9 @@ else  # "M_traf"
     "M_traf.jld2"
 end
 
-TM_MODEL_CONFIG = get(ENV, "TM_MODEL_CONFIG", model_config)
+TM_MODEL_CONFIG = let v = get(ENV, "TM_MODEL_CONFIG", "")
+    isempty(v) ? model_config : v
+end
 matrices_dir = joinpath(outputdir, "TM", TM_MODEL_CONFIG)
 if TM_MODEL_CONFIG != model_config
     @warn "NK using TM from a different model_config (preconditioner approximation only)" tm_config = TM_MODEL_CONFIG nk_config = model_config
