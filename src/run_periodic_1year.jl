@@ -46,12 +46,14 @@ nk_dirname = "NK$(ls.dir_suffix)"
 nk_output_dir = isempty(gpu_tag) ?
     joinpath(outputdir, "periodic", model_config, nk_dirname) :
     joinpath(outputdir, "periodic", model_config, gpu_tag, nk_dirname)
-nk_file = joinpath(nk_output_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
+omega_suffix = omega_filename_suffix()
+nk_file = joinpath(nk_output_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag)$(omega_suffix).jld2")
 isfile(nk_file) || error("Converged NK solution not found: $nk_file")
 
 @info "run_periodic_1year.jl configuration"
 @info "- LINEAR_SOLVER  = $LINEAR_SOLVER"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
+@info "- OMEGA          = $(parse_omega().tag) (suffix='$(omega_suffix)')"
 @info "- NK solution    = $nk_file"
 flush(stdout); flush(stderr)
 
@@ -84,7 +86,7 @@ output_fields = Dict(
     "age" => model.tracers.age,
 )
 
-output_prefix = joinpath(periodic_1year_dir, "age_periodic_1year$(omega_filename_suffix())")
+output_prefix = joinpath(periodic_1year_dir, "age_periodic_1year$(omega_suffix)")
 
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;
