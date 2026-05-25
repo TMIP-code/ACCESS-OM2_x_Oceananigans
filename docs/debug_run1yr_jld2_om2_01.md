@@ -29,6 +29,37 @@ The successful counterpart at OM2-01 — `169128255` (`LOAD_BALANCE=surface`,
 We don't yet have a clean reproducer that consistently fails (LBS worked at
 the same scale).
 
+### Caveat: the LB tag is missing from the OUTPUT path
+
+`build_model_config()` in [src/shared_utils/config.jl](src/shared_utils/config.jl#L114-L130)
+does NOT include the LB suffix (`_LB`, `_LBS`, `_LBmix`, `_LBminmax`). Only
+the shell-side `MODEL_CONFIG` in `scripts/env_defaults.sh` does, and that
+only feeds log filenames. So the Julia output writer for all LB variants
+writes to the **same** directory:
+
+```
+outputs/{PM}/{EXP}/{TW}/standardrun/cgridtransports_wparent_centered2_AB2_mkappaV_DTx2/1x4/
+```
+
+Combined with `overwrite_existing = true`, this means:
+- 169128255 (LBS, May 24 19:34) wrote its output to that dir.
+- 169132253 (no, May 25 02:28) re-opened the *same files*,
+  `overwrite_existing=true` truncated them, then it crashed mid-snapshot.
+- 169132265 (cell, May 25 02:52) ran into the same dir again.
+- Net effect: the LBS data is gone (silently clobbered), and the files I
+  inspected after the fact are LB=no's truncated remnants
+  (e.g. `age_1year_rank0.jld2` at 715 bytes), not LBS output.
+
+This is a related bug worth fixing independently of the JLD2 issue — the
+LB tag should be in the output path so concurrent (or sequential) LB
+sweep submissions don't clobber each other. Possible fixes:
+
+- Inline the LB suffix into the Julia `build_model_config()` (mirror the
+  shell-side logic via `parse_load_balance_env()` already in
+  `src/shared_utils/load_balance.jl`).
+- Or push the LB into a sub-dir under `model_config`, similar to how
+  `{px}x{py}` already sits between `model_config` and the rank files.
+
 ## Submission (failing job, e.g. 169132253)
 
 ```bash
