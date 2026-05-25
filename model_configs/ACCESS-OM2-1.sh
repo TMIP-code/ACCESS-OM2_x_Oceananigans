@@ -6,6 +6,9 @@ MODEL_SHORT=OM2-1
 # --- GPU queue (V100 sufficient for 1° resolution) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuvolta}
 
+# --- Tracer timestep multiplier (Δt = M·Δt_base) ---
+TIMESTEP_MULT=${TIMESTEP_MULT:-4}
+
 # --- Preprocessing ---
 WALLTIME_PREP=02:00:00            # actual ~16min (20yr), longer for 30yr windows
 PREP_NCPUS=24                     # 4GB/CPU minimum charge; periodicaverage.py uses n_workers=ncpus

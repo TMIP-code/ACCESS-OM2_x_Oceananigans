@@ -35,19 +35,29 @@ fi
 export EXPERIMENT TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG
 [ "$MLD_EXPLICIT" = "yes" ] && export MLD_TIME_WINDOW
 
+# Source model-specific config FIRST so it can establish per-model defaults
+# (e.g. TIMESTEP_MULT) before the cross-model fallback defaults below run.
+# The model config uses `${VAR:-default}` so user-set env vars still win.
+MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
+if [ ! -f "$MODEL_CONF" ]; then
+    echo "ERROR: Model config not found: $MODEL_CONF" >&2
+    exit 1
+fi
+source "$MODEL_CONF"
+
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}     # cgridtransports | totaltransport
-W_FORMULATION=${W_FORMULATION:-wdiagnosed}              # wdiagnosed | wprescribed
+W_FORMULATION=${W_FORMULATION:-wprescribed}             # wdiagnosed | wprescribed
 PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (only when W_FORMULATION=wprescribed)
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5
 TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
-TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base (see docs/timestep_multiplier.md)
+TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base. Per-model defaults in model_configs/*.sh (4/3/2 for OM2-1/025/01).
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
-TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-no}        # yes | no — when yes, save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
+TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-yes}       # yes | no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropzeros | symdrop
 INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
-TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
+TM_SOURCE=${TM_SOURCE:-const}                           # const | avg
 TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}                   # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes
@@ -192,13 +202,8 @@ export UCX_WARN_UNUSED_ENV_VARS=n
 # MPItrampoline: point to mpiwrapper built against system OpenMPI
 export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
 
-# Source model-specific config (MODEL_SHORT, GPU_QUEUE, walltimes)
-MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
-if [ ! -f "$MODEL_CONF" ]; then
-    echo "ERROR: Model config not found: $MODEL_CONF" >&2
-    exit 1
-fi
-source "$MODEL_CONF"
+# Model-specific config was sourced earlier (before variable defaults) so
+# it can establish per-model defaults like TIMESTEP_MULT.
 
 # --- Partition + queue configuration ---
 CPU_QUEUE=${CPU_QUEUE:-express}

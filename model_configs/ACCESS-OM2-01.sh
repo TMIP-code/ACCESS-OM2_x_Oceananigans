@@ -14,6 +14,9 @@ MODEL_SHORT=OM2-01
 # --- GPU queue (H200 preferred for 0.1° — much larger memory) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 
+# --- Tracer timestep multiplier (Δt = M·Δt_base) ---
+TIMESTEP_MULT=${TIMESTEP_MULT:-2}
+
 # --- Preprocessing ---
 WALLTIME_PREP=12:00:00
 PREP_NCPUS=32
