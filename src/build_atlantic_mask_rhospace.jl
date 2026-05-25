@@ -40,17 +40,17 @@ isfile(psi_path) || error(
 # `psi_tot_global.nc` is already zonally summed, so it only has `grid_yu_ocean`.
 # To get the matching `grid_xt_ocean` axis we look for any preprocessed
 # `ty_trans_monthly.nc` in the experiment (lon is static across time windows).
-exp_dir = joinpath(@__DIR__, "..", "preprocessed_inputs", PARENT_MODEL, EXPERIMENT)
-ty_trans_path = nothing
-if isdir(exp_dir)
-    for tw_subdir in readdir(exp_dir; join = true)
-        candidate = joinpath(tw_subdir, "monthly", "ty_trans_monthly.nc")
-        if isfile(candidate)
-            ty_trans_path = candidate
-            break
-        end
+function find_ty_trans_monthly(exp_dir)
+    isdir(exp_dir) || return nothing
+    for entry in readdir(exp_dir; join = true)
+        candidate = joinpath(entry, "monthly", "ty_trans_monthly.nc")
+        isfile(candidate) && return candidate
     end
+    return nothing
 end
+
+exp_dir = joinpath(@__DIR__, "..", "preprocessed_inputs", PARENT_MODEL, EXPERIMENT)
+ty_trans_path = find_ty_trans_monthly(exp_dir)
 ty_trans_path === nothing && error(
     "No preprocessed ty_trans_monthly.nc found under $exp_dir/*/monthly/ — " *
         "run the preprocessing pipeline (JOB_CHAIN=prep) for any time window first."
