@@ -4,7 +4,7 @@ Plot the surface ventilation diagnostic `calVdown` produced by
 plotting style: per-cell quad mesh on the tripolar grid (via the helpers in
 [src/shared_utils/plotting_functions.jl](shared_utils/plotting_functions.jl))
 on a pseudo-log colour scale with levels `[0, 10, 30, 100, 300, 1000]` in
-units `% v_tot / (10,000 km²)`.
+units `% v_tot / (10,000 km)²`.
 
 The script reads **both** time windows (1968-1977 and 1999-2008) for one
 (PM, leg) pair and lays out a 2 × 2 panel:
@@ -17,7 +17,7 @@ The script reads **both** time windows (1968-1977 and 1999-2008) for one
 It loads
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK[_QAxB]/ventilation.jld2
 for `TW ∈ {1968-1977, 1999-2008}` (mirrors the same dual-naming fallback as
-`compute_ventilation_diagnostic.jl`), normalises with `1e12 / vtot`, and
+`compute_ventilation_diagnostic.jl`), normalises with `1e16 / vtot`, and
 writes one PNG per (PM, leg) to
   outputs/{PM}/{EXP}/plots/{MC}/calVdown_{forward|adjoint}.png
 
@@ -147,17 +147,18 @@ let δ = abs(d2["vtot"] - vtot) / vtot
     δ < 1.0e-6 || @warn "v_tot differs between time windows" tw1_vtot = vtot tw2_vtot = d2["vtot"] reldiff = δ
 end
 
-# Normalise: % v_tot / (10,000 km²)
-norm_factor = 1.0e12 / vtot
+# Normalise: % v_tot / (10,000 km)² — note the (10,000 km)² = 1e14 m², not 1e10.
+# Prefactor: 100 × (1e14 m² / (10,000 km)²) / vtot[m³] = 1e16 / vtot.
+norm_factor = 1.0e16 / vtot
 calV1 = calVdown_raw_1 .* norm_factor
 calV2 = calVdown_raw_2 .* norm_factor
 calV_diff = calV2 .- calV1
 
-@info @sprintf("v_tot = %.3e m³;  1e12/v_tot = %.3e", vtot, norm_factor)
+@info @sprintf("v_tot = %.3e m³;  1e16/v_tot = %.3e", vtot, norm_factor)
 for (name, v) in (("calV1", calV1), ("calV2", calV2), ("calV_diff", calV_diff))
     vals = filter(isfinite, v)
     @info @sprintf(
-        "%s [%% v_tot / 1e4 km²]:  min = %+.3e   mean = %+.3e   max = %+.3e",
+        "%s [%% v_tot / (10,000 km)²]:  min = %+.3e   mean = %+.3e   max = %+.3e",
         rpad(name, 9), minimum(vals), mean(vals), maximum(vals),
     )
 end
@@ -220,11 +221,11 @@ end
 # Colour scales and palettes
 ################################################################################
 
-# Pasquier 2024 spec is [0, 10, 30, 100, 300, 1000] %v_tot/(10,000 km²), tuned to
-# sub-basin v_tot (deep ETP, etc.). Whole-ocean v_tot here is ~50× larger, so the
-# data falls well below 10 — pick a log-decade ladder of the same shape sized to
-# the actual data max. Override by setting VENT_LEVELS_P (the lowest non-zero
-# level) explicitly, e.g. VENT_LEVELS_P=10 to recover the Pasquier set.
+# Pasquier 2024 spec is [0, 10, 30, 100, 300, 1000] %v_tot/(10,000 km)². Pick a
+# log-decade ladder of the same shape sized to the actual data max, so the same
+# script works across resolutions / sub-basins where v_tot can change by 1-2
+# orders of magnitude. Override the lowest-non-zero level via VENT_LEVELS_P,
+# e.g. VENT_LEVELS_P=10 to force the literal Pasquier set.
 function pick_levels(maxv; user_p = nothing)
     p = if user_p !== nothing
         user_p
@@ -271,8 +272,8 @@ tw2_color = cgrad(:seaborn_colorblind, categorical = true)[2]
 ################################################################################
 # Zonal integrals — bin (calV * Az) into 1° latitude bands.
 #
-# calV is in % v_tot / (10,000 km²) = % v_tot per 1e10 m². So for each 1° band
-#   ∫_lon  calV[i,j] · Az[i,j]  /  (1e10 m²)   →   % v_tot per 1° band
+# calV is in % v_tot / (10,000 km)² = % v_tot per 1e14 m². So for each 1° band
+#   ∫_lon  calV[i,j] · Az[i,j]  /  (1e14 m²)   →   % v_tot per 1° band
 # which (with 1° wide bins) equals "% v_tot / °lat".
 ################################################################################
 
@@ -288,7 +289,7 @@ function zonal_integral(calV, Az, lat2D)
         isfinite(v) || continue
         b = Int(floor((lat2D[i, j] + 90) / DLAT)) + 1
         (b < 1 || b > Nb) && continue
-        z[b] += v * Az[i, j] / 1.0e10
+        z[b] += v * Az[i, j] / 1.0e14
     end
     return z
 end
@@ -363,7 +364,7 @@ cb1 = Colorbar(
     fig[2, 1], co11;
     vertical = false, flipaxis = false,
     ticks = (plot_levels_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
-    label = rich("% v", subscript("tot"), " / (10,000 km", superscript("2"), ")"),
+    label = rich("% v", subscript("tot"), " / (10,000 km)", superscript("2")),
 )
 cb1.width = Relative(2 / 3)
 
@@ -420,7 +421,7 @@ cb2 = Colorbar(
     fig[4, 1], co21;
     vertical = false, flipaxis = false,
     ticks = (plot_levels_diff, divergingcbarticklabelformat(levels_diff)),
-    label = rich("Δ % v", subscript("tot"), " / (10,000 km", superscript("2"), ")"),
+    label = rich("Δ % v", subscript("tot"), " / (10,000 km)", superscript("2")),
 )
 cb2.width = Relative(2 / 3)
 

@@ -14,7 +14,7 @@ adapted to our (2 time-windows × 1 ocean) layout:
 1. Each output PNG is a **2 × 2 panel** for one (parent-model, leg) pair:
    - `[1,1]` — `calVdown_norm` map at 1968-1977 (Pasquier 2024 orange ramp,
      pseudo-log scale, levels `[0, 10, 30, 100, 300, 1000]`,
-     units `% v_tot / (10,000 km²)`).
+     units `% v_tot / (10,000 km)²`).
    - `[1,2]` — zonal-integral side panel, both time windows overlaid as
      lines, units `% v_tot / °lat`.
    - `[2,1]` — decadal-difference map `(1999-2008 − 1968-1977)` on a
@@ -54,7 +54,7 @@ The plotting style is lifted from two upstream files:
    - `dataforbicolorband(x, y1, y2)` — splits a band crossing zero into
      positive / negative segments so the zonal-integral-of-diff fill can be
      coloured by sign.
-   - The mean / diff colour-bar label `% v_tot / (10,000 km²)`.
+   - The mean / diff colour-bar label `% v_tot / (10,000 km)²`.
 
 Skip from the templates:
 - The `MAT.matread` data path (our inputs are JLD2).
@@ -91,12 +91,13 @@ $$\mathcal V^{\downarrow,\text{raw}}_{i,j} \;=\; \frac{V_{i,j,N_z}\,\bar\Gamma_{
 with $\tau = 3\,\Delta t$ in seconds and $\bar\Gamma_{i,j}$ in seconds (the NK
 output is in seconds; `setup_model.jl:347` defines $\tau = 3\Delta t$). Units: m.
 
-Normalisation to `% v_tot / (10,000 km²)` is applied in the **plot script**,
-not in the compute script — the saved diagnostic JLD2 stays unit-neutral:
+Normalisation to `% v_tot / (10,000 km)²` is applied in the **plot script**,
+not in the compute script — the saved diagnostic JLD2 stays unit-neutral.
+Note the parenthesisation: the normalising area is $(10^4\,\text{km})^2 = 10^{14}\,\text{m}^2$, **not** $10^4\,\text{km}^2 = 10^{10}\,\text{m}^2$:
 
-$$\mathcal V^\downarrow_{i,j} \;=\; \mathcal V^{\downarrow,\text{raw}}_{i,j} \times \underbrace{\frac{10^{10}\,\text{m}^2}{10{,}000\,\text{km}^2}}_{=1} \times \frac{100}{V_{\text{tot}}}\quad\bigl[\% \cdot (10{,}000\,\text{km}^2)^{-1}\bigr]$$
+$$\mathcal V^\downarrow_{i,j} \;=\; \mathcal V^{\downarrow,\text{raw}}_{i,j} \times \underbrace{\frac{10^{14}\,\text{m}^2}{(10{,}000\,\text{km})^2}}_{=1} \times \frac{100}{V_{\text{tot}}}\quad\bigl[\% \cdot (10{,}000\,\text{km})^{-2}\bigr]$$
 
-i.e. multiply the raw m³/m² value by `1e10 * 100 / vtot = 1e12 / vtot`,
+i.e. multiply the raw m³/m² value by `1e14 * 100 / vtot = 1e16 / vtot`,
 where $V_{\text{tot}} = \sum_{\text{wet cells}} V_{i,j,k}$ is the total
 ocean volume (m³). $V_{\text{tot}}$ is computed in
 `compute_ventilation_diagnostic.jl` and saved into `ventilation.jld2` as
@@ -115,7 +116,7 @@ level set is expected to remain useful for the global normalisation.
 
 The compute script already loads the 1-year FTS and time-averages the
 surface layer. The only outstanding change is to **drop the
-`% v_tot / (10,000 km²)` normalisation** from the saved file — the plot
+`% v_tot / (10,000 km)²` normalisation** from the saved file — the plot
 script applies it. The `vtot` key stays so the plot script doesn't
 recompute it.
 
@@ -162,7 +163,7 @@ The script loads **both** time windows' `ventilation.jld2` (1968-1977 and
 - Build path for each TW (mirror the dual-naming fallback `NK_Q2x2` →
   `NK` that the compute script uses); hard-error if either is missing.
 - Load both files, assert grid shape and `vtot` agree (same grid, same
-  wet mask), then `calV_tw = calVdown_raw_tw .* 1e12 / vtot` for each.
+  wet mask), then `calV_tw = calVdown_raw_tw .* 1e16 / vtot` for each.
 - Build a `gridmetrics` NamedTuple from the Oceananigans grid:
   - `lon = ug.λᶜᶜᵃ[1:Nx, 1:Ny]` (interior, trim halos)
   - `lat = ug.φᶜᶜᵃ[1:Nx, 1:Ny]`
@@ -183,7 +184,7 @@ The script loads **both** time windows' `ventilation.jld2` (1968-1977 and
   `Axis` with `lines!` / `band!`. `linkyaxes!` the zonal panels to the
   matching map.
 - Zonal integral: bin `(calV[i,j] * Az[i,j])` into 1° latitude bands
-  using `lat2D[i,j]` and divide by `(10,000 km²)` to keep units
+  using `lat2D[i,j]` and divide by `(10,000 km)² = 1e14 m²` to keep units
   consistent (`% v_tot / °lat`).
 - Diff zonal integral uses `dataforbicolorband` to split into positive /
   negative segments coloured by sign.

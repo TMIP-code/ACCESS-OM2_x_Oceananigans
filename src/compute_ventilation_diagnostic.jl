@@ -10,7 +10,7 @@ snapshots (the last snapshot is the periodicity check — redundant with n=1),
 and writes the raw (m³/m² = m) ventilation field to
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK/ventilation.jld2
 
-The `% v_tot / (10,000 km²)` normalisation from Pasquier *et al.* 2024 is
+The `% v_tot / (10,000 km)²` normalisation from Pasquier *et al.* 2024 is
 applied in the plot script `src/plot_ventilation.jl`, not here — the saved
 JLD2 is unit-neutral. The total ocean volume `vtot` is saved so the plot
 script doesn't have to recompute it.
@@ -23,7 +23,7 @@ docs/ventilation_figures.md):
 
 with τ = 3·Δt (matches `setup_model.jl:347` — `relaxation_timescale = 3Δt`),
 v_tot = Σ V(i, j, k) over all wet cells. The plot script applies the
-`1e12 / vtot` prefactor (1e10 m²/(10,000 km²) × 100 % of v_tot).
+`1e16 / vtot` prefactor (1e14 m² / (10,000 km)² × 100 % of v_tot).
 
 The script writes a self-describing JLD2 with keys
   calVdown_raw, wet_surf, Az_surf, V_surf, age_surf,
@@ -224,7 +224,7 @@ Az_surf = Az_full[Hx .+ (1:Nx′), Hy .+ (1:Ny′)]   # (Nx′, Ny′), m²
 @info @sprintf("Total wet-cell volume v_tot = %.3e m³", vtot)
 
 ################################################################################
-# Ventilation diagnostic — raw (m). The %v_tot / (10,000 km²) normalisation is
+# Ventilation diagnostic — raw (m). The %v_tot / (10,000 km)² normalisation is
 # applied in plot_ventilation.jl; here we just log it for sanity.
 ################################################################################
 
@@ -248,14 +248,14 @@ raw_min, raw_max = extrema(raw_vals)
 )
 
 # Log the normalised form too (computed locally) so the level set is sane.
-norm_factor = 1.0e12 / vtot
+norm_factor = 1.0e16 / vtot
 nrm_vals = raw_vals .* norm_factor
 nrm_min, nrm_max = extrema(nrm_vals)
 @info @sprintf(
-    "calVdown_norm [%% v_tot / 1e4 km²]:  min = %.3e   mean = %.3e   max = %.3e",
+    "calVdown_norm [%% v_tot / (10,000 km)²]:  min = %.3e   mean = %.3e   max = %.3e",
     nrm_min, mean(nrm_vals), nrm_max
 )
-@info @sprintf("Plot-script prefactor 1e12 / v_tot = %.3e (m⁻³)", norm_factor)
+@info @sprintf("Plot-script prefactor 1e16 / v_tot = %.3e (m⁻³)", norm_factor)
 for q in (0.5, 0.9, 0.99, 0.999)
     @info @sprintf("calVdown_norm quantile q=%.3f → %.3e", q, quantile(nrm_vals, q))
 end
@@ -277,7 +277,7 @@ jldsave(
     vtot = vtot,
     tau_seconds = τ,
     n_avg = n_avg,
-    units = "m³/m² (= m); plot script normalises by 1e12 / vtot to obtain % v_tot / (10,000 km²)",
+    units = "m³/m² (= m); plot script normalises by 1e16 / vtot to obtain % v_tot / (10,000 km)²",
     formula = "calVdown_raw = V_surf .* mean_n(age_surf_n) ./ (tau .* Az_surf)",
 )
 
