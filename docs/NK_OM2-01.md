@@ -23,14 +23,63 @@
     Not on the critical path — LB=surface is good enough to proceed.
 - **TMbuild + NK_5x5**:
   - 1st attempt: TMbuild `169132266` (normal, 192 GB) ❌ **OOM** at 34 min
-    (used 186 GB, SIGKILL/exit 137); NK `169132267` purged when afterok
-    failed.
-  - 2nd attempt (in flight, commit `d1cc86d`): TMbuild `169134142` on
-    **hugemem 24 CPU / 768 GB / 4 h**; NK `169134143` held on it.
-  - Per-model TMbuild mem/queue/ncpus overrides now wired through driver
-    (`TMBUILD_QUEUE`/`MEM`/`NCPUS`); OM2-01 model config sets hugemem +
-    768 GB. OM2-1/025 unchanged.
+    (used 186 GB, SIGKILL/exit 137); NK `169132267` purged.
+  - 2nd attempt: TMbuild `169134142` (hugemem, 768 GB, 4 h) ❌ **walltime
+    exceeded** (exit -29) — completed sparsity (3h 12m) + prep (7m) but
+    ran out before computing the Jacobian. Used 692 GB of 768 GB
+    (memory fine); NK `169134143` purged.
+  - 3rd attempt (in flight, commit `7deb7a3`): TMbuild `169141749`
+    (hugemem, 24 CPU / 768 GB / **10 h walltime**), NK `169141750` held.
+  - Per-model TMbuild mem/queue/ncpus overrides + walltime now wired
+    through driver and `model_configs/ACCESS-OM2-01.sh`. OM2-1/025
+    unchanged.
   - MC = `cgridtransports_wparent_centered2_AB2_mkappaV_LBS_DTx2`.
+
+### TMbuild scaling at OM2-01 vs OM2-025
+
+OM2-025 reference: job `168858362` (totaltransport / wdiagnosed) finished
+in 16 min on normal/192 GB. Scaling factors going to OM2-01:
+
+| Stage | OM2-025 | OM2-01 | Ratio |
+|---|---|---|---|
+| Nidx (wet cells) | 37 M | 352 M | 9.5× |
+| Tendency eval | 51 s | 561 s | 11× |
+| Detect sparsity | 10.5 min | 192 min | **18×** |
+| Prepare Jacobian | 39 s | 7 min | 11× |
+| nnz(S) | 255 M | 2.44 B | 9.6× |
+| Compute Jacobian | 3.5 min | (didn't finish) | — |
+
+Most steps scale ≈10× (matches the 9.5× Nidx growth). The outlier is
+**sparsity detection at 18×** — likely GC pressure (55% GC time at OM2-01
+vs 43% at OM2-025; 3.5 TiB allocations).
+
+### run1yr LB sweep follow-on (real failure, NOT blocking for NK)
+
+Both partition reruns completed (`1x4` and `1x4_LB` are now at the
+correct halo). The follow-on run1yr jobs both failed during their
+JLD2 output writers (not GPU sync — that was the death-cascade):
+`InvalidDataException: Invalid Object header signature` in
+`JLD2.HeaderMessageIterator` → `JLD2.load_datatypes` inside
+`Oceananigans.OutputWriters.jld2_writer.jl:385` (`jld2output!`):
+
+- `169132253` LB=no: failed at sim iter 29592 (0.75 yr, 32 min wall);
+  `age_1year_rank0.jld2` ended up 715 bytes (truncated to header). u, v,
+  w, eta files had real data (7.2 GB, 7.2 GB, 1.2 GB, 618 MB).
+- `169132265` LB=cell: failed at sim iter 0 (first snapshot, 21 min).
+
+Root cause hypothesis: JLD2 0.6.4 `MmapIO` + `with_halos=true` + the
+OM2-01 distributed file sizes. The writer's `prewrite` call reads back
+the existing committed-datatype catalog and corrupted state trips
+`HeaderMessageIterator`. Not yet root-caused — TBD post-NK.
+
+**This failure path is NOT in NK's call chain.** NK uses
+`periodic_solver_common.jl` which only includes the bare
+`setup_simulation.jl` (`Simulation(model; Δt, stop_time)` + prescribing
+callbacks) and explicitly does NOT call `setup_age_simulation`. NK saves
+the final age + checkpoint iterates via one-shot `jldsave(...)`, not via
+`JLD2Writer`/`MmapIO`, so it doesn't touch the buggy code path.
+
+run1yr fix is a follow-up; it doesn't gate the NK_5x5 evaluation.
 - **Partition rebuilds + run1yr (in flight)**:
   - LB=no: partition `169132252` (megamem 1.4 TB) → run1yr `169132253`.
   - LB=cell: partition `169132264` (megamem 1.4 TB) → run1yr `169132265`.
@@ -393,8 +442,12 @@ is supported without further code changes. Hard floor: do not go below `3x3`
 | 2026-05-24 | `169132264` | partition rebuild | LB=cell | ✅ 42 min | 1.26 TB used. Rebuilt `1x4_LB` at halo=(7,7,2). |
 | 2026-05-24 | `169132266` | TMbuild (1st) | LBS | ❌ 34 min OOM | exit 137; used 186 GB of 192 GB on normal queue. Triggered TMBUILD_MEM override (hugemem 768 GB) in `d1cc86d`. |
 | 2026-05-24 | `169132267` | NK_5x5 (1st) | LBS / 5×5 | 🗑 purged | afterok dep failed when TMbuild OOM'd. |
-| 2026-05-24 | `169134142` | TMbuild (2nd) | LBS | ⏳ running | hugemem 24 CPU / 768 GB / 4 h. Should land `M.jld2`. |
-| 2026-05-24 | `169134143` | **NK_5x5 (2nd)** | LBS / 5×5 | ⏸ held (afterok 169134142) | gpuhopper 1×4, 24 h walltime. First real NK at OM2-01. |
+| 2026-05-24 | `169132253` | run1yr LB=no | LB=no | ❌ 48 min, exit 1 | CUDA `take!` sync error on rank 3. 372 GB used. Partition was fresh, halo correct — separate failure mode. |
+| 2026-05-24 | `169132265` | run1yr LB=cell | LB=cell | ❌ 21 min, exit 1 | Same CUDA sync error. 317 GB used. |
+| 2026-05-24 | `169134142` | TMbuild (2nd) | LBS | ❌ 4h01m walltime | exit -29; used 692 GB. Done with sparsity+prep, ran out before Jacobian compute. |
+| 2026-05-24 | `169134143` | NK_5x5 (2nd) | LBS / 5×5 | 🗑 purged | afterok 169134142 failed. |
+| 2026-05-25 | `169141749` | TMbuild (3rd) | LBS | ⏳ submitted | hugemem 24 CPU / 768 GB / **10 h walltime** (`7deb7a3`). |
+| 2026-05-25 | `169141750` | **NK_5x5 (3rd)** | LBS / 5×5 | ⏸ held (afterok 169141749) | gpuhopper 1×4, 24 h. |
 
 ## Out of scope
 
