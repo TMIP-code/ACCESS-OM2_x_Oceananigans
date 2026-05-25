@@ -314,11 +314,17 @@ zint_diff = zonal_integral(calV_diff, Az_surf, lat2D)
 ################################################################################
 # Build the 2 × 2 figure
 #
-# Layout (4 rows × 2 cols):
-#   row 1: [1,1] map           [1,2] zonal-integral panel
-#   row 2: cb1 (horizontal, below the map; col 1 only)
-#   row 3: [2,1] diff map      [2,2] zonal-integral-of-diff
-#   row 4: cb2 (horizontal, below the diff map; col 1 only)
+# Layout (3 rows × 3 cols, plus a title row 0):
+#   row 0: title spanning cols 1-3
+#   row 1: cb1 (vertical, ticks left) | (a) map        | (b) zonal-integral
+#   row 2: cb2 (vertical, ticks left) | (c) diff map   | (d) zonal-integral of diff
+#
+# Colorbars are built manually (not inherited from the plot) so each colour
+# bin occupies equal visual width, with ticks at the level boundaries
+# (0, 10, 30, 100, 300, 1000 for the mean panel; the data-aware ladder when
+# the values differ from the Pasquier 2024 spec). Map colors come from the
+# same `cm_mean`/`cm_diff` cgrad, so position k in the colorbar shows
+# exactly the colour applied to the k-th data bin in the map.
 ################################################################################
 
 @info "Building figure"
@@ -334,9 +340,25 @@ fig = Figure(;
 xticks_map = -0:90:1000
 yticks_map = -90:30:90
 
-# ----- [1, 1] map at TW1 ----------------------------------------------------
-ax11 = Axis(
+mean_label = rich("% v", subscript("tot"), " / (10,000 km)", superscript("2"))
+diff_label = rich("Δ % v", subscript("tot"), " / (10,000 km)", superscript("2"))
+
+# ----- col 1, row 1: vertical colorbar for the mean panels ------------------
+N_mean = length(levels_mean) - 1   # 5 colour bins
+cb1 = Colorbar(
     fig[1, 1];
+    colormap = cm_mean,
+    colorrange = (0, N_mean),
+    highclip = highclip_mean,
+    ticks = (0:N_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
+    label = mean_label,
+    vertical = true, flipaxis = false,
+)
+cb1.height = Relative(0.8)
+
+# ----- col 2, row 1: (a) map at TW1 -----------------------------------------
+ax11 = Axis(
+    fig[1, 2];
     aspect = DataAspect(),
     backgroundcolor = :lightgray,
     xgridvisible = false, ygridvisible = false,
@@ -359,18 +381,9 @@ text!(
 )
 hidexdecorations!(ax11; ticks = false, grid = false, ticklabels = true, label = true)
 
-# ----- colour bar for the mean panels (below [1, 1]) ------------------------
-cb1 = Colorbar(
-    fig[2, 1], co11;
-    vertical = false, flipaxis = false,
-    ticks = (levels_mean, [isinteger(x) ? string(Int(x)) : string(x) for x in levels_mean]),
-    label = rich("% v", subscript("tot"), " / (10,000 km)", superscript("2")),
-)
-cb1.width = Relative(2 / 3)
-
-# ----- [1, 2] zonal-integral side panel -------------------------------------
+# ----- col 3, row 1: (b) zonal-integral side panel --------------------------
 ax12 = Axis(
-    fig[1, 2];
+    fig[1, 3];
     xgridvisible = false, ygridvisible = false,
     yticks = (yticks_map, latticklabel.(yticks_map)),
     xlabel = rich("% v", subscript("tot"), " / °lat"),
@@ -391,9 +404,23 @@ text!(
     align = (:left, :top), space = :relative, offset = (5, -5), font = :bold,
 )
 
-# ----- [2, 1] diff map ------------------------------------------------------
+# ----- col 1, row 2: vertical colorbar for the diff panels ------------------
+N_diff = length(levels_diff) - 1
+cb2 = Colorbar(
+    fig[2, 1];
+    colormap = cm_diff,
+    colorrange = (0, N_diff),
+    lowclip = lowclip_diff,
+    highclip = highclip_diff,
+    ticks = (0:N_diff, divergingcbarticklabelformat(levels_diff)),
+    label = diff_label,
+    vertical = true, flipaxis = false,
+)
+cb2.height = Relative(0.8)
+
+# ----- col 2, row 2: (c) diff map -------------------------------------------
 ax21 = Axis(
-    fig[3, 1];
+    fig[2, 2];
     aspect = DataAspect(),
     backgroundcolor = :lightgray,
     xgridvisible = false, ygridvisible = false,
@@ -416,18 +443,9 @@ text!(
     align = (:left, :top), space = :relative, offset = (5, -5), font = :bold,
 )
 
-# ----- colour bar for the diff panels (below [2, 1]) ------------------------
-cb2 = Colorbar(
-    fig[4, 1], co21;
-    vertical = false, flipaxis = false,
-    ticks = (levels_diff, divergingcbarticklabelformat(levels_diff)),
-    label = rich("Δ % v", subscript("tot"), " / (10,000 km)", superscript("2")),
-)
-cb2.width = Relative(2 / 3)
-
-# ----- [2, 2] zonal-integral-of-diff with bicolour band ---------------------
+# ----- col 3, row 2: (d) zonal-integral of diff -----------------------------
 ax22 = Axis(
-    fig[3, 2];
+    fig[2, 3];
     xgridvisible = false, ygridvisible = false,
     yticks = (yticks_map, latticklabel.(yticks_map)),
     xlabel = rich("Δ % v", subscript("tot"), " / °lat"),
@@ -462,7 +480,7 @@ text!(
 
 # ----- Figure title ---------------------------------------------------------
 Label(
-    fig[0, 1:2];
+    fig[0, 1:3];
     text = rich(
         "Surface ventilation ", leg_label_long, " — ", parentmodel,
         " (", model_config, ")"
@@ -471,12 +489,14 @@ Label(
 )
 
 # ----- Spacing tweaks -------------------------------------------------------
-# Pasquier 2024 template uses Auto(0.28) on the zonal-integral column to make
-# it ~28% the width of the map column; matched here. Map aspect is driven by
-# the Axis `aspect = DataAspect()`, no explicit Aspect colsize needed.
+# Col 1 = narrow vertical colorbar; col 2 = map; col 3 = zonal-integral panel.
+# Pasquier 2024 template uses Auto(0.28) on the zonal-integral column → matched
+# on col 3. Map aspect is driven by `aspect = DataAspect()` on the map Axis.
+# Close the col 2 / col 3 gap (zonal shares the map y-axis via linkyaxes!).
 rowgap!(fig.layout, 5)
-colgap!(fig.layout, 10)
-colsize!(fig.layout, 2, Auto(0.28))
+colgap!(fig.layout, 1, 5)        # between cb (col 1) and map (col 2)
+colgap!(fig.layout, 2, 0)        # between map (col 2) and zonal (col 3)
+colsize!(fig.layout, 3, Auto(0.28))
 resize_to_layout!(fig)
 
 ################################################################################
