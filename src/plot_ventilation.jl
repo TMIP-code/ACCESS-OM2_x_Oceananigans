@@ -333,7 +333,7 @@ flush(stdout); flush(stderr)
 leg_label_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↓"
 
 fig = Figure(;
-    size = (1500, 950), fontsize = 14,
+    size = (1500, 1000), fontsize = 14,
     fonts = (; regular = "Arial", bold = "Arial Bold")
 )
 
@@ -359,7 +359,7 @@ cb1.height = Relative(0.8)
 # ----- col 2, row 1: (a) map at TW1 -----------------------------------------
 ax11 = Axis(
     fig[1, 2];
-    aspect = DataAspect(),
+    # aspect = DataAspect(),
     backgroundcolor = :lightgray,
     xgridvisible = false, ygridvisible = false,
     xticks = (xticks_map, lonticklabel.(xticks_map)),
@@ -421,7 +421,7 @@ cb2.height = Relative(0.8)
 # ----- col 2, row 2: (c) diff map -------------------------------------------
 ax21 = Axis(
     fig[2, 2];
-    aspect = DataAspect(),
+    # aspect = DataAspect(),
     backgroundcolor = :lightgray,
     xgridvisible = false, ygridvisible = false,
     xticks = (xticks_map, lonticklabel.(xticks_map)),
@@ -491,11 +491,11 @@ Label(
 # ----- Spacing tweaks -------------------------------------------------------
 # Col 1 = narrow vertical colorbar; col 2 = map; col 3 = zonal-integral panel.
 # Pasquier 2024 template uses Auto(0.28) on the zonal-integral column → matched
-# on col 3. Map aspect is driven by `aspect = DataAspect()` on the map Axis.
+# on col 3.
 # Close the col 2 / col 3 gap (zonal shares the map y-axis via linkyaxes!).
-rowgap!(fig.layout, 5)
-colgap!(fig.layout, 1, 5)        # between cb (col 1) and map (col 2)
-colgap!(fig.layout, 2, 0)        # between map (col 2) and zonal (col 3)
+# rowgap!(fig.layout, 5)
+# colgap!(fig.layout, 1, 5)        # between cb (col 1) and map (col 2)
+# colgap!(fig.layout, 2, 0)        # between map (col 2) and zonal (col 3)
 colsize!(fig.layout, 3, Auto(0.28))
 resize_to_layout!(fig)
 
