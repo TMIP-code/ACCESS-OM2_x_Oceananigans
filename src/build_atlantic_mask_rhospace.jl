@@ -37,9 +37,32 @@ isfile(psi_path) || error(
     "$psi_path not found — run scripts/prepreprocessing/compute_MOC_rho_timeseries.sh (BASIN=global) first."
 )
 
-@info "Reading coordinates from $psi_path"
-lat, lon = NCDataset(psi_path, "r") do ds
-    ds["grid_yu_ocean"][:], ds["grid_xt_ocean"][:]
+# `psi_tot_global.nc` is already zonally summed, so it only has `grid_yu_ocean`.
+# To get the matching `grid_xt_ocean` axis we look for any preprocessed
+# `ty_trans_monthly.nc` in the experiment (lon is static across time windows).
+exp_dir = joinpath(@__DIR__, "..", "preprocessed_inputs", PARENT_MODEL, EXPERIMENT)
+ty_trans_path = nothing
+if isdir(exp_dir)
+    for tw_subdir in readdir(exp_dir; join = true)
+        candidate = joinpath(tw_subdir, "monthly", "ty_trans_monthly.nc")
+        if isfile(candidate)
+            ty_trans_path = candidate
+            break
+        end
+    end
+end
+ty_trans_path === nothing && error(
+    "No preprocessed ty_trans_monthly.nc found under $exp_dir/*/monthly/ — " *
+        "run the preprocessing pipeline (JOB_CHAIN=prep) for any time window first."
+)
+
+@info "Reading lat from $psi_path"
+lat = NCDataset(psi_path, "r") do ds
+    ds["grid_yu_ocean"][:]
+end
+@info "Reading lon from $ty_trans_path (preprocessed `xt_ocean`)"
+lon = NCDataset(ty_trans_path, "r") do ds
+    ds["xt_ocean"][:]
 end
 Ny, Nx = length(lat), length(lon)
 @info "Grid: Ny=$Ny, Nx=$Nx"
