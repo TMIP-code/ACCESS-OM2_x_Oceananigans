@@ -1,16 +1,52 @@
-# Debug: run1yr JLD2 `InvalidDataException` at OM2-01
+# Debug: run1yr JLD2 `InvalidDataException` — concurrent writes to a shared dir
 
-## TL;DR
+## TL;DR — root cause identified
 
-`run_1year.jl` at OM2-01 / 1×4 / `wparent` / `mkappaV` / `DTx2` dies during
-output-writer snapshots with
-`JLD2.InvalidDataException: Invalid Object header signature` (inside
+Two `run_1year.jl` submissions at OM2-01 / 1×4 / `wparent` / `mkappaV` /
+`DTx2` with different `LOAD_BALANCE` values **wrote to the same output
+files at the same time**, because Julia's `build_model_config()` doesn't
+include the LB tag in the path. Both used `overwrite_existing=true`, so
+the later submission truncated the first one's files mid-write. JLD2
+then (correctly) raised `InvalidDataException` because the file content
+it was about to extend had been zeroed out from under it.
+
+Failure trace:
 `Oceananigans.OutputWriters.jld2output!` →
-`JLD2.load_datatypes` → `JLD2.HeaderMessageIterator`).
+`JLD2.prewrite` → `JLD2.load_datatypes` → `JLD2.HeaderMessageIterator`
+on a truncated file.
 
-The same simulation succeeds at OM2-1 / 1×2 with the same writer setup,
-so the bug is **OM2-01-scale-specific** (very large per-rank JLD2 files
-with `MmapIO` + `with_halos=true`), not a generic JLD2 / writer issue.
+JLD2 is not buggy here. The bug is the path collision.
+
+## Timing — the smoking gun
+
+Both submissions wrote to
+`outputs/.../standardrun/cgridtransports_wparent_centered2_AB2_mkappaV_DTx2/1x4/`
+(no LB suffix — see "LB tag missing from output path" below):
+
+```
+169132253 (LB=no)   start 02:28:06, end 03:16:48  (48 min wall)
+169132265 (LB=cell) start 02:52:16, end 03:13:27  (21 min wall)
+                       ^ 24 min after LB=no started
+```
+
+Overlap = 02:52:16 → 03:13:27 = **21 minutes of concurrent writes** to
+the same files. The chronology:
+
+1. 02:28 — LB=no opens JLD2Writers with `overwrite_existing=true`,
+   mmap-truncates the files, starts writing snapshots.
+2. 02:28 → 02:52 — LB=no writes snapshots successfully for 24 min.
+3. 02:52 — LB=cell opens the **same files** with
+   `overwrite_existing=true`, truncating them while LB=no's MmapIO is
+   still attached.
+4. 02:52, **LB=cell iter 0** — tries its first `prewrite`, finds the
+   file it just truncated and can't parse its own (non-existent)
+   committed datatypes → InvalidDataException.
+5. 03:00, **LB=no iter 29592** (0.75 yr, ~32 min wall) — tries its
+   next scheduled snapshot. Its mmap view is now incoherent with the
+   on-disk content (LB=cell zeroed the file). Same InvalidDataException.
+
+The OM2-1 reproducer (`169159227`) ran as a single job and passed
+cleanly in 1.77 min — no concurrent writer.
 
 ## Failing jobs
 
@@ -129,30 +165,27 @@ Job `169159227`, exit 0, log at
 So the bug needs OM2-01 scale to trigger; a minimal repro likely needs
 large file sizes (or wide grids) hitting MmapIO's mmap remap path.
 
-## Debug ideas (in suggested order)
+## Fix
 
-1. **Switch backend**: rerun the failing config with the JLD2Writer
-   `:io` backend (non-mmap) — easiest way to confirm `MmapIO` is the
-   culprit. Edit `src/shared_utils/simulation.jl:107-115`; add
-   `backend = JLD2.IOStream` (or whatever the current JLD2 0.6.4
-   non-mmap selector is).
-2. **`with_halos=false`**: try without halos — cuts the per-snapshot
-   byte count and may avoid whatever size threshold MmapIO trips on.
-3. **`including = nothing`** vs `[]`: the comment in
-   [simulation.jl:114](src/shared_utils/simulation.jl#L114) cites
-   serializeproperty! deadlocks; worth checking if any related JLD2
-   issue exists upstream.
-4. **JLD2 bump**: check the JLD2 changelog for 0.6.x fixes touching
-   `HeaderMessageIterator` / `load_datatypes` / `MmapIO`. If a newer
-   patch fixes it, bump the pin.
-5. **Bisect on LB**: LB=surface (LBS) worked at the same scale —
-   diff the writer state between LBS and no/cell runs (rank layout,
-   per-rank field sizes). The LBS partition gives un-balanced rank
-   sizes; maybe LB=no's perfectly-uniform per-rank sizes hit a
-   pathological mmap alignment.
-6. **Minimal-mode repro**: write a stand-alone MWE that opens a
-   `JLD2Writer` at OM2-01 scale and writes empty snapshots in a
-   loop, no simulation — to isolate the JLD2 side from the sim side.
+Include the LB tag in Julia's `build_model_config()` so each LB variant
+writes to its own dir and concurrent submissions can't clobber each
+other. Mirror the shell-side logic in `scripts/env_defaults.sh` using
+the existing `parse_load_balance_env()` in
+[src/shared_utils/load_balance.jl:257](src/shared_utils/load_balance.jl#L257)
+(returns the `_LB` / `_LBS` / `_LBmix` / `_LBminmax` tag). Touch:
+
+- [src/shared_utils/config.jl:114-130](src/shared_utils/config.jl#L114-L130) — add the LB suffix to `mc`.
+
+Once that's in, the OM2-01 LB sweep can be rerun without the
+concurrent-write hazard. (Or use `run1yrfast` and avoid the writers
+entirely — preferred for LB sweeps where we only need walltime.)
+
+Open question (lower priority): why didn't `overwrite_existing=true`'s
+truncate behaviour error out at LB=cell's open call when an mmap from
+another process held the file? JLD2 + MmapIO seems to tolerate the
+truncate silently, then explodes on the next read. Worth a tiny MWE if
+we ever care about robustness against this case, but the path-collision
+fix is what unblocks the immediate work.
 
 ## Status
 
