@@ -52,11 +52,11 @@ WALLTIME_TM_BUILD=10:00:00
 WALLTIME_TM_SNAPSHOT=08:00:00
 WALLTIME_TM_SOLVE=04:00:00
 # TMbuild at OM2-01 ran OOM at the default 192 GB (job 169132266 used 186 GB
-# before SIGKILL). Push to hugemem with headroom; ratio is 32 GB/CPU so
-# 512 GB needs ≥16 CPU. 24×32 = 768 GB gives a comfortable margin.
+# before SIGKILL). Push to hugemem max: 48×32 = 1536 GB. Refine downward
+# only after we see a successful run; safety > efficiency here.
 TMBUILD_QUEUE=hugemem
-TMBUILD_NCPUS=24
-TMBUILD_MEM=768GB
+TMBUILD_NCPUS=48
+TMBUILD_MEM=1536GB
 
 # --- Plotting ---
 WALLTIME_PLOT=00:30:00
