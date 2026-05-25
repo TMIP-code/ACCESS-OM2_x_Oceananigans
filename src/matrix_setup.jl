@@ -76,7 +76,7 @@ GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 TRAF_OPTION_A = lowercase(get(ENV, "TRAF", "no")) == "yes" &&
     get(ENV, "TRAF_TM_SOURCE", "invVMtV") == "M_traf"
 TRAF_OPTION_A && @info "TRAF Option A: flipping yearly velocity signs for autodiff rebuild"

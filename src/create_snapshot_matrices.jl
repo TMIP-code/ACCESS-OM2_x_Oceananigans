@@ -89,7 +89,7 @@ GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 
 @info "Run configuration"

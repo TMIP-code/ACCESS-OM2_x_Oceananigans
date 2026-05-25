@@ -109,8 +109,15 @@ vol_3D = Array(interior(vol))
 @info "Scanning trace directory for iteration files"
 flush(stdout); flush(stderr)
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+
 all_files = readdir(trace_dir)
-trace_files = filter(f -> startswith(f, "age_trace_iter_") && endswith(f, ".jld2"), all_files)
+# Match age_trace_iter_NNNN<OMEGA_SUFFIX>.jld2 exactly. When OMEGA=all the
+# suffix is empty and we require the iterate number to be immediately followed
+# by `.jld2` (excludes other OMEGA values from this filter).
+trace_regex = Regex("^age_trace_iter_\\d+$(omega_suffix)\\.jld2\$")
+trace_files = filter(f -> occursin(trace_regex, f), all_files)
 if !isempty(TRACE_JOB_ID)
     trace_files = filter(f -> occursin(TRACE_JOB_ID, f), trace_files)
 end
@@ -167,7 +174,7 @@ for trace_file in trace_files
         nlevels = min(20, max(10, Int(ceil(cmax))))
         clevels = range(0, cmax, length = nlevels + 1)
 
-        label = @sprintf("trace_iter_%04d_%s", iter_num, phase)
+        label = @sprintf("trace_iter_%04d_%s%s", iter_num, phase, omega_suffix)
 
         plot_age_diagnostics(
             age_data, grid, wet3D, vol_3D, trace_plots_dir, label;
@@ -215,7 +222,7 @@ if length(iters) >= 2
     lines!(ax, iters, mean_ages; label = "mean age", color = :blue)
     axislegend(ax)
 
-    conv_file = joinpath(trace_plots_dir, "convergence_summary.png")
+    conv_file = joinpath(trace_plots_dir, "convergence_summary$(omega_suffix).png")
     @info "Saving $conv_file"
     save(conv_file, fig)
 end
@@ -260,7 +267,7 @@ if length(iters_drift) >= 2
     lines!(ax, iters_drift, mean_drifts; label = "mean |drift|", color = :blue)
     axislegend(ax)
 
-    drift_file = joinpath(trace_plots_dir, "drift_convergence.png")
+    drift_file = joinpath(trace_plots_dir, "drift_convergence$(omega_suffix).png")
     @info "Saving $drift_file"
     save(drift_file, fig)
 end

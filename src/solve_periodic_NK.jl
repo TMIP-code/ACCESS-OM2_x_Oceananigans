@@ -92,11 +92,15 @@ if TM_MODEL_CONFIG != model_config
     @warn "NK using TM from a different model_config (preconditioner approximation only)" tm_config = TM_MODEL_CONFIG nk_config = model_config
 end
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+
 @info "Newton-GMRES periodic solver configuration"
 @info "- LINEAR_SOLVER = $LINEAR_SOLVER"
 @info "- TM_SOURCE = $TM_SOURCE"
 @info "- LUMP_AND_SPRAY = $LUMP_AND_SPRAY (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk), tag: $lumpspray_tag)"
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
+@info "- OMEGA = $(omega.tag) (suffix='$(omega_suffix)')"
 @info "- matrices_dir = $matrices_dir"
 flush(stdout); flush(stderr)
 
@@ -282,7 +286,7 @@ if rank == 0
     @info "Volume-weighted mean periodic steady age: $vol_mean years"
 
     steady_dir = solver_output_dir
-    steady_file = joinpath(steady_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag).jld2")
+    steady_file = joinpath(steady_dir, "age_$(LINEAR_SOLVER)_$(lumpspray_tag)$(omega_suffix).jld2")
     jldsave(steady_file; age = age_steady_3D, wet3D = wet3D_global, idx = idx_global)
     @info "Saved steady-state age to $steady_file"
     flush(stdout); flush(stderr)

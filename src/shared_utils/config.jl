@@ -5,6 +5,8 @@
 ################################################################################
 
 using TOML
+using Oceananigans.Grids: znodes, Center
+using Oceananigans.Architectures: on_architecture, CPU
 
 """Parse and validate the 4 core config env vars."""
 function parse_config_env()
@@ -59,6 +61,55 @@ function parse_lump_and_spray(s::AbstractString = get(ENV, "LUMP_AND_SPRAY", "no
     return (; di, dj, dk = 1, on = true, tag, dir_suffix = "_$tag")
 end
 
+"""
+    parse_omega(s = get(ENV, "OMEGA", "all"))
+        -> (; kind::Symbol, depth_m::Float64, tag::String, suffix::String)
+
+Parse the `OMEGA` env var that selects the age-source region.
+
+Accepted values:
+- `"all"` (default) — source applied everywhere. `kind=:all`, `suffix=""`.
+- `"z<D>"` — source applied only where `z_center < -D` m (i.e. deeper than
+  `D` metres). `kind=:zdeep`, `depth_m=Float64(D)`, `suffix="_z<D>"`.
+
+The `suffix` is appended to age output filenames (and derived plots) so that
+multiple OMEGA values can coexist in the same directory. `OMEGA=all`
+produces no suffix, preserving filenames from before this feature existed.
+"""
+function parse_omega(s::AbstractString = get(ENV, "OMEGA", "all"))
+    sl = lowercase(s)
+    sl == "all" && return (; kind = :all, depth_m = NaN, tag = "all", suffix = "")
+    m = match(r"^z(\d+(?:\.\d+)?)$", sl)
+    m === nothing && error("OMEGA must be 'all' or 'z<depth>' (got: $s)")
+    D = parse(Float64, m.captures[1])
+    digits = m.captures[1]
+    return (; kind = :zdeep, depth_m = D, tag = "z$(digits)", suffix = "_z$(digits)")
+end
+
+"""Convenience: return the OMEGA filename-suffix string for the current env."""
+omega_filename_suffix() = parse_omega().suffix
+
+"""
+    build_omega_k_mask(grid, omega; arch)
+
+Return a length-`Nz` `Vector{Float64}` (on `arch`) where `mask[k] = 1.0` if
+cell-centre at level `k` is inside the OMEGA source region, else `0.0`.
+
+On the tripolar grid `z` at `(Center, Center, Center)` is independent of
+`(i, j)`, so a 1-D k-mask is exact.
+"""
+function build_omega_k_mask(grid, omega; arch)
+    Nz = size(grid, 3)
+    cpu_mask = ones(Float64, Nz)
+    if omega.kind === :zdeep
+        zc = Array(znodes(grid, Center(), Center(), Center()))
+        for k in 1:Nz
+            cpu_mask[k] = zc[k] < -omega.depth_m ? 1.0 : 0.0
+        end
+    end
+    return on_architecture(arch, cpu_mask)
+end
+
 """Build the unified MODEL_CONFIG directory tag from parsed config + optional env flags."""
 function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
     wf_tag = W_FORMULATION
@@ -70,7 +121,7 @@ function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, 
     gm = lowercase(get(ENV, "GM_REDI", "no"))
     gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
     gm == "adv" && (mc = "$(mc)_GMREDIadv")
-    lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes" && (mc = "$(mc)_mkappaV")
+    lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes" && (mc = "$(mc)_mkappaV")
     lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes")) == "no" && (mc = "$(mc)_noKV")
     M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
     !isnothing(M) && M > 1 && (mc = "$(mc)_DTx$(M)")

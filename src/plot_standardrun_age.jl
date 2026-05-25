@@ -69,15 +69,18 @@ haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+
+omega = parse_omega()
+omega_suffix = omega.suffix
 
 age_output_dir = joinpath(outputdir, "standardrun", model_config)
 
 if !isempty(ARGS)
     output_filepath = ARGS[1]
 else
-    output_filepath = joinpath(age_output_dir, "age_$(DURATION).jld2")
+    output_filepath = joinpath(age_output_dir, "age_$(DURATION)$(omega_suffix).jld2")
 end
 
 @info "Age plot configuration"
@@ -142,7 +145,7 @@ TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 age_base = TRAF ? "age_traf" : "age"
 tracer_title = TRAF ? "TRAF age (time to re-emergence)" : "age"
 
-label = "$(age_base)_$(DURATION)_$(ADVECTION_SCHEME)"
+label = "$(age_base)_$(DURATION)_$(ADVECTION_SCHEME)$(omega_suffix)"
 
 @info "Generating static age diagnostic plots"
 flush(stdout); flush(stderr)
@@ -251,7 +254,7 @@ end
 # same step formula as `update_κV_from_mld!`:
 #   κV[k_200m] = κVML where MLD (positive-down) > 200 m  (k_200m inside ML)
 #              = κVBG otherwise                            (k_200m below ML)
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 if MONTHLY_KAPPAV && isfile(mld_file) && !isnothing(mld_ts)
     κVML = 0.1     # m^2/s, same as setup_model.jl
     κVBG = 3.0e-5  # m^2/s, same as setup_model.jl

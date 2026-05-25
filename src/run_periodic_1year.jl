@@ -84,7 +84,7 @@ output_fields = Dict(
     "age" => model.tracers.age,
 )
 
-output_prefix = joinpath(periodic_1year_dir, "age_periodic_1year")
+output_prefix = joinpath(periodic_1year_dir, "age_periodic_1year$(omega_filename_suffix())")
 
 simulation.output_writers[:fields] = JLD2Writer(
     model, output_fields;

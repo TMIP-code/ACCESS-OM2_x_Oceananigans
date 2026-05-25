@@ -68,6 +68,10 @@ function setup_age_simulation(
         joinpath(outputdir, "standardrun", model_config, gpu_tag)
     mkpath(age_output_dir)
 
+    # OMEGA filename suffix — appended to every output file so multiple OMEGA
+    # values can coexist in the same standardrun dir.
+    omega_suffix = omega_filename_suffix()
+
     # One JLD2Writer per field → one file per variable per rank
     output_fields = Dict(
         :age => model.tracers.age,
@@ -107,7 +111,9 @@ function setup_age_simulation(
         simulation.output_writers[name] = JLD2Writer(
             model, Dict(string(name) => field);
             schedule = TimeInterval(output_interval),
-            filename = joinpath(age_output_dir, "$(name)_$(duration_tag)"),
+            # Only the age output depends on OMEGA — velocities/η are unchanged
+            # by the source mask, so they share a single file across OMEGA values.
+            filename = joinpath(age_output_dir, "$(name)_$(duration_tag)$(name === :age ? omega_suffix : "")"),
             overwrite_existing = true,
             with_halos = true,
             # array_type = Array{Float64},  # causes ReadOnlyMemoryError in solve_batched_tridiagonal_system_z! on serial CPU diagcpuserial (unexplained — unrelated to output writers)

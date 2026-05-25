@@ -64,8 +64,11 @@ LUMP_AND_SPRAY = ls.on
 lumpspray_tag = ls.tag
 solver_tag = "$(LINEAR_SOLVER)_$(lumpspray_tag)"
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+
 periodic_1year_dir = joinpath(outputdir, "periodic", model_config, "1year", solver_tag)
-output_filepath = joinpath(periodic_1year_dir, "age_periodic_1year.jld2")
+output_filepath = joinpath(periodic_1year_dir, "age_periodic_1year$(omega_suffix).jld2")
 
 @info "Periodic age plot configuration"
 @info "- PARENT_MODEL     = $parentmodel"
@@ -75,6 +78,7 @@ output_filepath = joinpath(periodic_1year_dir, "age_periodic_1year.jld2")
 @info "- TIMESTEPPER      = $TIMESTEPPER"
 @info "- LINEAR_SOLVER    = $LINEAR_SOLVER"
 @info "- LUMP_AND_SPRAY   = $LUMP_AND_SPRAY (tag: $solver_tag)"
+@info "- OMEGA            = $(omega.tag) (suffix='$(omega_suffix)')"
 @info "- Output file      = $output_filepath"
 flush(stdout); flush(stderr)
 
@@ -169,7 +173,7 @@ TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 age_base = TRAF ? "age_traf" : "age"
 tracer_title = TRAF ? "TRAF age (time to re-emergence)" : "age"
 
-label = "$(age_base)_periodic_mean_$(ADVECTION_SCHEME)"
+label = "$(age_base)_periodic_mean_$(ADVECTION_SCHEME)$(omega_suffix)"
 
 @info "Generating averaged diagnostic plots"
 flush(stdout); flush(stderr)
@@ -183,7 +187,7 @@ plot_age_diagnostics(age_buf, grid, wet3D, vol_3D, plot_dir, label; colorrange, 
 @info "Generating smooth animations (144 frames @ 24 fps, 6s per video)"
 flush(stdout); flush(stderr)
 
-anim_prefix = "$(age_base)_periodic_$(ADVECTION_SCHEME)"
+anim_prefix = "$(age_base)_periodic_$(ADVECTION_SCHEME)$(omega_suffix)"
 animate_zonal_averages(age_fts, grid, wet3D, vol_3D, plot_dir, anim_prefix; colorrange, levels, colormap, tracer_title)
 animate_depth_slices(age_fts, grid, wet3D, plot_dir, anim_prefix; colorrange, levels, colormap, tracer_title)
 

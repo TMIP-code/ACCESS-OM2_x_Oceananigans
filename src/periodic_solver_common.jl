@@ -18,9 +18,13 @@ using MPI
 
 TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
 
+# OMEGA filename suffix — appended to newton_iterate / matrix-age filenames so
+# multiple OMEGA values can coexist in the same solver_output_dir / TM dir.
+const NK_OMEGA_SUFFIX = omega_filename_suffix()
+
 if TRACE_SOLVER_HISTORY
     mkpath(solver_output_dir)
-    @info "TRACE_SOLVER_HISTORY=yes — saving Newton iterates xₙ as newton_iterate_NN.jld2 in $solver_output_dir (n ≥ 1; x₀ not saved). Use INITIAL_AGE=latest to restart."
+    @info "TRACE_SOLVER_HISTORY=yes — saving Newton iterates xₙ as newton_iterate_NN$(NK_OMEGA_SUFFIX).jld2 in $solver_output_dir (n ≥ 1; x₀ not saved). Use INITIAL_AGE=latest to restart."
 else
     @info "TRACE_SOLVER_HISTORY=no — Newton iterates not saved (no restart capability)."
 end
@@ -186,7 +190,7 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
         # factors (e.g. a Q5x5 run wouldn't fall back to Q4x4).
         tag_order = preferred_coarse_tag == "full" ? ("full",) : (preferred_coarse_tag, "full")
         candidates = [
-            "steady_age_seconds_$(coarse_tag)_$(solver)_$(mp).jld2"
+            "steady_age_seconds_$(coarse_tag)_$(solver)_$(mp)$(NK_OMEGA_SUFFIX).jld2"
                 for coarse_tag in tag_order
                 for mp in ("raw", "dropzeros", "symfill", "symdrop")
                 for solver in ("ParU", "UMFPACK", "Pardiso")
@@ -208,16 +212,20 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
         end
         loaded || error("INITIAL_AGE=TMage but no matrix age file found in $matrices_dir")
     elseif INITIAL_AGE == "latest"
+        # Match newton_iterate_NN<OMEGA_SUFFIX>.jld2 so each OMEGA has its own
+        # restart trajectory and they don't get mixed in the same dir.
+        latest_regex = Regex("^newton_iterate_\\d+$(NK_OMEGA_SUFFIX)\\.jld2\$")
+        nn_regex = Regex("newton_iterate_(\\d+)$(NK_OMEGA_SUFFIX)\\.jld2\$")
         iter_files = filter(
-            f -> occursin(r"^newton_iterate_\d+\.jld2$", f),
+            f -> occursin(latest_regex, f),
             isdir(solver_output_dir) ? readdir(solver_output_dir) : String[]
         )
         isempty(iter_files) &&
-            error("INITIAL_AGE=latest but no newton_iterate_*.jld2 files found in $solver_output_dir")
+            error("INITIAL_AGE=latest but no newton_iterate_*$(NK_OMEGA_SUFFIX).jld2 files found in $solver_output_dir")
         # Lexical sort works because NN is zero-padded
         latest_file = joinpath(solver_output_dir, last(sort(iter_files)))
         # Parse NN from filename so save_newton_iterate! can continue numbering
-        m = match(r"newton_iterate_(\d+)\.jld2$", latest_file)
+        m = match(nn_regex, latest_file)
         g_count_base[] = parse(Int, m.captures[1])
         @info "INITIAL_AGE=latest resolved to $latest_file (g_count_base=$(g_count_base[]))"
         flush(stdout); flush(stderr)
@@ -239,9 +247,10 @@ function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_outpu
         length(age_data) == Nidx ||
             error("INITIAL_AGE file $INITIAL_AGE: length $(length(age_data)) ≠ Nidx ($Nidx)")
         age_init_vec .= age_data
-        # If the explicit path matches newton_iterate_NN.jld2, parse NN so a
-        # manual restart from a specific iterate also continues numbering.
-        m = match(r"newton_iterate_(\d+)\.jld2$", INITIAL_AGE)
+        # If the explicit path matches newton_iterate_NN<OMEGA_SUFFIX>.jld2,
+        # parse NN so a manual restart from a specific iterate also continues
+        # numbering.
+        m = match(Regex("newton_iterate_(\\d+)$(NK_OMEGA_SUFFIX)\\.jld2\$"), INITIAL_AGE)
         m === nothing || (g_count_base[] = parse(Int, m.captures[1]))
         @info "Initial age loaded" max_years = maximum(abs, age_init_vec) / year mean_years = mean(age_init_vec) / year g_count_base = g_count_base[]
     end
@@ -368,7 +377,7 @@ function save_newton_iterate!(age_vec)
     (TRACE_SOLVER_HISTORY && rank == 0 && G_call_count[] > 1) || return nothing
     NN = G_call_count[] - 1 + g_count_base[]
     iter_str = @sprintf("%02d", NN)
-    final_path = joinpath(solver_output_dir, "newton_iterate_$(iter_str).jld2")
+    final_path = joinpath(solver_output_dir, "newton_iterate_$(iter_str)$(NK_OMEGA_SUFFIX).jld2")
     jldsave(final_path; age = age_vec)
     @info "Saved Newton iterate xₙ" n = NN path = final_path
     flush(stdout); flush(stderr)

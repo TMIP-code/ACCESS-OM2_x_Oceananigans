@@ -50,7 +50,7 @@ INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <
 TM_SOURCE=${TM_SOURCE:-avg}                             # const | avg
 TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
-MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-no}                    # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV)
+MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}                   # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
@@ -62,6 +62,12 @@ TRAF=${TRAF:-no}                                        # yes | no — Time-Reve
 case "$TRAF" in yes|no) ;; *) echo "ERROR: TRAF must be yes or no (got: $TRAF)" >&2; exit 1 ;; esac
 TRAF_TM_SOURCE=${TRAF_TM_SOURCE:-invVMtV}               # invVMtV | M_traf — matrix to use for TMsolve/NK when TRAF=yes (ignored when TRAF=no)
 case "$TRAF_TM_SOURCE" in invVMtV|M_traf) ;; *) echo "ERROR: TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)" >&2; exit 1 ;; esac
+OMEGA=${OMEGA:-all}                                     # all | z<depth> — restrict the age source to where z_center < -<depth> m (filename suffix only)
+case "$OMEGA" in
+    all) ;;
+    z[0-9]*) ;;
+    *) echo "ERROR: OMEGA must be 'all' or 'z<depth>' (e.g. z500, z1500) (got: $OMEGA)" >&2; exit 1 ;;
+esac
 # Validate LUMP_AND_SPRAY and derive Q_TAG (used only for logging; the
 # NK subdir/file naming is composed Julia-side from parse_lump_and_spray).
 case "$LUMP_AND_SPRAY" in
@@ -115,7 +121,7 @@ export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
-export TRAF TRAF_TM_SOURCE
+export TRAF TRAF_TM_SOURCE OMEGA
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -150,6 +156,7 @@ echo "LOAD_BALANCE=$LOAD_BALANCE"
 echo "ACTIVE_CELLS_MAP=$ACTIVE_CELLS_MAP"
 echo "TRAF=$TRAF"
 echo "TRAF_TM_SOURCE=$TRAF_TM_SOURCE"
+echo "OMEGA=$OMEGA"
 echo "MODEL_CONFIG=$MODEL_CONFIG"
 
 # Bounds checking: set CHECK_BOUNDS=yes to run julia with --check-bounds=yes

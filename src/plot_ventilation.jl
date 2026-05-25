@@ -86,6 +86,10 @@ const TW2 = "1999-2008"
 # so the experiment-level dir is one above it.
 exp_outdir = dirname(outputdir)
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+vent_basename = "ventilation$(omega_suffix).jld2"
+
 function ventilation_path(tw)
     tw_root = joinpath(exp_outdir, tw)
     periodic_root = isempty(gpu_tag) ?
@@ -98,12 +102,12 @@ function ventilation_path(tw)
         ]
     )
     for d in candidate_dirs
-        f = joinpath(d, "ventilation.jld2")
+        f = joinpath(d, vent_basename)
         isfile(f) && return f
     end
     error(
-        "ventilation.jld2 not found for TIME_WINDOW=$tw. Tried:\n" *
-            join(["  " * joinpath(d, "ventilation.jld2") for d in candidate_dirs], "\n") *
+        "$vent_basename not found for TIME_WINDOW=$tw. Tried:\n" *
+            join(["  " * joinpath(d, vent_basename) for d in candidate_dirs], "\n") *
             "\nRun compute_ventilation_diagnostic.jl for TIME_WINDOW=$tw first " *
             "(or `bash scripts/driver.sh JOB_CHAIN=ventilation TIME_WINDOW=$tw …`).",
     )
@@ -503,7 +507,7 @@ resize_to_layout!(fig)
 # Save
 ################################################################################
 
-outputfile = joinpath(plot_dir, "calVdown_$(leg_tag).png")
+outputfile = joinpath(plot_dir, "calVdown_$(leg_tag)$(omega_suffix).png")
 @info "Saving $outputfile"
 flush(stdout); flush(stderr)
 save(outputfile, fig)

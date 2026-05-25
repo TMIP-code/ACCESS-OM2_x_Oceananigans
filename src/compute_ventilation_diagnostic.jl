@@ -107,12 +107,16 @@ periodic_root = isempty(gpu_tag) ?
     joinpath(outputdir, "periodic", model_config) :
     joinpath(outputdir, "periodic", model_config, gpu_tag)
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+fts_basename = "age_periodic_1year$(omega_suffix).jld2"
+
 # Locate the 1-year FTS (input). Try the new tag first, then legacy "LSprec"/"prec".
 fts_candidates = unique(
     [
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_$(lumpspray_tag)", "age_periodic_1year.jld2"),
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_LSprec", "age_periodic_1year.jld2"),
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_prec", "age_periodic_1year.jld2"),
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_$(lumpspray_tag)", fts_basename),
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_LSprec", fts_basename),
+        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_prec", fts_basename),
     ]
 )
 fts_hit = findfirst(isfile, fts_candidates)
@@ -133,7 +137,7 @@ nk_hit = findfirst(isdir, nk_candidates)
 nk_output_dir = nk_hit === nothing ? nk_candidates[1] : nk_candidates[nk_hit]
 mkpath(nk_output_dir)
 
-ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
+ventilation_file = joinpath(nk_output_dir, "ventilation$(omega_suffix).jld2")
 
 τ = 3 * Δt_seconds   # surface-sink relaxation timescale (s); matches setup_model.jl:347
 
@@ -144,6 +148,7 @@ ventilation_file = joinpath(nk_output_dir, "ventilation.jld2")
 @info "- model_config    = $model_config"
 @info "- LINEAR_SOLVER   = $LINEAR_SOLVER"
 @info "- LUMP_AND_SPRAY  = $LUMP_AND_SPRAY (tag: $lumpspray_tag)"
+@info "- OMEGA           = $(omega.tag) (suffix='$(omega_suffix)')"
 @info "- FTS input       = $fts_file"
 @info "- output          = $ventilation_file"
 @info "- τ = 3·Δt        = $(τ) s (= $(τ / 3600) h)"

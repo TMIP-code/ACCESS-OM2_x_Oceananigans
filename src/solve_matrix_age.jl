@@ -102,9 +102,12 @@ else  # "M_traf"
     "M_traf.jld2"
 end
 
+omega = parse_omega()
+omega_suffix = omega.suffix
+
 matrices_dir = joinpath(outputdir, "TM", model_config)
 M_dir = joinpath(matrices_dir, TM_SOURCE)
-output_tag = "steady_age_seconds_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)"
+output_tag = "steady_age_seconds_$(coarse_tag)_$(LINEAR_SOLVER)_$(MATRIX_PROCESSING)$(omega_suffix)"
 matrix_plots_dir = joinpath(M_dir, "plots")
 mkpath(matrix_plots_dir)
 
@@ -118,6 +121,7 @@ mkpath(matrix_plots_dir)
 @info "- MATRIX_PROCESSING = $MATRIX_PROCESSING"
 @info "- LUMP_AND_SPRAY    = $LUMP_AND_SPRAY (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk), tag: $coarse_tag)"
 @info "- TM_SOURCE         = $TM_SOURCE"
+@info "- OMEGA             = $(omega.tag) (suffix='$(omega_suffix)')"
 @info "- output_tag        = $output_tag"
 @info "- model_config      = $model_config"
 @info "- M_dir             = $M_dir"
@@ -159,6 +163,21 @@ v1D = interior(compute_volume(grid))[idx]
 flush(stdout); flush(stderr)
 
 ################################################################################
+# OMEGA source vector (1 where source is active, 0 where masked out)
+################################################################################
+
+k_mask_arr = Array(build_omega_k_mask(grid, omega; arch = CPU()))
+Nx_w, Ny_w, Nz_w = size(wet3D)
+source_3D = zeros(Float64, Nx_w, Ny_w, Nz_w)
+for k in 1:Nz_w
+    source_3D[:, :, k] .= k_mask_arr[k]
+end
+source_vec = source_3D[idx]
+n_active = count(>(0), source_vec)
+@info "OMEGA = $(omega.tag) — active source wet cells: $n_active / $Nidx ($(round(100 * n_active / Nidx; digits = 2))%)"
+flush(stdout); flush(stderr)
+
+################################################################################
 # Matrix processing
 ################################################################################
 
@@ -171,7 +190,7 @@ M = process_sparse_matrix(M, MATRIX_PROCESSING)
 # LUMP/SPRAY coarsening (if requested)
 ################################################################################
 
-(; Mc, SPRAY) = compute_and_save_coarsening(
+(; Mc, LUMP, SPRAY) = compute_and_save_coarsening(
     M, wet3D, v1D, matrices_dir;
     ls.di, ls.dj, ls.dk, ls.on, ls.tag,
 )
@@ -207,9 +226,10 @@ Nwet = size(wet3D)
 if LUMP_AND_SPRAY
     # ── Coarsened linear solve ──
     n_solve = size(Mc, 1)
-    @info "Solving coarsened linear system (Mc \\ -1)"
+    rhs_coarse = -(LUMP * source_vec) # restrict the fine OMEGA source onto coarse cells
+    @info "Solving coarsened linear system (Mc \\ -LUMP*s) — coarse-rhs range: $(extrema(rhs_coarse))"
     flush(stdout); flush(stderr)
-    cache = init(LinearProblem(Mc, -ones(n_solve)), solver, rtol = 1.0e-12)
+    cache = init(LinearProblem(Mc, rhs_coarse), solver, rtol = 1.0e-12)
     @time "1st solve" age_vec = SPRAY * solve!(cache).u
 
     # 2nd solve (reuses cached factorization)
@@ -226,9 +246,9 @@ if LUMP_AND_SPRAY
 else
     # ── Full linear solve ──
     n_solve = size(M, 1)
-    @info "Solving full linear system (M \\ -1)"
+    @info "Solving full linear system (M \\ -s) with OMEGA-masked source"
     flush(stdout); flush(stderr)
-    cache = init(LinearProblem(M, -ones(n_solve)), solver, rtol = 1.0e-12)
+    cache = init(LinearProblem(M, -source_vec), solver, rtol = 1.0e-12)
     @time "1st solve" age_vec = solve!(cache).u
 
     # 2nd solve (reuses cached factorization)

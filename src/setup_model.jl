@@ -17,7 +17,7 @@ Environment variables:
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
   GM_REDI          – no | diff | adv  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
-  MONTHLY_KAPPAV   – yes | no  (default: no)  — use monthly time-varying κV derived from the 2D
+  MONTHLY_KAPPAV   – yes | no  (default: yes) — use monthly time-varying κV derived from the 2D
                                                 monthly MLD FTS each iteration via update_κV_from_mld!
   IMPLICIT_KAPPAV  – yes | no  (default: yes) — when "no", drop the implicit vertical-diffusion closure
                                                 (Probe B for the GPU seam tracer bug; outputs tagged _noKV)
@@ -66,7 +66,7 @@ GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "no")) == "yes"
+MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 IMPLICIT_KAPPAV_STR = lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes"))
 IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
 IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
@@ -91,6 +91,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
 @info "- IMPLICIT_KAPPAV   = $IMPLICIT_KAPPAV"
 @info "- TRAF              = $TRAF"
+@info "- OMEGA             = $(get(ENV, "OMEGA", "all"))"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -343,12 +344,18 @@ flush(stdout); flush(stderr)
 # Toggled between 1.0 (age forward map Φ!) and 0.0 (linear JVP) between simulation runs.
 source_rate_arr = on_architecture(arch, [1.0])
 
+# OMEGA mask: restrict where the age source is applied (sink at k=Nz is untouched).
+omega = parse_omega()
+k_mask = build_omega_k_mask(grid, omega; arch)
+@info "OMEGA = $(omega.tag) (suffix='$(omega.suffix)') — source wet k-levels: $(count(>(0), Array(k_mask)))/$(size(grid, 3))"
+
 age_parameters = (;
     relaxation_timescale = 3Δt, # Relaxation timescale for removing age at surface
     source_rate = source_rate_arr,
+    k_mask = k_mask,
 )
 
-@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate[1])
+@inline age_source_sink(i, j, k, grid, clock, fields, params) = ifelse(k ≥ grid.Nz, -fields.age[i, j, k] / params.relaxation_timescale, params.source_rate[1] * params.k_mask[k])
 
 age_dynamics = Forcing(
     age_source_sink,
