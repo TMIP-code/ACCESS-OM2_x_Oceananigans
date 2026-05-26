@@ -55,43 +55,12 @@ set -euo pipefail
 #   plotNKtrace (afterok NK)
 #   plotMOC     (afterok prep+grid)
 
-PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
-export PARENT_MODEL
-
-# Experiment and time window
-if [ -z "${EXPERIMENT:-}" ]; then
-    case "$PARENT_MODEL" in
-        ACCESS-OM2-1)   EXPERIMENT="1deg_jra55_iaf_omip2_cycle6" ;;
-        ACCESS-OM2-025) EXPERIMENT="025deg_jra55_iaf_omip2_cycle6" ;;
-        ACCESS-OM2-01)  EXPERIMENT="01deg_jra55v140_iaf_cycle4" ;;
-        *)              echo "ERROR: No default EXPERIMENT for $PARENT_MODEL" >&2; exit 1 ;;
-    esac
-fi
-TIME_WINDOW=${TIME_WINDOW:-1968-1977}
-
-# MLD time window (decoupled from TIME_WINDOW). Same logic as env_defaults.sh:
-# explicit set ⇒ test/ subtree; unset ⇒ production layout (back-compat).
-MLD_EXPLICIT="no"
-if [ -n "${MLD_TIME_WINDOW:-}" ]; then
-    MLD_EXPLICIT="yes"
-else
-    MLD_TIME_WINDOW="$TIME_WINDOW"
-fi
-if [ "$MLD_EXPLICIT" = "yes" ]; then
-    OUTPUT_TAG="test/TR${TIME_WINDOW}_MLD${MLD_TIME_WINDOW}"
-else
-    OUTPUT_TAG="$TIME_WINDOW"
-fi
-export EXPERIMENT TIME_WINDOW MLD_EXPLICIT OUTPUT_TAG
-# Mirror env_defaults.sh: only export MLD_TIME_WINDOW when explicit, so Julia's
-# haskey(ENV, "MLD_TIME_WINDOW") doesn't treat the default as explicit.
-[ "$MLD_EXPLICIT" = "yes" ] && export MLD_TIME_WINDOW
-
-# Source model config for MODEL_SHORT and walltimes
+# Pin repo root for any cd-relative reads (model_configs, submit_job, etc.)
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd "$repo_root"
 
-# Require clean git status before submitting jobs (skip in dry-run mode)
+# Require clean git status before submitting jobs (skip in dry-run mode).
+# Driver-only check — PBS scripts that source env_defaults.sh don't need this.
 if [ "${DRY_RUN:-no}" != "yes" ]; then
     if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
         echo "ERROR: Commit before you submit a job. Working tree is not clean:" >&2
@@ -100,13 +69,16 @@ if [ "${DRY_RUN:-no}" != "yes" ]; then
     fi
 fi
 GIT_COMMIT=$(git rev-parse HEAD)
+export GIT_COMMIT
 
-MODEL_CONF="model_configs/${PARENT_MODEL}.sh"
-if [ ! -f "$MODEL_CONF" ]; then
-    echo "ERROR: Model config not found: $MODEL_CONF" >&2
-    exit 1
-fi
-source "$MODEL_CONF"
+# Single source of truth for all defaults: env_defaults.sh handles
+# PARENT_MODEL / EXPERIMENT / TIME_WINDOW, sources the per-model config
+# (which sets MODEL_SHORT, GPU_QUEUE, PARTITION, TIMESTEP_MULT, LUMP_AND_SPRAY,
+# walltimes, etc.), applies cross-model physics defaults, derives MODEL_CONFIG,
+# and sources compute_resources.sh for PARTITION_X/Y/RANKS/NGPUS/etc.
+# SKIP_MODULES=yes — login node doesn't need cuda/openmpi modules loaded.
+SKIP_MODULES=yes source scripts/env_defaults.sh
+
 source scripts/submit_job.sh
 
 # --- JOB_CHAIN: required ---
@@ -208,46 +180,12 @@ JOB_CHAIN="${JOB_CHAIN//plotall/plotgrid-plot1yr-plot10yr-plot100yr-plotNK-plotT
 
 has_step() { [[ "-${JOB_CHAIN}-" == *"-$1-"* ]]; }
 
-# --- Partition + queue configuration ---
-PARTITION=${PARTITION:-1x1}
-PARTITION_X="${PARTITION%%x*}"
-PARTITION_Y="${PARTITION#*x}"
-CPU_QUEUE=${CPU_QUEUE:-express}
-source "$(dirname "${BASH_SOURCE[0]}")/compute_resources.sh"
+# All physics/solver/grid defaults and PARTITION/RANKS resolution are
+# now handled by env_defaults.sh (sourced near the top of this script).
 
-export PARTITION PARTITION_X PARTITION_Y RANKS
-
-# --- TM_SOURCE filtering (const, avg, or both) ---
-TM_SOURCE=${TM_SOURCE:-const}
+# --- TM_SOURCE filtering helpers (use TM_SOURCE set by env_defaults.sh) ---
 run_const() { [[ "$TM_SOURCE" == "const" || "$TM_SOURCE" == "both" ]]; }
 run_avg() { [[ "$TM_SOURCE" == "avg" || "$TM_SOURCE" == "both" ]]; }
-
-# --- Solver configuration (shared by TMsolve and NK) ---
-JVP_METHOD=${JVP_METHOD:-exact}
-LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected
-MATRIX_PROCESSING=${MATRIX_PROCESSING:-raw}
-INITIAL_AGE=${INITIAL_AGE:-0}
-
-# --- Common -v vars passed to all jobs ---
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
-ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}
-TIMESTEPPER=${TIMESTEPPER:-AB2}
-TIMESTEP_MULT=${TIMESTEP_MULT:-1}
-GM_REDI=${GM_REDI:-no}
-MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}
-IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}
-W_FORMULATION=${W_FORMULATION:-wdiagnosed}
-PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}
-TBLOCKING=${TBLOCKING:-no}
-GRID_HX=${GRID_HX:-7}
-GRID_HY=${GRID_HY:-7}
-GRID_HZ=${GRID_HZ:-2}
-LOAD_BALANCE=${LOAD_BALANCE:-no}
-ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}
-TRAF=${TRAF:-no}
-TRAF_TM_SOURCE=${TRAF_TM_SOURCE:-invVMtV}
-OMEGA=${OMEGA:-all}
 COMMON_VARS="PARENT_MODEL=${PARENT_MODEL}"
 COMMON_VARS+=",EXPERIMENT=${EXPERIMENT}"
 COMMON_VARS+=",TIME_WINDOW=${TIME_WINDOW}"
@@ -273,7 +211,6 @@ COMMON_VARS+=",TRAF=${TRAF}"
 COMMON_VARS+=",TRAF_TM_SOURCE=${TRAF_TM_SOURCE}"
 COMMON_VARS+=",OMEGA=${OMEGA}"
 COMMON_VARS+=",MATRIX_PROCESSING=${MATRIX_PROCESSING}"
-MPI_BINDING=${MPI_BINDING:-numa}
 COMMON_VARS+=",MPI_BINDING=${MPI_BINDING}"
 
 # --- Submission manifest path (TOML, written at exit) ---

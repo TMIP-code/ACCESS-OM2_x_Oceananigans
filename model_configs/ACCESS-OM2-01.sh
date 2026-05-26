@@ -11,11 +11,17 @@
 
 MODEL_SHORT=OM2-01
 
-# --- GPU queue (H200 preferred for 0.1° — much larger memory) ---
+# --- GPU queue (H200 needed for 0.1° — 256 GB per H200) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
+
+# --- Partition (1x4 — four H200 ranks needed for OM2-01 memory; LBS wins) ---
+PARTITION=${PARTITION:-1x4}
 
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-2}
+
+# --- NK preconditioner coarsening (large matrix → 5x5 to fit Pardiso budget) ---
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-5x5}
 
 # --- Preprocessing ---
 WALLTIME_PREP=12:00:00

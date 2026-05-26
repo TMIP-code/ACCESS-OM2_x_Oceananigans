@@ -29,10 +29,12 @@ if [ "$MLD_EXPLICIT" = "yes" ]; then
 else
     LOG_TW_TAG="$TIME_WINDOW"
 fi
+# OUTPUT_TAG is the same path component but with a clearer name in driver/manifest context.
+OUTPUT_TAG="$LOG_TW_TAG"
 # Julia's load_project_config uses haskey(ENV, "MLD_TIME_WINDOW") as the
 # "explicit" signal. Only export MLD_TIME_WINDOW when explicitly set, so the
 # default code path doesn't masquerade as explicit and reroute to test/.
-export EXPERIMENT TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG
+export EXPERIMENT TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG OUTPUT_TAG
 [ "$MLD_EXPLICIT" = "yes" ] && export MLD_TIME_WINDOW
 
 # Source model-specific config FIRST so it can establish per-model defaults
@@ -53,8 +55,9 @@ TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SR
 TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base. Per-model defaults in model_configs/*.sh (4/3/2 for OM2-1/025/01).
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-yes}       # yes | no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
+JVP_METHOD=${JVP_METHOD:-exact}                         # exact | fd — Jacobian-vector product method for NK
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected. Per-model defaults in model_configs/*.sh (2x2/2x2/5x5 for OM2-1/025/01).
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropzeros | symdrop
 INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-const}                           # const | avg
@@ -66,13 +69,14 @@ TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
 GRID_HZ=${GRID_HZ:-2}                                   # grid halo in z (2 sufficient; larger is harmless)
-LOAD_BALANCE=${LOAD_BALANCE:-no}                        # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1
+LOAD_BALANCE=${LOAD_BALANCE:-surface}                   # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1. Auto-suppressed in MODEL_CONFIG when RANKS=1 (serial).
 ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}               # yes | no — when "no", build IBG with active_cells_map=false and tag output files with _noACM
 TRAF=${TRAF:-no}                                        # yes | no — Time-Reversed Adjoint Flow (adjoint age via reversed monthly FTS + sign-flipped u, v)
 case "$TRAF" in yes|no) ;; *) echo "ERROR: TRAF must be yes or no (got: $TRAF)" >&2; exit 1 ;; esac
 TRAF_TM_SOURCE=${TRAF_TM_SOURCE:-invVMtV}               # invVMtV | M_traf — matrix to use for TMsolve/NK when TRAF=yes (ignored when TRAF=no)
 case "$TRAF_TM_SOURCE" in invVMtV|M_traf) ;; *) echo "ERROR: TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)" >&2; exit 1 ;; esac
 OMEGA=${OMEGA:-all}                                     # all | z<depth> — restrict the age source to where z_center < -<depth> m (filename suffix only)
+MPI_BINDING=${MPI_BINDING:-numa}                        # numa | socket | none — mpiexec --bind-to / --map-by binding policy
 case "$OMEGA" in
     all) ;;
     z[0-9]*) ;;
@@ -88,7 +92,20 @@ case "$LUMP_AND_SPRAY" in
 esac
 export Q_TAG
 
+# Compute partition/queue resources EARLY so RANKS is known before LB_TAG is
+# derived (used to suppress the LB tag for single-rank serial runs).
+CPU_QUEUE=${CPU_QUEUE:-express}
+source "$(dirname "${BASH_SOURCE[0]}")/compute_resources.sh"
+export MODEL_SHORT GPU_QUEUE CPU_QUEUE
+export PARTITION PARTITION_X PARTITION_Y RANKS
+export NGPUS GPU_NCPUS GPU_MEM GPU_MEM_SINGLE MEM_PER_GPU
+export CPU_NCPUS CPU_MEM MEM_PER_CPU
+
 # Normalise + validate LOAD_BALANCE and derive MODEL_CONFIG tag suffix.
+# For serial (1x1) runs, suppress the LB tag since LB is meaningless without
+# inter-rank communication — this keeps OM2-1's serial output paths stable
+# while still letting LOAD_BALANCE=surface be the cross-model default for
+# the partitioned models (OM2-025 1x2, OM2-01 1x4).
 case "$LOAD_BALANCE" in
     no)             LB_TAG="" ;;
     surface|yes)    LB_TAG="_LBS" ; LOAD_BALANCE="surface" ;;
@@ -97,6 +114,7 @@ case "$LOAD_BALANCE" in
     minmax)         LB_TAG="_LBminmax" ;;
     *) echo "ERROR: LOAD_BALANCE must be no | surface | cell | mix | minmax (got: $LOAD_BALANCE)" >&2; exit 1 ;;
 esac
+[ "$RANKS" -eq 1 ] && LB_TAG=""
 MODEL_CONFIG="${VELOCITY_SOURCE}_${W_FORMULATION}_${ADVECTION_SCHEME}_${TIMESTEPPER}"
 if [ "$W_FORMULATION" = "wprescribed" ]; then
     if [ "$PRESCRIBED_W_SOURCE" = "diagnosed" ]; then
@@ -129,9 +147,9 @@ if [ "$TRAF" = "yes" ]; then
 fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
-export LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
+export JVP_METHOD LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
-export TRAF TRAF_TM_SOURCE OMEGA
+export TRAF TRAF_TM_SOURCE OMEGA MPI_BINDING
 
 echo "PARENT_MODEL=$PARENT_MODEL"
 echo "EXPERIMENT=$EXPERIMENT"
@@ -177,46 +195,38 @@ if [ "$CHECK_BOUNDS" = "yes" ]; then
     echo "CHECK_BOUNDS=yes (running julia with --check-bounds=yes)"
 fi
 
-# Module loading and environment — required for all jobs.
-# MPItrampoline delegates to system OpenMPI via mpiwrapper;
-# openmpi module must be loaded so libmpiwrapper.so can find libmpi.
-echo "Loading modules (cuda, openmpi)"
-module load cuda/12.9.0
-module load openmpi/5.0.8
-export JULIA_CUDA_USE_COMPAT=false
-# Prepend JLL Libmount artifact to LD_LIBRARY_PATH so Glib_jll's libgio-2.0.so
-# finds the JLL's libmount.so.1 (MOUNT_2_40) instead of the system one (RHEL 8
-# only has up to MOUNT_2_37). Required for Makie/OceananigansMakieExt.
-LIBMOUNT_DIR=$(dirname "$(find "${JULIA_DEPOT_PATH:-$HOME/.julia}/artifacts" -name "libmount.so.1" -print -quit 2>/dev/null)" 2>/dev/null)
-if [ -n "$LIBMOUNT_DIR" ]; then
-    export LD_LIBRARY_PATH="${LIBMOUNT_DIR}:/apps/openmpi/5.0.8/lib"
-    echo "LIBMOUNT_DIR=$LIBMOUNT_DIR (prepended to LD_LIBRARY_PATH)"
-else
-    export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
-    echo "Warning: Libmount_jll artifact not found, Makie may fail to precompile"
-fi
-export JULIA_NUM_THREADS=1
-export JULIA_CUDA_MEMORY_POOL=none
-export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
-export UCX_WARN_UNUSED_ENV_VARS=n
-# MPItrampoline: point to mpiwrapper built against system OpenMPI
-export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
-
-# Model-specific config was sourced earlier (before variable defaults) so
-# it can establish per-model defaults like TIMESTEP_MULT.
-
-# --- Partition + queue configuration ---
-CPU_QUEUE=${CPU_QUEUE:-express}
-source "$(dirname "${BASH_SOURCE[0]}")/compute_resources.sh"
-
-export MODEL_SHORT GPU_QUEUE CPU_QUEUE
-export PARTITION PARTITION_X PARTITION_Y RANKS
-export NGPUS GPU_NCPUS GPU_MEM GPU_MEM_SINGLE MEM_PER_GPU
-export CPU_NCPUS CPU_MEM MEM_PER_CPU
-
 echo "MODEL_SHORT=$MODEL_SHORT"
 echo "GPU_QUEUE=$GPU_QUEUE"
 echo "PARTITION=$PARTITION (${PARTITION_X}x${PARTITION_Y}, RANKS=$RANKS)"
+
+# Module loading and runtime env — required inside PBS jobs that launch Julia.
+# Set SKIP_MODULES=yes when sourcing from the login-node driver (no module
+# loading needed there; modules.sh isn't even guaranteed to be on PATH).
+if [ "${SKIP_MODULES:-no}" != "yes" ]; then
+    # MPItrampoline delegates to system OpenMPI via mpiwrapper;
+    # openmpi module must be loaded so libmpiwrapper.so can find libmpi.
+    echo "Loading modules (cuda, openmpi)"
+    module load cuda/12.9.0
+    module load openmpi/5.0.8
+    export JULIA_CUDA_USE_COMPAT=false
+    # Prepend JLL Libmount artifact to LD_LIBRARY_PATH so Glib_jll's libgio-2.0.so
+    # finds the JLL's libmount.so.1 (MOUNT_2_40) instead of the system one (RHEL 8
+    # only has up to MOUNT_2_37). Required for Makie/OceananigansMakieExt.
+    LIBMOUNT_DIR=$(dirname "$(find "${JULIA_DEPOT_PATH:-$HOME/.julia}/artifacts" -name "libmount.so.1" -print -quit 2>/dev/null)" 2>/dev/null)
+    if [ -n "$LIBMOUNT_DIR" ]; then
+        export LD_LIBRARY_PATH="${LIBMOUNT_DIR}:/apps/openmpi/5.0.8/lib"
+        echo "LIBMOUNT_DIR=$LIBMOUNT_DIR (prepended to LD_LIBRARY_PATH)"
+    else
+        export LD_LIBRARY_PATH=/apps/openmpi/5.0.8/lib
+        echo "Warning: Libmount_jll artifact not found, Makie may fail to precompile"
+    fi
+    export JULIA_NUM_THREADS=1
+    export JULIA_CUDA_MEMORY_POOL=none
+    export UCX_ERROR_SIGNALS="SIGILL,SIGBUS,SIGFPE"
+    export UCX_WARN_UNUSED_ENV_VARS=n
+    # MPItrampoline: point to mpiwrapper built against system OpenMPI
+    export MPITRAMPOLINE_LIB=$HOME/mpiwrapper/lib64/libmpiwrapper.so
+fi
 
 # Git commit tracking (passed from driver via qsub -v)
 if [ -n "${GIT_COMMIT:-}" ]; then

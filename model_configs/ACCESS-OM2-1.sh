@@ -6,8 +6,14 @@ MODEL_SHORT=OM2-1
 # --- GPU queue (V100 sufficient for 1° resolution) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuvolta}
 
+# --- Partition (1x1 — serial run on a single V100 fits OM2-1 easily) ---
+PARTITION=${PARTITION:-1x1}
+
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-4}
+
+# --- NK preconditioner coarsening (small matrix → 2x2 is plenty) ---
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-2x2}
 
 # --- Preprocessing ---
 WALLTIME_PREP=02:00:00            # actual ~16min (20yr), longer for 30yr windows

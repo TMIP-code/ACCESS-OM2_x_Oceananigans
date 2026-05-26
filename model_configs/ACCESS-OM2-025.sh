@@ -6,8 +6,14 @@ MODEL_SHORT=OM2-025
 # --- GPU queue (H200 needed for 0.25° resolution) ---
 GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 
+# --- Partition (1x2 — two H200 ranks for OM2-025; LBS wins) ---
+PARTITION=${PARTITION:-1x2}
+
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-3}
+
+# --- NK preconditioner coarsening (medium matrix → 2x2) ---
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-2x2}
 
 # --- CPU queue (hugemem for 0.25° — partition needs ~48 GB per rank) ---
 CPU_QUEUE=${CPU_QUEUE:-hugemem}
