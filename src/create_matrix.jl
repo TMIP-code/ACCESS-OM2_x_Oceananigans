@@ -25,6 +25,12 @@ Environment variables:
   (Age solving has been factored out into solve_matrix_age.jl)
 """
 
+# Need Oceananigans loaded before shared_functions.jl (config.jl uses
+# Oceananigans.Grids/Architectures) so require_env is in scope below.
+using Oceananigans
+using Oceananigans.Architectures: CPU
+include("shared_functions.jl")
+
 TRAF = lowercase(require_env("TRAF")) == "yes"
 TRAF_TM_SOURCE = require_env("TRAF_TM_SOURCE")
 
@@ -32,9 +38,6 @@ if TRAF && TRAF_TM_SOURCE == "invVMtV"
     # ── Option B: algebraic synthesis  M_traf = V⁻¹ Mᵀ V  from the forward M ──
     # No autodiff, no Oceananigans heavy setup — just sparse linear algebra.
     using JLD2, SparseArrays, LinearAlgebra
-    using Oceananigans
-    using Oceananigans.Architectures: CPU
-    include("shared_functions.jl")
 
     (; parentmodel, experiment_dir, outputdir) = load_project_config()
     (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
