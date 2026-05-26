@@ -8,12 +8,69 @@ pick up cleanly.
 
 ## In flight
 
-| Job | Step | Resources | Notes |
-|---|---|---|---|
-| `169183483` | **NK_5x5** | gpuhopper 1×4 / 1024 GB / 24 h | First real NK at OM2-01. M.jld2 already on disk; no upstream deps. |
+(none — NK_5x5 (`169183483`) crashed during setup; see "Known bug" below.)
 
 `M.jld2` (39 GB) lives at
 `outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/TM/cgridtransports_wparent_centered2_AB2_mkappaV_DTx2/const/M.jld2`.
+
+## Known bug — `compute_wet_mask` crashes on `Distributed{GPU}` grids at OM2-01
+
+`169183483` (NK_5x5 at OM2-01, `PARTITION=1x4`) exited 1 after ~18 min, 0%
+GPU utilisation. It crashes in `compute_wet_mask` at
+[src/shared_utils/grid.jl:630](../src/shared_utils/grid.jl#L630):
+
+```julia
+wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
+```
+
+called from [src/periodic_solver_common.jl:48](../src/periodic_solver_common.jl#L48)
+via [src/solve_periodic_NK.jl:126](../src/solve_periodic_NK.jl#L126).
+
+`on_architecture(CPU(), fNaN)` rebuilds the field+grid on CPU. The
+rebuilt CPU grid loses the per-rank connectivity of the
+`Distributed{GPU{CUDABackend}, …, Partition{…NTuple{4,Int64}…}}`
+grid, so the `MultiRegionCommunication` south BC ends up with `Nothing`
+where a connectivity object with a `.rank` field is expected. Then
+`materialize_immersed_boundary` calls `fill_halo_regions!` on it:
+
+```
+FieldError: type Nothing has no field `rank`
+@ Oceananigans.MultiRegion .../multi_region_boundary_conditions.jl:138
+```
+
+**Why we hadn't seen it.** A prior partitioned NK *did* succeed:
+`169107705` (NK_restart_A1, OM2-1, `1x2`, gpuvolta, exit 0, 21 m, 18 GB —
+2026-05-23). The `compute_wet_mask` function dates from commit `e445a9f`
+(2026-03-19) and was unchanged between then and the OM2-01 crash. So the
+trigger is either **OM2-01 grid size** or the jump to **1x4 partition**
+(possibly both). Nothing in `grid.jl` / `periodic_solver_common.jl` /
+`setup_model.jl` changed between the working OM2-1 1x2 run and the
+failing OM2-01 1x4 run.
+
+**Proposed fix** — skip the grid rebuild; copy just the array data:
+
+```julia
+wet3D = .!isnan.(Array(interior(fNaN)))
+```
+
+`Array(::SubArray{T,N,<:CuArray})` is the canonical CUDA.jl host copy,
+so `wet3D` stays on CPU exactly like before — we just avoid materialising
+a CPU twin of the distributed GPU grid.
+
+**Validation plan before re-running OM2-01.** Iterate on OM2-1 / `1x2` /
+gpuvolta first (cheap, fast, and known-good baseline: `169107705`).
+Submission:
+
+```bash
+PARENT_MODEL=ACCESS-OM2-1 \
+  PARTITION=1x2 LOAD_BALANCE=no \
+  LUMP_AND_SPRAY=no \
+  JOB_CHAIN=NK bash scripts/driver.sh
+```
+
+If that succeeds with the fix in place we move back to OM2-01 / `1x4` /
+gpuhopper. If it still fails, the bug is more general than just the OM2-01
+grid and we can diagnose against the much cheaper OM2-1 setup.
 
 ## Remaining work
 
