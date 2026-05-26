@@ -317,7 +317,7 @@ PREP_JOB="${PREP_JOB:-}" GRID_JOB="${GRID_JOB:-}" VEL_JOB="${VEL_JOB:-}" CLO_JOB
 RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
-NK_CONST="" NK_AVG="" RUNNK_CONST="" RUNNK_AVG="" VENT_CONST="" VENT_AVG=""
+NK_CONST="${NK_CONST:-}" NK_AVG="${NK_AVG:-}" RUNNK_CONST="${RUNNK_CONST:-}" RUNNK_AVG="${RUNNK_AVG:-}" VENT_CONST="${VENT_CONST:-}" VENT_AVG="${VENT_AVG:-}"
 
 # ============================================================
 # 1. Preprocessing
@@ -573,12 +573,12 @@ if has_step ventilation; then
     run_const && \
         VENT_CONST=$(submit_job ventilation_c "${WALLTIME_VENTILATION:-00:30:00}" \
             scripts/solvers/compute_ventilation.sh \
-            --deps "${NK_CONST:-}" --vars "TM_SOURCE=const,${VENT_VARS}")
+            --deps "${RUNNK_CONST:-${NK_CONST:-}}" --vars "TM_SOURCE=const,${VENT_VARS}")
 
     run_avg && \
         VENT_AVG=$(submit_job ventilation_a "${WALLTIME_VENTILATION:-00:30:00}" \
             scripts/solvers/compute_ventilation.sh \
-            --deps "${NK_AVG:-}" --vars "TM_SOURCE=avg,${VENT_VARS}")
+            --deps "${RUNNK_AVG:-${NK_AVG:-}}" --vars "TM_SOURCE=avg,${VENT_VARS}")
 fi
 
 # ============================================================
