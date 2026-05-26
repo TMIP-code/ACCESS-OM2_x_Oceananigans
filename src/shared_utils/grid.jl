@@ -627,7 +627,7 @@ Returns interior-sized arrays (excludes fold point for tripolar grids).
 function compute_wet_mask(grid)
     fNaN = CenterField(grid)
     mask_immersed_field!(fNaN, NaN)
-    wet3D = .!isnan.(interior(on_architecture(CPU(), fNaN)))
+    wet3D = .!isnan.(Array(interior(fNaN)))
     idx = findall(wet3D)
     Nidx = length(idx)
     return (; wet3D, idx, Nidx)
