@@ -132,11 +132,82 @@ Velocity creation can run on GPU for faster processing (grid creation and Python
 PREPROCESS_ARCH=GPU JOB_CHAIN=preprocessing bash scripts/driver.sh
 ```
 
-### Model configs
+### Defaults: where they live, what they are
 
-Model-specific settings (walltimes, PBS name prefix) live in `model_configs/`:
-- `model_configs/ACCESS-OM2-1.sh`
-- `model_configs/ACCESS-OM2-025.sh`
+There are two layers:
+
+- **Cross-model defaults** live in `scripts/env_defaults.sh`. Sourced by every
+  PBS script and by `scripts/driver.sh`. Single source of truth.
+- **Per-model defaults** live in `model_configs/${PARENT_MODEL}.sh`. Sourced
+  *first* by `env_defaults.sh`, so per-model values override cross-model
+  fallbacks (and user-set env vars override both).
+
+Julia's side: `require_env("VAR")` in `src/shared_utils/config.jl` reads
+required vars and errors if unset, so a direct `julia src/foo.jl`
+invocation without sourcing `env_defaults.sh` fails fast instead of
+silently using stale defaults.
+
+The two tables below are generated from those files — regenerate by piping
+the script output into the README between the marker comments:
+
+```bash
+bash scripts/print_defaults_tables.sh   # prints the section to stdout
+```
+
+<!-- defaults-tables:begin -->
+
+#### Cross-model defaults (`scripts/env_defaults.sh`)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PARENT_MODEL` | `ACCESS-OM2-1` |  |
+| `TIME_WINDOW` | `1968-1977` |  |
+| `VELOCITY_SOURCE` | `cgridtransports` | cgridtransports \| totaltransport |
+| `W_FORMULATION` | `wprescribed` | wdiagnosed \| wprescribed |
+| `PRESCRIBED_W_SOURCE` | `parent` | diagnosed \| parent (only when W_FORMULATION=wprescribed) |
+| `ADVECTION_SCHEME` | `centered2` | centered2 \| weno3 \| weno5 |
+| `TIMESTEPPER` | `AB2` | AB2 \| SRK2 \| SRK3 \| SRK4 \| SRK5 |
+| `TIMESTEP_MULT` | `1` | integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base. Per-model defaults in model_configs/*.sh (4/3/2 for OM2-1/025/01). |
+| `PLOT_TS` | `no` | yes \| no — opt-in T/S surface animations in plot_standardrun_age.jl |
+| `TRACE_SOLVER_HISTORY` | `yes` | yes \| no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart) |
+| `JVP_METHOD` | `exact` | exact \| fd — Jacobian-vector product method for NK |
+| `LINEAR_SOLVER` | `Pardiso` | Pardiso \| ParU \| UMFPACK |
+| `LUMP_AND_SPRAY` | `no` | no \| AxB (e.g. 5x5); legacy `yes` is rejected. Per-model defaults in model_configs/*.sh (2x2/2x2/5x5 for OM2-1/025/01). |
+| `MATRIX_PROCESSING` | `symdrop` | raw \| symfill \| dropzeros \| symdrop |
+| `INITIAL_AGE` | `0` | 0 \| TMage \| latest \| <path to .jld2> |
+| `TM_SOURCE` | `const` | const \| avg |
+| `TM_MODEL_CONFIG` | `(empty)` | override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG) |
+| `GM_REDI` | `no` | no \| diff \| adv (legacy: yes = diff) |
+| `MONTHLY_KAPPAV` | `yes` | yes \| no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes |
+| `IMPLICIT_KAPPAV` | `yes` | yes \| no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV |
+| `TBLOCKING` | `no` | no \| integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange) |
+| `GRID_HX` | `7` | grid halo in x (≥ K+1 when TBLOCKING=K) |
+| `GRID_HY` | `7` | grid halo in y (≥ K+1 when TBLOCKING=K) |
+| `GRID_HZ` | `2` | grid halo in z (2 sufficient; larger is harmless) |
+| `LOAD_BALANCE` | `surface` | no \| surface \| cell \| mix \| minmax \| yes(=surface; back-compat) — only valid when PARTITION_X=1. Auto-suppressed in MODEL_CONFIG when RANKS=1 (serial). |
+| `ACTIVE_CELLS_MAP` | `yes` | yes \| no — when "no", build IBG with active_cells_map=false and tag output files with _noACM |
+| `TRAF` | `no` | yes \| no — Time-Reversed Adjoint Flow (adjoint age via reversed monthly FTS + sign-flipped u, v) |
+| `TRAF_TM_SOURCE` | `invVMtV` | invVMtV \| M_traf — matrix to use for TMsolve/NK when TRAF=yes (ignored when TRAF=no) |
+| `OMEGA` | `all` | all \| z<depth> — restrict the age source to where z_center < -<depth> m (filename suffix only) |
+| `MPI_BINDING` | `numa` | numa \| socket \| none — mpiexec --bind-to / --map-by binding policy |
+| `CPU_QUEUE` | `express` |  |
+| `CHECK_BOUNDS` | `no` |  |
+
+#### Per-model defaults (`model_configs/`)
+
+| Variable | OM2-1 | OM2-025 | OM2-01 |
+|---|---|---|---|
+| `GPU_QUEUE` | `gpuvolta` | `gpuhopper` | `gpuhopper` |
+| `PARTITION` | `1x1` | `1x2` | `1x4` |
+| `TIMESTEP_MULT` | `4` | `3` | `2` |
+| `LUMP_AND_SPRAY` | `2x2` | `2x2` | `5x5` |
+| `CPU_QUEUE` | `—` | `hugemem` | `—` |
+
+_Resource knobs (walltimes, memory limits, queue choices for individual
+PBS jobs) also live in `model_configs/*.sh` but are omitted from this
+table — see the files for the full list._
+
+<!-- defaults-tables:end -->
 
 ### Model notes
 
