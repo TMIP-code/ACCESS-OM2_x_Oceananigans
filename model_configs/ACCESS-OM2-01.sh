@@ -17,11 +17,17 @@ GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 # --- Partition (1x4 — four H200 ranks needed for OM2-01 memory; LBS wins) ---
 PARTITION=${PARTITION:-1x4}
 
+# --- Velocity source (cgridtransports — OM2-01 has no separate mass-transport intake) ---
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
+
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-2}
 
 # --- NK preconditioner coarsening (large matrix → 5x5 to fit Pardiso budget) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-5x5}
+
+# --- CPU queue (megamem for 0.1° — partition + TMbuild need >1 TB) ---
+CPU_QUEUE=${CPU_QUEUE:-megamem}
 
 # --- Preprocessing ---
 WALLTIME_PREP=12:00:00

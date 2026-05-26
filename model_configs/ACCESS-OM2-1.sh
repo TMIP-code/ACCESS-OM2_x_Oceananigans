@@ -9,6 +9,9 @@ GPU_QUEUE=${GPU_QUEUE:-gpuvolta}
 # --- Partition (1x1 — serial run on a single V100 fits OM2-1 easily) ---
 PARTITION=${PARTITION:-1x1}
 
+# --- Velocity source (mass transports preferred over interpolated C-grid) ---
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-totaltransport}
+
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-4}
 

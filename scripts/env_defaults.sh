@@ -1,7 +1,10 @@
 # Common env var defaults for all job scripts.
 # Sourced (not executed), so variables are set in the caller's scope.
 
-PARENT_MODEL=${PARENT_MODEL:-ACCESS-OM2-1}
+if [ -z "${PARENT_MODEL:-}" ]; then
+    echo "ERROR: PARENT_MODEL must be set (ACCESS-OM2-1 | ACCESS-OM2-025 | ACCESS-OM2-01). The whole config is model-dependent — there is no sensible global default." >&2
+    exit 1
+fi
 
 # Experiment and time window (parent model forcing)
 if [ -z "${EXPERIMENT:-}" ]; then
@@ -47,17 +50,28 @@ if [ ! -f "$MODEL_CONF" ]; then
 fi
 source "$MODEL_CONF"
 
-VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}     # cgridtransports | totaltransport
+# Sanity: model_configs/${PARENT_MODEL}.sh must set these model-dependent vars
+# (no cross-model fallback by design).
+for _v in VELOCITY_SOURCE TIMESTEP_MULT LUMP_AND_SPRAY; do
+    if [ -z "${!_v:-}" ]; then
+        echo "ERROR: $_v not set after sourcing $MODEL_CONF. Each model_configs/*.sh must set VELOCITY_SOURCE, TIMESTEP_MULT, and LUMP_AND_SPRAY." >&2
+        exit 1
+    fi
+done
+unset _v
+
+# VELOCITY_SOURCE, TIMESTEP_MULT, LUMP_AND_SPRAY are model-dependent and live
+# in model_configs/${PARENT_MODEL}.sh — no cross-model fallback here on purpose.
+# Cross-model defaults below are for vars that don't differ per resolution.
 W_FORMULATION=${W_FORMULATION:-wprescribed}             # wdiagnosed | wprescribed
 PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (only when W_FORMULATION=wprescribed)
 ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5
 TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
-TIMESTEP_MULT=${TIMESTEP_MULT:-1}                       # integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base. Per-model defaults in model_configs/*.sh (4/3/2 for OM2-1/025/01).
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-yes}       # yes | no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
 JVP_METHOD=${JVP_METHOD:-exact}                         # exact | fd — Jacobian-vector product method for NK
 LINEAR_SOLVER=${LINEAR_SOLVER:-Pardiso}                 # Pardiso | ParU | UMFPACK
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-no}                    # no | AxB (e.g. 5x5); legacy `yes` is rejected. Per-model defaults in model_configs/*.sh (2x2/2x2/5x5 for OM2-1/025/01).
+# LUMP_AND_SPRAY lives in model_configs/*.sh (2x2 for OM2-1/025, 5x5 for OM2-01).
 MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropzeros | symdrop
 INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-const}                           # const | avg

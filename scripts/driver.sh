@@ -85,7 +85,7 @@ source scripts/submit_job.sh
 if [ -z "${JOB_CHAIN:-}" ]; then
     echo "Usage: PARENT_MODEL=... JOB_CHAIN=... bash scripts/driver.sh"
     echo ""
-    echo "  PARENT_MODEL  Model to run (default: ACCESS-OM2-1)"
+    echo "  PARENT_MODEL  Model to run (required: ACCESS-OM2-1 | ACCESS-OM2-025 | ACCESS-OM2-01)"
     echo "  EXPERIMENT    Intake catalog key (default: based on PARENT_MODEL)"
     echo "  TIME_WINDOW   Year range YYYY-YYYY or single year (default: 1968-1977)"
     echo "  TM_SOURCE     const (default), avg, or both"

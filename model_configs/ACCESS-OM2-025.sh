@@ -9,6 +9,9 @@ GPU_QUEUE=${GPU_QUEUE:-gpuhopper}
 # --- Partition (1x2 — two H200 ranks for OM2-025; LBS wins) ---
 PARTITION=${PARTITION:-1x2}
 
+# --- Velocity source (mass transports preferred over interpolated C-grid) ---
+VELOCITY_SOURCE=${VELOCITY_SOURCE:-totaltransport}
+
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
 TIMESTEP_MULT=${TIMESTEP_MULT:-3}
 
