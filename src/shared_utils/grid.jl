@@ -652,7 +652,7 @@ function compute_volume(grid)
     vol = CenterField(grid)
     Nx, Ny, Nz = size(grid)
     kp = KernelParameters(1:Nx, 1:Ny, 1:Nz)
-    launch!(CPU(), grid, kp, compute_volume!, vol, grid)
+    launch!(architecture(grid), grid, kp, compute_volume!, vol, grid)
     return vol
 end
 

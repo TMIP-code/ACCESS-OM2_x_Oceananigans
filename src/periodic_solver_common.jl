@@ -66,8 +66,7 @@ age3D_gpu = age3D_local_gpu
 @info "Computing cell volumes for volume-weighted norm"
 flush(stdout); flush(stderr)
 
-grid_cpu = on_architecture(CPU(), grid)
-v1D = interior(compute_volume(grid_cpu))[idx]
+v1D = Array(interior(compute_volume(grid)))[idx]
 
 # make_vol_norm is defined in shared_functions.jl
 
