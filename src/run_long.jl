@@ -54,8 +54,7 @@ include("setup_simulation.jl")
 (; wet3D, idx, Nidx) = compute_wet_mask(grid)
 Nx′, Ny′, Nz′ = size(wet3D)
 
-grid_cpu = on_architecture(CPU(), grid)
-v1D = interior(compute_volume(grid_cpu))[idx]
+v1D = Array(interior(compute_volume(grid)))[idx]
 inv_sumv = 1 / sum(v1D)
 
 @info "Number of wet cells: $Nidx"

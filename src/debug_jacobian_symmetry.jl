@@ -241,7 +241,7 @@ function mytendency!(GADcvec::Vector{T}, ADcvec::Vector{T}, clock) where {T}
         active_cells_map,
     )
 
-    GADcvec .= view(interior(on_architecture(CPU(), GADc)), idx)
+    GADcvec .= view(Array(interior(GADc)), idx)
     return GADcvec
 end
 

@@ -58,8 +58,7 @@ function make_plottable_array(f)
     jj = drop_singleton_indices(Ny)
     kk = drop_singleton_indices(Nz)
 
-    fi = interior(f, ii, jj, kk)
-    fi_cpu = on_architecture(CPU(), fi)
+    fi_cpu = Array(interior(f, ii, jj, kk))
 
     if architecture(f) isa CPU
         fi_cpu = deepcopy(fi_cpu) # so we can re-zero peripheral nodes
