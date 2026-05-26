@@ -11,13 +11,13 @@ The full pipeline is managed by a unified `scripts/driver.sh` that submits chain
 
 ```bash
 # Run the full ACCESS-OM2-1 pipeline (default experiment and time window)
-JOB_CHAIN=full bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=full bash scripts/driver.sh
 
 # Run the full ACCESS-OM2-025 pipeline
 PARENT_MODEL=ACCESS-OM2-025 JOB_CHAIN=full bash scripts/driver.sh
 
 # Specify experiment and time window
-EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
 ```
 
 ### Dependency DAG
@@ -84,30 +84,33 @@ Use the `JOB_CHAIN` env var to run only a subset of the pipeline. Steps not in t
 
 **Range notation:** `A..B` expands to all steps on any path from A to B in the dependency DAG — not a flat list.
 
+All examples below assume `PARENT_MODEL=ACCESS-OM2-1`; substitute `ACCESS-OM2-025`
+or `ACCESS-OM2-01` as needed (`PARENT_MODEL` is required — there is no default).
+
 ```bash
 # Only run Newton-GMRES solves (matrices must already exist)
-JOB_CHAIN=NK bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=NK bash scripts/driver.sh
 
 # Run 1-year simulation and plot
-JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh
 
 # Build matrices and run all solvers
-JOB_CHAIN=run1yr-TMall-NK bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=run1yr-TMall-NK bash scripts/driver.sh
 
 # Everything from vel to NK (range follows the DAG, excludes run10yr/runlong/TMsolve)
-JOB_CHAIN=vel..NK bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=vel..NK bash scripts/driver.sh
 
 # Re-run + plot from NK solution (range follows NK→run1yrNK→plotNK path only)
-JOB_CHAIN=run1yrNK..plotNK bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=run1yrNK..plotNK bash scripts/driver.sh
 
 # Run both const and avg branches
-TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 TM_SOURCE=both JOB_CHAIN=NK-run1yrNK-plotNK bash scripts/driver.sh
 
 # Run preprocessing only
-JOB_CHAIN=preprocessing bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=preprocessing bash scripts/driver.sh
 
 # Specify experiment and time window
-EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 EXPERIMENT=1deg_jra55_ryf9091_gadi TIME_WINDOW=1958-1987 JOB_CHAIN=full bash scripts/driver.sh
 
 # ACCESS-OM2-025 with specific GPU queue
 PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuvolta JOB_CHAIN=run1yr bash scripts/driver.sh
@@ -129,7 +132,7 @@ Velocity creation can run on GPU for faster processing (grid creation and Python
 
 ```bash
 # Run velocities on GPU
-PREPROCESS_ARCH=GPU JOB_CHAIN=preprocessing bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 PREPROCESS_ARCH=GPU JOB_CHAIN=preprocessing bash scripts/driver.sh
 ```
 
 ### Defaults: where they live, what they are
@@ -160,19 +163,15 @@ bash scripts/print_defaults_tables.sh   # prints the section to stdout
 
 | Variable | Default | Notes |
 |---|---|---|
-| `PARENT_MODEL` | `ACCESS-OM2-1` |  |
 | `TIME_WINDOW` | `1968-1977` |  |
-| `VELOCITY_SOURCE` | `cgridtransports` | cgridtransports \| totaltransport |
 | `W_FORMULATION` | `wprescribed` | wdiagnosed \| wprescribed |
 | `PRESCRIBED_W_SOURCE` | `parent` | diagnosed \| parent (only when W_FORMULATION=wprescribed) |
 | `ADVECTION_SCHEME` | `centered2` | centered2 \| weno3 \| weno5 |
 | `TIMESTEPPER` | `AB2` | AB2 \| SRK2 \| SRK3 \| SRK4 \| SRK5 |
-| `TIMESTEP_MULT` | `1` | integer ≥ 1; Δt = TIMESTEP_MULT · Δt_base. Per-model defaults in model_configs/*.sh (4/3/2 for OM2-1/025/01). |
 | `PLOT_TS` | `no` | yes \| no — opt-in T/S surface animations in plot_standardrun_age.jl |
 | `TRACE_SOLVER_HISTORY` | `yes` | yes \| no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart) |
 | `JVP_METHOD` | `exact` | exact \| fd — Jacobian-vector product method for NK |
 | `LINEAR_SOLVER` | `Pardiso` | Pardiso \| ParU \| UMFPACK |
-| `LUMP_AND_SPRAY` | `no` | no \| AxB (e.g. 5x5); legacy `yes` is rejected. Per-model defaults in model_configs/*.sh (2x2/2x2/5x5 for OM2-1/025/01). |
 | `MATRIX_PROCESSING` | `symdrop` | raw \| symfill \| dropzeros \| symdrop |
 | `INITIAL_AGE` | `0` | 0 \| TMage \| latest \| <path to .jld2> |
 | `TM_SOURCE` | `const` | const \| avg |
@@ -199,9 +198,10 @@ bash scripts/print_defaults_tables.sh   # prints the section to stdout
 |---|---|---|---|
 | `GPU_QUEUE` | `gpuvolta` | `gpuhopper` | `gpuhopper` |
 | `PARTITION` | `1x1` | `1x2` | `1x4` |
+| `VELOCITY_SOURCE` | `totaltransport` | `totaltransport` | `cgridtransports` |
 | `TIMESTEP_MULT` | `4` | `3` | `2` |
 | `LUMP_AND_SPRAY` | `2x2` | `2x2` | `5x5` |
-| `CPU_QUEUE` | `—` | `hugemem` | `—` |
+| `CPU_QUEUE` | `—` | `hugemem` | `megamem` |
 
 _Resource knobs (walltimes, memory limits, queue choices for individual
 PBS jobs) also live in `model_configs/*.sh` but are omitted from this
@@ -336,10 +336,10 @@ Multi-GPU simulations use MPI to distribute the grid across GPUs. All PBS script
 GPU partition is set via `GPU_RESOURCES`:
 ```bash
 # 2x2 partition (4 GPUs) on Volta
-GPU_RESOURCES=gpuvolta-2x2 JOB_CHAIN=run1yr bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 GPU_RESOURCES=gpuvolta-2x2 JOB_CHAIN=run1yr bash scripts/driver.sh
 
 # 1x2 slab partition (2 GPUs) on Hopper
-GPU_RESOURCES=gpuhopper-1x2 JOB_CHAIN=run1yr bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-025 GPU_RESOURCES=gpuhopper-1x2 JOB_CHAIN=run1yr bash scripts/driver.sh
 ```
 
 ## GitHub CLI (`gh`)
@@ -373,8 +373,8 @@ The 4 core config variables determine the model setup and output directory paths
 
 | Variable | Valid values | Default | Description |
 |----------|-------------|---------|-------------|
-| `VELOCITY_SOURCE` | `cgridtransports`, `totaltransport` | `cgridtransports` | Source of prescribed velocities (`totaltransport` = resolved + GM from parent) |
-| `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wdiagnosed` | Vertical velocity treatment |
+| `VELOCITY_SOURCE` | `cgridtransports`, `totaltransport` | **per-model**: `totaltransport` for OM2-1/025, `cgridtransports` for OM2-01 | Source of prescribed velocities (`totaltransport` = resolved + GM from parent) |
+| `W_FORMULATION` | `wdiagnosed`, `wprescribed` | `wprescribed` | Vertical velocity treatment |
 | `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` | Tracer advection scheme |
 | `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` | Time-stepping scheme |
 | `GM_REDI` | `no`, `diff`, `adv` | `no` | Online Redi-GM parameterization (diffusive or advective formulation) |
@@ -383,25 +383,29 @@ Timestepper values map to Oceananigans symbols:
 - `AB2` = `:QuasiAdamsBashforth2` (default quasi-Adams-Bashforth 2nd order)
 - `SRK{N}` = `:SplitRungeKutta{N}` (split Runge-Kutta with N = 2..5 stages)
 
-The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `cgridtransports_wdiagnosed_centered2_AB2`) determines output directory paths and log filenames. When `GM_REDI` is enabled, `_GMREDI` or `_GMREDIadv` is appended to the tag.
+The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `totaltransport_wparent_centered2_AB2` with default OM2-1 settings) determines output directory paths and log filenames. Additional suffixes are appended for non-default flags: `_GMREDI`/`_GMREDIadv` (Redi-GM), `_mkappaV` (`MONTHLY_KAPPAV=yes`), `_noKV` (`IMPLICIT_KAPPAV=no`), `_TB<K>` (temporal blocking), `_LB{S,…}` (load-balanced partition), `_DTx<M>` (`TIMESTEP_MULT>1`), `_traf` (TRAF), `_noACM`.
 
 ### GM transport options
 
 There are four ways to include GM (Gent-McWilliams) effects in the tracer transport. See [`docs/GM_TRANSPORT.md`](docs/GM_TRANSPORT.md) for full details.
 
 ```bash
-# No GM (default)
-JOB_CHAIN=full bash scripts/driver.sh
+# Parent-model GM by default for OM2-1 / OM2-025 (resolved + GM combined velocities)
+PARENT_MODEL=ACCESS-OM2-1 JOB_CHAIN=full bash scripts/driver.sh
 
-# GM from parent model (resolved + GM combined velocities)
-VELOCITY_SOURCE=totaltransport JOB_CHAIN=full bash scripts/driver.sh
+# Resolved-only velocities (no GM)
+PARENT_MODEL=ACCESS-OM2-1 VELOCITY_SOURCE=cgridtransports JOB_CHAIN=full bash scripts/driver.sh
 
 # Online diffusive Redi-GM
-GM_REDI=diff JOB_CHAIN=full bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 GM_REDI=diff JOB_CHAIN=full bash scripts/driver.sh
 
 # Online advective Redi-GM
-GM_REDI=adv JOB_CHAIN=full bash scripts/driver.sh
+PARENT_MODEL=ACCESS-OM2-1 GM_REDI=adv JOB_CHAIN=full bash scripts/driver.sh
 ```
+
+Note: OM2-01 defaults to `cgridtransports` (no separate mass-transport intake)
+and so has no GM-by-default option; for that model GM must come via
+`GM_REDI=diff` or `GM_REDI=adv`.
 
 ### Solver-specific variables
 
