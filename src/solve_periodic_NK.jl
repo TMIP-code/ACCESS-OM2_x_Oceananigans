@@ -55,21 +55,21 @@ const nprocs = parse(Int, get(ENV, "PARDISO_NPROCS", ENV["PBS_NCPUS"]))
 # Configuration
 ################################################################################
 
-LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
+LINEAR_SOLVER = require_env("LINEAR_SOLVER")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
 ls = parse_lump_and_spray()
 LUMP_AND_SPRAY = ls.on
 lumpspray_tag = ls.tag
 
-MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
+MATRIX_PROCESSING = require_env("MATRIX_PROCESSING")
 (MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
 
-TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+TM_SOURCE = require_env("TM_SOURCE")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
-TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+TRAF = lowercase(require_env("TRAF")) == "yes"
+TRAF_TM_SOURCE = require_env("TRAF_TM_SOURCE")
 if TRAF
     TM_SOURCE == "const" || error(
         "TRAF=yes is only supported with TM_SOURCE=const in the first cut (got TM_SOURCE=$TM_SOURCE). " *
@@ -110,8 +110,8 @@ flush(stdout); flush(stderr)
 # Solver output directory (used by periodic_solver_common.jl for trace files)
 ################################################################################
 
-px = parse(Int, get(ENV, "PARTITION_X", "1"))
-py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+px = parse(Int, require_env("PARTITION_X"))
+py = parse(Int, require_env("PARTITION_Y"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
 nk_dirname = "NK$(ls.dir_suffix)"
 solver_output_dir = isempty(gpu_tag) ?

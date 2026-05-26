@@ -25,8 +25,8 @@ Environment variables:
   (Age solving has been factored out into solve_matrix_age.jl)
 """
 
-TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+TRAF = lowercase(require_env("TRAF")) == "yes"
+TRAF_TM_SOURCE = require_env("TRAF_TM_SOURCE")
 
 if TRAF && TRAF_TM_SOURCE == "invVMtV"
     # ── Option B: algebraic synthesis  M_traf = V⁻¹ Mᵀ V  from the forward M ──

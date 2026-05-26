@@ -69,18 +69,18 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 
 LINEAR_SOLVER = "CUDSS"
 
-MATRIX_PROCESSING = get(ENV, "MATRIX_PROCESSING", "raw")
+MATRIX_PROCESSING = require_env("MATRIX_PROCESSING")
 (MATRIX_PROCESSING ∈ ("raw", "symfill", "dropzeros", "symdrop")) || error("MATRIX_PROCESSING must be one of: raw, symfill, dropzeros, symdrop (got: $MATRIX_PROCESSING)")
 
 ls = parse_lump_and_spray()
 LUMP_AND_SPRAY = ls.on
 coarse_tag = ls.on ? ls.tag : "full"
 
-TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+TM_SOURCE = require_env("TM_SOURCE")
 (TM_SOURCE ∈ ("const", "avg")) || error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
 
-TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-TRAF_TM_SOURCE = get(ENV, "TRAF_TM_SOURCE", "invVMtV")
+TRAF = lowercase(require_env("TRAF")) == "yes"
+TRAF_TM_SOURCE = require_env("TRAF_TM_SOURCE")
 if TRAF
     TM_SOURCE == "const" || error(
         "TRAF=yes is only supported with TM_SOURCE=const in the first cut (got TM_SOURCE=$TM_SOURCE). " *

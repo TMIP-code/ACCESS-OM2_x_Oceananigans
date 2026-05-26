@@ -16,7 +16,7 @@ using MPI
 # Trace solver history configuration
 ################################################################################
 
-TRACE_SOLVER_HISTORY = lowercase(get(ENV, "TRACE_SOLVER_HISTORY", "no")) == "yes"
+TRACE_SOLVER_HISTORY = lowercase(require_env("TRACE_SOLVER_HISTORY")) == "yes"
 
 # OMEGA filename suffix — appended to newton_iterate / matrix-age filenames so
 # multiple OMEGA values can coexist in the same solver_output_dir / TM dir.
@@ -174,13 +174,13 @@ Returns a Vector{Float64} of length `Nidx` (wet cells) in **seconds**.
   (in seconds) and assign without unit conversion.
 """
 function load_initial_age(idx, Nidx, outputdir, model_config; year, solver_output_dir)
-    INITIAL_AGE = get(ENV, "INITIAL_AGE", "0")
+    INITIAL_AGE = require_env("INITIAL_AGE")
     age_init_vec = zeros(Nidx)
 
     if INITIAL_AGE == "0"
         @info "Starting from zero initial guess (set INITIAL_AGE=TMage|latest|<path> to warm-start)"
     elseif INITIAL_AGE == "TMage"
-        TM_SOURCE = get(ENV, "TM_SOURCE", "const")
+        TM_SOURCE = require_env("TM_SOURCE")
         matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)
         ls = parse_lump_and_spray()
         preferred_coarse_tag = ls.on ? ls.tag : "full"

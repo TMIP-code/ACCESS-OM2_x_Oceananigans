@@ -70,8 +70,8 @@ flush(stdout); flush(stderr)
 (; parentmodel, experiment_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 (; VELOCITY_SOURCE) = parse_config_env()
 
-experiment = get(ENV, "EXPERIMENT", "1deg_jra55_iaf_omip2_cycle6")
-time_window = get(ENV, "TIME_WINDOW", "1968-1977")
+experiment = require_env("EXPERIMENT")
+time_window = require_env("TIME_WINDOW")
 
 grid_file = joinpath(experiment_dir, "grid.jld2")
 monthly_dir = joinpath(experiment_dir, time_window, "monthly")

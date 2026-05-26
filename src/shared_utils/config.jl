@@ -8,12 +8,29 @@ using TOML
 using Oceananigans.Grids: znodes, Center
 using Oceananigans.Architectures: on_architecture, CPU
 
+"""
+    require_env(var; help="")
+
+Read a required production-config env var or error with a clear message
+pointing the user at `scripts/env_defaults.sh`. Use for any var documented
+in `env_defaults.sh` / `model_configs/*.sh`. For benchmark / per-script
+knobs (NYEARS, BENCHMARK_STEPS, etc.), prefer `get(ENV, var, default)`.
+"""
+function require_env(var::AbstractString; help::AbstractString = "")
+    return get(ENV, var) do
+        msg = "Required env var '$var' is not set."
+        isempty(help) || (msg *= " " * help)
+        msg *= "\nSource scripts/env_defaults.sh before running julia, or set the var explicitly."
+        error(msg)
+    end
+end
+
 """Parse and validate the 4 core config env vars."""
 function parse_config_env()
-    VS = get(ENV, "VELOCITY_SOURCE", "cgridtransports")
-    WF = get(ENV, "W_FORMULATION", "wdiagnosed")
-    AS = get(ENV, "ADVECTION_SCHEME", "centered2")
-    TS = get(ENV, "TIMESTEPPER", "AB2")
+    VS = require_env("VELOCITY_SOURCE")
+    WF = require_env("W_FORMULATION")
+    AS = require_env("ADVECTION_SCHEME")
+    TS = require_env("TIMESTEPPER")
     VS ∈ ("cgridtransports", "totaltransport") || error("VELOCITY_SOURCE must be cgridtransports or totaltransport (got: $VS)")
     WF ∈ ("wdiagnosed", "wprescribed") || error("W_FORMULATION must be wdiagnosed or wprescribed (got: $WF)")
     AS ∈ ("centered2", "weno3", "weno5") || error("ADVECTION_SCHEME must be centered2, weno3, or weno5 (got: $AS)")
@@ -40,7 +57,7 @@ coarsened-matrix artefacts (`Mc.jld2`, `LUMP.jld2`, `SPRAY.jld2`).
 The legacy `"yes"` alias is no longer accepted (use `"2x2"` for the previous
 hardcoded default).
 """
-function parse_lump_and_spray(s::AbstractString = get(ENV, "LUMP_AND_SPRAY", "no"))
+function parse_lump_and_spray(s::AbstractString = require_env("LUMP_AND_SPRAY"))
     sl = lowercase(s)
     if sl == "no"
         return (; di = 0, dj = 0, dk = 0, on = false, tag = "prec", dir_suffix = "")
@@ -62,7 +79,7 @@ function parse_lump_and_spray(s::AbstractString = get(ENV, "LUMP_AND_SPRAY", "no
 end
 
 """
-    parse_omega(s = get(ENV, "OMEGA", "all"))
+    parse_omega(s = require_env("OMEGA"))
         -> (; kind::Symbol, depth_m::Float64, tag::String, suffix::String)
 
 Parse the `OMEGA` env var that selects the age-source region.
@@ -76,7 +93,7 @@ The `suffix` is appended to age output filenames (and derived plots) so that
 multiple OMEGA values can coexist in the same directory. `OMEGA=all`
 produces no suffix, preserving filenames from before this feature existed.
 """
-function parse_omega(s::AbstractString = get(ENV, "OMEGA", "all"))
+function parse_omega(s::AbstractString = require_env("OMEGA"))
     sl = lowercase(s)
     sl == "all" && return (; kind = :all, depth_m = NaN, tag = "all", suffix = "")
     m = match(r"^z(\d+(?:\.\d+)?)$", sl)
@@ -114,18 +131,18 @@ end
 function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
     wf_tag = W_FORMULATION
     if W_FORMULATION == "wprescribed"
-        pw = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
+        pw = require_env("PRESCRIBED_W_SOURCE")
         wf_tag = pw == "diagnosed" ? "wprediag" : "wparent"
     end
     mc = "$(VELOCITY_SOURCE)_$(wf_tag)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
-    gm = lowercase(get(ENV, "GM_REDI", "no"))
+    gm = lowercase(require_env("GM_REDI"))
     gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
     gm == "adv" && (mc = "$(mc)_GMREDIadv")
-    lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes" && (mc = "$(mc)_mkappaV")
-    lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes")) == "no" && (mc = "$(mc)_noKV")
-    M = tryparse(Int, get(ENV, "TIMESTEP_MULT", "1"))
+    lowercase(require_env("MONTHLY_KAPPAV")) == "yes" && (mc = "$(mc)_mkappaV")
+    lowercase(require_env("IMPLICIT_KAPPAV")) == "no" && (mc = "$(mc)_noKV")
+    M = tryparse(Int, require_env("TIMESTEP_MULT"))
     !isnothing(M) && M > 1 && (mc = "$(mc)_DTx$(M)")
-    lowercase(get(ENV, "TRAF", "no")) == "yes" && (mc = "$(mc)_traf")
+    lowercase(require_env("TRAF")) == "yes" && (mc = "$(mc)_traf")
     return mc
 end
 
@@ -138,7 +155,7 @@ it to "no" also causes `noACM_suffix()` to return "_noACM" so output files
 don't collide with the default runs.
 """
 function active_cells_map_enabled()
-    return lowercase(get(ENV, "ACTIVE_CELLS_MAP", "yes")) ≠ "no"
+    return lowercase(require_env("ACTIVE_CELLS_MAP")) ≠ "no"
 end
 
 """Suffix to tack onto duration tags / file names when ACTIVE_CELLS_MAP=no."""
@@ -224,7 +241,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     # TIMESTEP_MULT: scale Δt for the tracer-advection stability sweep.
     # The dynamical-core Δt_base from the parent model is the wrong constraint
     # for a passive-tracer offline simulation (see docs/timestep_multiplier.md).
-    M_str = get(ENV, "TIMESTEP_MULT", "1")
+    M_str = require_env("TIMESTEP_MULT")
     M = tryparse(Int, M_str)
     M === nothing && error("TIMESTEP_MULT must be a positive integer (got: \"$M_str\")")
     M ≥ 1 || error("TIMESTEP_MULT must be ≥ 1 (got: $M)")
@@ -252,7 +269,7 @@ function load_project_config(; parentmodel_arg_index = 1)
     )
     experiment = get(ENV, "EXPERIMENT", get(default_experiments, parentmodel, ""))
     isempty(experiment) && error("No default EXPERIMENT for $parentmodel; set EXPERIMENT env var")
-    time_window = get(ENV, "TIME_WINDOW", "1968-1977")
+    time_window = require_env("TIME_WINDOW")
 
     # MLD time window: explicit env var only — `haskey` (not `get` with default)
     # so we can detect "set vs unset" and route outputs accordingly.

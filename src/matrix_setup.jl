@@ -72,13 +72,13 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+GM_REDI_STR = lowercase(require_env("GM_REDI"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
-TRAF_OPTION_A = lowercase(get(ENV, "TRAF", "no")) == "yes" &&
-    get(ENV, "TRAF_TM_SOURCE", "invVMtV") == "M_traf"
+MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
+TRAF_OPTION_A = lowercase(require_env("TRAF")) == "yes" &&
+    require_env("TRAF_TM_SOURCE") == "M_traf"
 TRAF_OPTION_A && @info "TRAF Option A: flipping yearly velocity signs for autodiff rebuild"
 model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
 

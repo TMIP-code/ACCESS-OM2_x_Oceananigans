@@ -23,8 +23,8 @@ else
 end
 
 # 2. Distribution selection
-px = parse(Int, get(ENV, "PARTITION_X", "1"))
-py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+px = parse(Int, require_env("PARTITION_X"))
+py = parse(Int, require_env("PARTITION_Y"))
 nranks = px * py
 
 # Pull in just what we need here. shared_functions.jl is normally

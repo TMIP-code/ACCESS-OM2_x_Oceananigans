@@ -60,8 +60,8 @@ function setup_age_simulation(
     model = simulation.model
     add_callback!(simulation, progress_message, TimeInterval(progress_interval))
 
-    px = parse(Int, get(ENV, "PARTITION_X", "1"))
-    py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+    px = parse(Int, require_env("PARTITION_X"))
+    py = parse(Int, require_env("PARTITION_Y"))
     gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
     age_output_dir = isempty(gpu_tag) ?
         joinpath(outputdir, "standardrun", model_config) :
@@ -81,7 +81,7 @@ function setup_age_simulation(
         :eta => model.free_surface.displacement,
     )
     # Add GM bolus velocity + mass transport outputs for advective GM-Redi
-    GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+    GM_REDI_STR = lowercase(require_env("GM_REDI"))
     GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")
     if GM_REDI_STR == "adv"
         output_fields[:u_GM] = model.closure_fields.u

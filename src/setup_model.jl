@@ -62,15 +62,15 @@ include("shared_functions.jl")
 Δt = Δt_seconds * second
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-GM_REDI_STR = lowercase(get(ENV, "GM_REDI", "no"))
+GM_REDI_STR = lowercase(require_env("GM_REDI"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
-MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
-IMPLICIT_KAPPAV_STR = lowercase(get(ENV, "IMPLICIT_KAPPAV", "yes"))
+MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
+IMPLICIT_KAPPAV_STR = lowercase(require_env("IMPLICIT_KAPPAV"))
 IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
 IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
-TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
+TRAF = lowercase(require_env("TRAF")) == "yes"
 if TRAF
     @info "TRAF=yes — reversing every monthly FTS in time; flipping sign of u, v FTS"
     W_FORMULATION == "wprescribed" && error(
@@ -91,7 +91,7 @@ model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SC
 @info "- MONTHLY_KAPPAV    = $MONTHLY_KAPPAV"
 @info "- IMPLICIT_KAPPAV   = $IMPLICIT_KAPPAV"
 @info "- TRAF              = $TRAF"
-@info "- OMEGA             = $(get(ENV, "OMEGA", "all"))"
+@info "- OMEGA             = $(require_env("OMEGA"))"
 @info "- Architecture      = $arch_str"
 
 @show outputdir
@@ -171,8 +171,8 @@ time_indexing = Cyclical(1year)
 # Distributed runs require pre-partitioned FTS files (written by partition_data.jl)
 fts_kw = (;)
 if arch isa Distributed
-    px = parse(Int, get(ENV, "PARTITION_X", "1"))
-    py = parse(Int, get(ENV, "PARTITION_Y", "1"))
+    px = parse(Int, require_env("PARTITION_X"))
+    py = parse(Int, require_env("PARTITION_Y"))
     ptag = "$(px)x$(py)$(LB_TAG)"
     partition_dir = joinpath(experiment_dir, time_window, "partitions", ptag)
     (isdir(partition_dir) && !isempty(readdir(partition_dir))) || error(
@@ -228,7 +228,7 @@ end
 
 if W_FORMULATION == "wprescribed"
     # Select w source: "diagnosed" (from Oceananigans continuity) or "parent" (from MOM output)
-    PRESCRIBED_W_SOURCE = get(ENV, "PRESCRIBED_W_SOURCE", "parent")
+    PRESCRIBED_W_SOURCE = require_env("PRESCRIBED_W_SOURCE")
     if PRESCRIBED_W_SOURCE == "diagnosed"
         w_diag_suffix = VELOCITY_SOURCE == "totaltransport" ? "w_diagnosed_totaltransport_monthly" : "w_diagnosed_monthly"
         w_file = joinpath(monthly_dir, "$(w_diag_suffix).jld2")
