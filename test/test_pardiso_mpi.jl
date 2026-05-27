@@ -43,8 +43,7 @@ end
 
 # Configuration
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 TM_SOURCE = get(ENV, "TM_SOURCE", "const")
 matrices_dir = joinpath(outputdir, "TM", model_config, TM_SOURCE)

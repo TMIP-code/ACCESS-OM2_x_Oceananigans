@@ -64,9 +64,7 @@ REF_GPU_TAG = get(ENV, "REF_GPU_TAG", "")
 DIVERGE_TOL_YR = parse(Float64, get(ENV, "DIVERGE_TOL_YR", "1.0e-3"))
 
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-# build_model_config reads TIMESTEP_MULT from ENV and already appends _DTx{M}.
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 # Directory layout:
 #   serial:      …/periodic/{MC}/NK/

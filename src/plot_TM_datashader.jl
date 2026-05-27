@@ -26,8 +26,7 @@ include("shared_functions.jl")
 
 (; parentmodel, outputdir) = load_project_config()
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 label_x = get(ENV, "TM_LABEL_X", "const")
 label_y = get(ENV, "TM_LABEL_Y", "avg")

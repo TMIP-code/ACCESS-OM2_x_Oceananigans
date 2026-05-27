@@ -31,7 +31,7 @@ The script writes a self-describing JLD2 with keys
 
 This script handles both the forward (IAF) and adjoint (TRAF) legs
 uniformly — the `_traf` suffix on `model_config` is appended automatically
-by `build_model_config` when `TRAF=yes`, and the directory layouts are
+by `env_defaults.sh` when `TRAF=yes`, and the directory layouts are
 resolved accordingly.
 
 Runs on CPU only; no GPU required.
@@ -79,8 +79,7 @@ include("shared_functions.jl")
 (; parentmodel, experiment, time_window, experiment_dir, outputdir, Δt_seconds) =
     load_project_config()
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) ||

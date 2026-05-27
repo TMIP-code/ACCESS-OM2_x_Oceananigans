@@ -59,7 +59,7 @@ py = parse(Int, gpu_tag_parts[2])
 (; parentmodel, experiment_dir, outputdir) = load_project_config(; parentmodel_arg_index = 2)
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 serial_dir = joinpath(outputdir, "standardrun", model_config)
 distributed_dir = joinpath(outputdir, "standardrun", model_config, GPU_TAG)

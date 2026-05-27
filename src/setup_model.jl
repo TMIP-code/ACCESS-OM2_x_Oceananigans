@@ -79,7 +79,7 @@ if TRAF
             "Support for TRAF + wprescribed is a follow-up.",
     )
 end
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 @info "Run configuration"
 @info "- PARENT_MODEL      = $parentmodel"

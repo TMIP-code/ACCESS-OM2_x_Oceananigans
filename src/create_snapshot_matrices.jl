@@ -90,7 +90,7 @@ GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
 GM_REDI = GM_REDI_STR in ("diff", "adv")
 GM_ADVECTIVE = GM_REDI_STR == "adv"
 MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 @info "Run configuration"
 @info "- PARENT_MODEL     = $parentmodel"

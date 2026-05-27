@@ -41,11 +41,11 @@ if TRAF && TRAF_TM_SOURCE == "invVMtV"
 
     (; parentmodel, experiment_dir, outputdir) = load_project_config()
     (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-    traf_mc = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+    traf_mc = require_env("MODEL_CONFIG")
     fwd_mc = replace(traf_mc, r"_traf$" => "")
     fwd_mc == traf_mc && error(
-        "TRAF=yes but model_config has no _traf suffix: $traf_mc. " *
-            "Check that build_model_config and env_defaults.sh agree on the _traf rule.",
+        "TRAF=yes but MODEL_CONFIG has no _traf suffix: $traf_mc. " *
+            "Check that TRAF=yes is set in env_defaults.sh.",
     )
     fwd_M_path = joinpath(outputdir, "TM", fwd_mc, "const", "M.jld2")
     @info "TRAF/invVMtV: loading forward M from $fwd_M_path"

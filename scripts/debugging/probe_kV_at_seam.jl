@@ -29,10 +29,7 @@ using Printf
 using Statistics
 
 (; outputdir) = load_project_config()
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(;
-    VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER,
-)
+model_config = require_env("MODEL_CONFIG")
 
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "2"))

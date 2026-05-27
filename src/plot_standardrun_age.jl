@@ -70,7 +70,7 @@ haskey(duration_configs, DURATION) || error("Unknown DURATION=$DURATION; must be
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI = lowercase(get(ENV, "GM_REDI", "no")) == "yes"
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 omega = parse_omega()
 omega_suffix = omega.suffix

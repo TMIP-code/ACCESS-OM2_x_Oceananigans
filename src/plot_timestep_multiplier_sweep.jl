@@ -69,11 +69,7 @@ DIFF_PLOTS = lowercase(get(ENV, "DIFF_PLOTS", "yes")) == "yes"
 year_seconds = 365.25 * 86400
 
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-mc_base = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
-# Strip any _DTx suffix that build_model_config tagged on from the current
-# TIMESTEP_MULT — we want the bare `{MC}` so we can scan all sibling _DTx dirs.
-mc_base = replace(mc_base, r"_DTx\d+$" => "")
+mc_base = replace(require_env("MODEL_CONFIG"), r"_DTx\d+$" => "")
 
 COMPARE_TARGET = lowercase(get(ENV, "COMPARE_TARGET", "standardrun"))
 COMPARE_TARGET in ("standardrun", "nk_steady", "nk_periodic") ||

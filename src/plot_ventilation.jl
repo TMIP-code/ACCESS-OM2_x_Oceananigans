@@ -22,7 +22,7 @@ writes one PNG per (PM, leg) to
   outputs/{PM}/{EXP}/plots/{MC}/calVdown_{forward|adjoint}.png
 
 Handles both forward (IAF) and adjoint (TRAF) legs uniformly via the
-`_traf` suffix that `build_model_config` appends to `model_config` when
+`_traf` suffix that `env_defaults.sh` appends to `MODEL_CONFIG` when
 `TRAF=yes`.
 
 Usage — interactive:
@@ -64,8 +64,7 @@ include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 
 (; parentmodel, experiment, experiment_dir, outputdir) = load_project_config()
 
-(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 leg_tag = TRAF ? "adjoint" : "forward"

@@ -163,7 +163,7 @@ has_step reducedfield && \
         --queue express --ngpus 0 --ncpus 4 --mem 47GB > /dev/null
 
 # Helper: build MODEL_CONFIG for a given w-formulation tag.
-# Mirrors `build_model_config` in src/shared_utils/config.jl — keep in sync.
+# Mirrors the MODEL_CONFIG construction in scripts/env_defaults.sh.
 _wmc() {
     local wf=$1 suffix=""
     [ "$GM_REDI" = "yes" ] && suffix="${suffix}_GMREDI"

@@ -127,24 +127,6 @@ function build_omega_k_mask(grid, omega; arch)
     return on_architecture(arch, cpu_mask)
 end
 
-"""Build the unified MODEL_CONFIG directory tag from parsed config + optional env flags."""
-function build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
-    wf_tag = W_FORMULATION
-    if W_FORMULATION == "wprescribed"
-        pw = require_env("PRESCRIBED_W_SOURCE")
-        wf_tag = pw == "diagnosed" ? "wprediag" : "wparent"
-    end
-    mc = "$(VELOCITY_SOURCE)_$(wf_tag)_$(ADVECTION_SCHEME)_$(TIMESTEPPER)"
-    gm = lowercase(require_env("GM_REDI"))
-    gm in ("yes", "diff") && (mc = "$(mc)_GMREDI")
-    gm == "adv" && (mc = "$(mc)_GMREDIadv")
-    lowercase(require_env("MONTHLY_KAPPAV")) == "yes" && (mc = "$(mc)_mkappaV")
-    lowercase(require_env("IMPLICIT_KAPPAV")) == "no" && (mc = "$(mc)_noKV")
-    M = tryparse(Int, require_env("TIMESTEP_MULT"))
-    !isnothing(M) && M > 1 && (mc = "$(mc)_DTx$(M)")
-    lowercase(require_env("TRAF")) == "yes" && (mc = "$(mc)_traf")
-    return mc
-end
 
 """
 Return `true` if the immersed-boundary grid should be built with

@@ -80,7 +80,7 @@ MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
 TRAF_OPTION_A = lowercase(require_env("TRAF")) == "yes" &&
     require_env("TRAF_TM_SOURCE") == "M_traf"
 TRAF_OPTION_A && @info "TRAF Option A: flipping yearly velocity signs for autodiff rebuild"
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 @info "Run configuration"
 @info "- PARENT_MODEL     = $parentmodel"

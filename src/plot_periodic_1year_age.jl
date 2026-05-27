@@ -56,7 +56,7 @@ include("shared_functions.jl")
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
 
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-model_config = build_model_config(; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER)
+model_config = require_env("MODEL_CONFIG")
 
 LINEAR_SOLVER = get(ENV, "LINEAR_SOLVER", "Pardiso")
 ls = parse_lump_and_spray()
