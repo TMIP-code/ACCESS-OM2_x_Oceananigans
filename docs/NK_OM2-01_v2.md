@@ -54,7 +54,63 @@ preconditioned step has *bounded* values (`norm ≈ 19,449 years`,
 Both hypotheses produce the same `max ≫ mean` signature, so the
 diagnostic numbers alone can't distinguish them.
 
-### Debugging plan
+### Decisive result (2026-05-28) — genuine instability, not a gather bug
+
+OM2-01 1-year forward run with same env as NK (`169563958`,
+exit 0, 54 min on gpuhopper 1x4) reports per-rank drift stats that
+isolate the blowup geographically:
+
+| Rank | Nidx_local | max_drift (yr) | mean_drift (yr) | Verdict |
+|---|---|---|---|---|
+| 0 | 95.0 M | 1.35 | 0.53 | **healthy** |
+| 1 | 97.4 M | 9.8 × 10³⁰ | 4.8 × 10²⁴ | blown up |
+| 2 | 96.1 M | 4.7 × 10⁶¹ | 2.0 × 10⁵⁷ | blown up (most severe) |
+| 3 | 63.1 M | 1.4 × 10⁵ | 6.0 | partial — max blown, mean ~OK |
+
+OM2-1 1x4 sanity check (`169563926`) for comparison: all 4 ranks
+show `max ∈ [1.2, 1.6] yr`, `mean ∈ [0.66, 0.76] yr` — clean
+distributed forward map.
+
+So the gather/perm hypothesis is dead. The blowup is **in the field
+values themselves** in 2-3 ranks' subdomains. Rank 0 (bottom y-band)
+is fine, rank 3 (top y-band incl. tripolar fold) has only large `max`
+with bounded mean, ranks 1-2 (mid latitudes / tropics) have full mean
+contamination.
+
+**Best guess: CFL instability at Δt=800 s** (M=2 at 0.1°). Tropics and
+mid-latitudes have the smallest dy + largest velocities at this
+resolution; tripolar fold area is more sensitive to the fold halo
+itself (large max but bulk fine).
+
+The NK run (`169283378`) hit walltime (24:01:06, exit -29). Pardiso
+absorbed the garbage well enough to keep iterates bounded but the
+solver never converged.
+
+### Next steps
+
+1. **Drop `TIMESTEP_MULT` to 1** and rerun the 1-year forward to
+   confirm CFL:
+   ```bash
+   PARENT_MODEL=ACCESS-OM2-01 TIMESTEP_MULT=1 JOB_CHAIN=run1yr bash scripts/driver.sh
+   ```
+   - If max_drift ~1 yr on all 4 ranks → CFL is the cause; bake
+     `TIMESTEP_MULT=1` into [model_configs/ACCESS-OM2-01.sh](../model_configs/ACCESS-OM2-01.sh).
+   - If still blown → not CFL. Look at velocity field magnitudes,
+     check cgridtransports interpolation near rank 1/2 boundaries.
+2. If M=1 works, rebuild the OM2-01 transport matrix at DTx1
+   (`JOB_CHAIN=TMbuild` with the new default) before resubmitting NK.
+3. Resubmit NK at M=1 and watch G! n=1 residual — should now be ~1 yr
+   instead of 10⁵⁹.
+
+### Pre-existing scaffolding for future sessions
+
+- Drift print already in [src/run_1year.jl](../src/run_1year.jl)
+  (mirrors G!'s vol_norm / max(abs) / mean(abs) definitions, gated on
+  `INITIAL_AGE=0`).
+- `vol_norm` defined in [src/shared_utils/grid.jl:668](../src/shared_utils/grid.jl#L668).
+- `G!` itself at [src/periodic_solver_common.jl:391](../src/periodic_solver_common.jl#L391).
+
+### Original (pre-result) debugging plan — keep for reference
 
 Cheapest discriminating test: **a single 1-year forward run with the
 exact same env as the NK job**, with per-rank drift stats printed at
