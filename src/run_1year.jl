@@ -45,6 +45,36 @@ run!(simulation)
 flush(stdout); flush(stderr)
 
 ################################################################################
+# 1-year drift residual (per-rank) — mirrors G! in periodic_solver_common.jl
+# so values are directly comparable to NK diagnostic output. For
+# INITIAL_AGE=0, drift = age_final - 0 = age_final.
+################################################################################
+
+using MPI
+
+INITIAL_AGE_LOCAL = get(ENV, "INITIAL_AGE", "0")
+if INITIAL_AGE_LOCAL == "0"
+    (; idx) = compute_wet_mask(grid)
+    v1D = Array(interior(compute_volume(grid)))[idx]
+    vol_norm_local = make_vol_norm(v1D, year)
+    age_final_3D = Array(interior(model.tracers.age))
+    drift_1D = age_final_3D[idx]
+
+    vol_rms_drift_years = vol_norm_local(drift_1D)
+    max_drift_years = maximum(abs, drift_1D) / year
+    mean_drift_years = sum(abs, drift_1D) / length(drift_1D) / year
+
+    rank_label = arch isa Distributed ?
+        "rank " * string(MPI.Comm_rank(MPI.COMM_WORLD)) :
+        "serial"
+    @info "1-year drift residual ($rank_label, per-rank)" vol_rms_drift_years max_drift_years mean_drift_years Nidx_local = length(drift_1D)
+    flush(stdout); flush(stderr)
+else
+    @info "Skipping drift residual print: INITIAL_AGE=$INITIAL_AGE_LOCAL ≠ 0 (drift = Φ(x_init) − x_init not yet supported here)"
+    flush(stdout); flush(stderr)
+end
+
+################################################################################
 # Validate age field
 ################################################################################
 

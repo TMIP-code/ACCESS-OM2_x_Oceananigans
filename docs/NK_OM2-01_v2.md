@@ -8,7 +8,100 @@ pick up cleanly.
 
 ## In flight
 
-(none — NK_5x5 (`169183483`) crashed during setup; see "Known bug" below.)
+`169283378` — OM2-01 NK_5x5 (gpuhopper 1×4, defaults via env_defaults.sh
+after the refactor: wprescribed/parent/cgridtransports/Q5x5/M=2/LBS).
+**Running**, but the G! residual reports astronomically large drift
+norms — see "Open issue" below.
+
+## Open issue — OM2-01 G! residual is ~10⁵⁹ years at iteration 1
+
+Active OM2-01 NK (`169283378`) shows:
+
+```
+G! n=1: vol_rms_drift_years = 1.5e+59   max_drift_years = 4.7e+61
+G! n=2: vol_rms_drift_years = 9.6e+49   max_drift_years = 2.8e+52
+```
+
+Compare the same NK code on OM2-1 / 1×4 / LBS (`169413550`,
+`totaltransport`/M=4/Q2x2, also on Distributed{GPU} so MCBC bug is
+exercised in the same way):
+
+```
+G! n=1: vol_rms_drift_years = 0.98      max_drift_years = 1.61
+G! n=2: vol_rms_drift_years = 0.033     max_drift_years = 1.83
+G! n=3: vol_rms_drift_years = 3.9e-6    max_drift_years = 0.001
+```
+
+So OM2-1 looks textbook, OM2-01 is ~60 orders of magnitude wrong.
+
+NonlinearSolve.jl's own residual norm matches the order of magnitude
+(`1.47e+69` at iter 0), and the iterate `x₁` recovered from Pardiso's
+preconditioned step has *bounded* values (`norm ≈ 19,449 years`,
+`max ≈ 477 years`), suggesting either:
+
+1. **Uninitialized memory in the `dage` buffer** that `gather!`
+   doesn't fully overwrite — small number of indices retain
+   garbage ~10⁶¹ from the initial `similar(u0)` alloc. The bulk of the
+   field is sensible; Pardiso filters the bad indices when computing
+   `Δx`, so the iterate stays bounded.
+
+2. **Genuine numerical blowup** concentrated in some region (tripolar
+   fold corner, shallow cells near steep bathymetry…) under the
+   aggressive `Δt = 800 s` (M=2 at 0.1°). Pardiso could still filter
+   it the same way, masking the issue at the iterate level but not
+   in the raw residual norm.
+
+Both hypotheses produce the same `max ≫ mean` signature, so the
+diagnostic numbers alone can't distinguish them.
+
+### Debugging plan
+
+Cheapest discriminating test: **a single 1-year forward run with the
+exact same env as the NK job**, with per-rank drift stats printed at
+the end (mirroring G!). The run is ~30 min instead of 24 h.
+
+The drift print landed in [src/run_1year.jl](../src/run_1year.jl) — for
+`INITIAL_AGE=0` it computes
+`drift = age_final - 0 = age_final` and reports
+`vol_rms_drift_years`, `max_drift_years`, `mean_drift_years`
+(and `Nidx_local`) per rank, using the same `vol_norm` /
+`maximum(abs, ⋅)` / `mean(abs, ⋅)` definitions as `G!` in
+[periodic_solver_common.jl:396](../src/periodic_solver_common.jl#L396).
+
+Sequence:
+
+1. ✅ Add the drift print to `run_1year.jl`.
+2. ▢ Submit an OM2-1 1-year run (cheap sanity check; should reproduce
+   the ~1-year drift seen at n=1 of the OM2-1 NK).
+3. ▢ Submit an OM2-01 1-year run with the **same env as the running
+   NK job** (`169283378`):
+   ```bash
+   PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=run1yr bash scripts/driver.sh
+   ```
+   (PARTITION=1x4 LOAD_BALANCE=surface VELOCITY_SOURCE=cgridtransports
+   TIMESTEP_MULT=2 W_FORMULATION=wprescribed PRESCRIBED_W_SOURCE=parent
+   come from defaults.)
+4. ▢ Inspect the per-rank `max_drift_years` from step 3:
+   - If **finite/sensible** (~1 yr on each rank) → the forward map is
+     fine; bug is in `gather!`/`perm` at OM2-01 scale.
+   - If **astronomical** on at least one rank → genuine numerical
+     blowup in `Φ!`. Look at which rank(s); inspect that region's
+     velocities, bathymetry, tripolar fold proximity.
+5. ▢ Based on (4), pick the surgical fix:
+   - Gather bug → assert `sort(perm) == 1:Nidx_global` in
+     `build_global_permutation`; if it fires, fix `build_global_permutation`.
+   - Instability → reduce Δt (drop `TIMESTEP_MULT` from 2 → 1) and/or
+     investigate seam handling for cgridtransports at 0.1°.
+
+### Related observations
+
+- OM2-1 1×4 forward map under the *same* NK code is healthy
+  (`169413550` exit 0, NK converged). So the Distributed{GPU} 1×4 +
+  LBS code path is fine in general — the failure is OM2-01-specific.
+- The active OM2-01 NK is likely to continue iterating without
+  crashing (Pardiso absorbs the garbage), but if convergence test
+  uses absolute residual it'll never trigger; if relative, it may
+  appear to converge to a wrong solution.
 
 `M.jld2` (39 GB) lives at
 `outputs/ACCESS-OM2-01/01deg_jra55v140_iaf_cycle4/1968-1977/TM/cgridtransports_wparent_centered2_AB2_mkappaV_DTx2/const/M.jld2`.
