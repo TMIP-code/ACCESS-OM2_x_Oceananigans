@@ -102,20 +102,29 @@ px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
 gpu_tag = (px == 1 && py == 1) ? "" : "$(px)x$(py)"
 
-periodic_root = isempty(gpu_tag) ?
-    joinpath(outputdir, "periodic", model_config) :
-    joinpath(outputdir, "periodic", model_config, gpu_tag)
+# Search both the gpu_tag root and the gpu_tag-less root: historically some
+# partitioned (e.g. OM2-025 1x2) runs wrote to the bare `periodic/{MC}` path
+# without a `{gpu_tag}` component, so fall back to it when present.
+periodic_roots = unique(
+    [
+        isempty(gpu_tag) ?
+            joinpath(outputdir, "periodic", model_config) :
+            joinpath(outputdir, "periodic", model_config, gpu_tag),
+        joinpath(outputdir, "periodic", model_config),
+    ]
+)
 
 omega = parse_omega()
 omega_suffix = omega.suffix
 fts_basename = "age_periodic_1year$(omega_suffix).jld2"
 
-# Locate the 1-year FTS (input). Try the new tag first, then legacy "LSprec"/"prec".
+# Locate the 1-year FTS (input). Try the new tag first, then legacy "LSprec"/"prec",
+# across both candidate roots.
 fts_candidates = unique(
     [
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_$(lumpspray_tag)", fts_basename),
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_LSprec", fts_basename),
-        joinpath(periodic_root, "1year", "$(LINEAR_SOLVER)_prec", fts_basename),
+        joinpath(root, "1year", "$(LINEAR_SOLVER)_$(tag)", fts_basename)
+            for root in periodic_roots
+            for tag in (lumpspray_tag, "LSprec", "prec")
     ]
 )
 fts_hit = findfirst(isfile, fts_candidates)
@@ -125,6 +134,10 @@ fts_hit === nothing && error(
         "\nRun the 1-year re-run step (`run1yrNK` in driver.sh) first.",
 )
 fts_file = fts_candidates[fts_hit]
+
+# Resolve the periodic_root that actually held the FTS so the NK output lands
+# in the same tree: <root>/1year/<solver_tag>/<basename> → root.
+periodic_root = dirname(dirname(dirname(fts_file)))
 
 # NK output dir — written next to NK/age_*.jld2 so plot scripts find it where
 # they already look. Same dual-naming fallback as the input.
@@ -265,6 +278,60 @@ for q in (0.5, 0.9, 0.99, 0.999)
 end
 
 ################################################################################
+# Seasonal surface-age means → seasonal calVdown_raw (DJF/MAM/JJA/SON)
+#
+# The 1-year run starts at t=0 (= Jan 1) and saves half-monthly snapshots, so
+# snapshot n (over the averaged 1..n_avg) sits at age_fts.times[n] seconds from
+# Jan 1. Map each to a calendar month (mid-month climatology, index 1 = January;
+# see prep_velocities.jl:146) and bin into the four standard seasons.
+################################################################################
+
+@info "Computing seasonal surface-age means (DJF/MAM/JJA/SON)"
+flush(stdout); flush(stderr)
+
+year_s = 365.25 * 86400
+month_s = year_s / 12
+const SEASONS = (:DJF, :MAM, :JJA, :SON)
+const SEASON_MONTHS = Dict(
+    :DJF => (12, 1, 2), :MAM => (3, 4, 5), :JJA => (6, 7, 8), :SON => (9, 10, 11),
+)
+function season_of_time(t)
+    midx = mod(floor(Int, t / month_s + 1.0e-9), 12) + 1   # 1..12
+    for s in SEASONS
+        midx in SEASON_MONTHS[s] && return s
+    end
+    return :DJF   # unreachable
+end
+
+age_surf_seasonal = Dict(s => zeros(Float64, Nx′, Ny′) for s in SEASONS)
+season_counts = Dict(s => 0 for s in SEASONS)
+for n in 1:n_avg
+    s = season_of_time(age_fts.times[n])
+    age_n = interior(age_fts[n])
+    age_surf_n = @view age_n[:, :, k_surf]
+    acc = age_surf_seasonal[s]
+    @. acc += ifelse(wet_surf, age_surf_n, 0.0)
+    season_counts[s] += 1
+end
+
+calVdown_raw_seasonal = Dict{Symbol, Matrix{Float64}}()
+for s in SEASONS
+    cnt = season_counts[s]
+    cnt > 0 || @warn "No snapshots fell in season $s — seasonal map will be all-NaN"
+    asurf = similar(age_surf_seasonal[s])
+    @. asurf = ifelse(wet_surf, age_surf_seasonal[s] / max(cnt, 1), NaN)
+    cv = (V_surf .* asurf) ./ (τ .* Az_surf)
+    cv[.!wet_surf] .= NaN
+    calVdown_raw_seasonal[s] = cv
+    sv = filter(isfinite, cv) .* norm_factor
+    @info @sprintf(
+        "  %s: %d snapshots; calVdown_norm min=%.3e mean=%.3e max=%.3e",
+        s, cnt, isempty(sv) ? NaN : minimum(sv),
+        isempty(sv) ? NaN : mean(sv), isempty(sv) ? NaN : maximum(sv),
+    )
+end
+
+################################################################################
 # Save
 ################################################################################
 
@@ -274,6 +341,14 @@ flush(stdout); flush(stderr)
 jldsave(
     ventilation_file;
     calVdown_raw = calVdown_raw,
+    calVdown_raw_DJF = calVdown_raw_seasonal[:DJF],
+    calVdown_raw_MAM = calVdown_raw_seasonal[:MAM],
+    calVdown_raw_JJA = calVdown_raw_seasonal[:JJA],
+    calVdown_raw_SON = calVdown_raw_seasonal[:SON],
+    season_counts = (;
+        DJF = season_counts[:DJF], MAM = season_counts[:MAM],
+        JJA = season_counts[:JJA], SON = season_counts[:SON],
+    ),
     wet_surf = wet_surf,
     Az_surf = Az_surf,
     V_surf = V_surf,

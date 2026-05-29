@@ -275,6 +275,129 @@ function plot_age_diagnostics(
     return nothing
 end
 
+"""
+    plot_basin_zonal_panel(age_3D, grid, wet3D, vol_3D, output_dir, label;
+                           colorrange=(0, 1500), levels=0:100:1500, colormap=...,
+                           colorbar_label="Age (years)", title_prefix=label, lat_pad=5)
+
+Single 1×3 figure of the Atlantic / Pacific / Indian volume-weighted zonal
+averages (depth vs latitude), with each panel's width made proportional to its
+basin's wet-cell latitude extent (the panels H/I/J pattern from the AIBECS
+`2b_plot_makie.jl` how-to). Panels share linked depth axes and one horizontal
+colorbar. Saves `{label}_zonal_avg_basins.png`.
+
+Mirrors `plot_age_diagnostics` arguments; reuses `compute_ocean_basin_masks`
+and `zonalaverage`.
+"""
+function plot_basin_zonal_panel(
+        age_3D, grid, wet3D, vol_3D, output_dir, label;
+        colorrange = (0, 1500),
+        levels = 0:100:1500,
+        colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
+        colorbar_label = "Age (years)",
+        title_prefix = label,
+        lat_pad = 5,
+    )
+    mkpath(output_dir)
+
+    year = 365.25 * 86400  # seconds
+
+    age_plot = copy(age_3D)
+    age_plot[.!wet3D] .= NaN
+    age_plot ./= year
+
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′, Nz′ = size(wet3D)
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z  # positive downward
+    lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
+
+    basins = compute_ocean_basin_masks(grid, wet3D)
+    basin_configs = [
+        ("Atlantic", basins.ATL),
+        ("Pacific", basins.PAC),
+        ("Indian", basins.IND),
+    ]
+
+    zas = [zonalaverage(age_plot, vol_3D, m) for (_, m) in basin_configs]
+
+    # Wet-cell latitude range per basin (crop + size each column proportionally).
+    function wetlatrange(za, pad)
+        haswet = [any(!isnan, view(za, j, :)) for j in eachindex(lat_repr)]
+        wetidx = findall(haswet)
+        isempty(wetidx) && return (-90.0, 90.0)
+        return (
+            max(-90.0, lat_repr[first(wetidx)] - pad),
+            min(90.0, lat_repr[last(wetidx)] + pad),
+        )
+    end
+    xlims = [wetlatrange(za, lat_pad) for za in zas]
+
+    maxdepth_round = ceil(maximum(depth_vals) / 1000) * 1000
+    lat_tickvals = -90:30:90
+    lat_ticks = (collect(lat_tickvals), latticklabel.(lat_tickvals))
+
+    fig = Figure(; size = (1300, 520))
+    gc = fig[1, 1] = GridLayout()
+
+    axs = Axis[]
+    local cf_ref = nothing
+    for (col, ((basin_name, _), za, xl)) in enumerate(zip(basin_configs, zas, xlims))
+        yposition = col == length(basin_configs) ? :right : :left
+        ax = Axis(
+            gc[1, col];
+            backgroundcolor = :lightgray,
+            xgridvisible = false, ygridvisible = false,
+            xticksmirrored = true, yticksmirrored = true,
+            xticks = lat_ticks,
+            yaxisposition = yposition,
+            yreversed = true,
+            limits = (xl[1], xl[2], 0, maxdepth_round),
+            ylabel = col == 1 ? "Depth (m)" : "",
+        )
+        cf = contourf!(
+            ax, lat_repr, depth_vals, za;
+            levels, colormap, nan_color = :lightgray,
+            extendhigh = :auto, extendlow = :auto,
+        )
+        translate!(cf, 0, 0, -100)
+        cf_ref = cf
+        text!(
+            ax, 1, 0; text = basin_name, space = :relative,
+            align = (:right, :bottom), offset = (-5, 5), font = :italic,
+        )
+        push!(axs, ax)
+    end
+    linkyaxes!(axs...)
+    # Only the first (left) and last (right) panels carry depth labels.
+    for ax in axs[2:(end - 1)]
+        hideydecorations!(ax; ticklabels = true, label = true, ticks = false, grid = false)
+    end
+
+    # Size each column proportional to its wet-cell latitude range.
+    for (col, xl) in enumerate(xlims)
+        colsize!(gc, col, Auto(xl[2] - xl[1]))
+    end
+
+    cbar = Colorbar(
+        gc[2, 1:length(basin_configs)], cf_ref;
+        vertical = false, flipaxis = false, label = colorbar_label,
+    )
+    cbar.width = Relative(0.5)
+
+    Label(
+        gc[0, 1:length(basin_configs)], "$title_prefix — basin zonal averages";
+        fontsize = 16, tellwidth = false,
+    )
+
+    outputfile = joinpath(output_dir, "$(label)_zonal_avg_basins.png")
+    @info "Saving $outputfile"
+    save(outputfile, fig)
+    flush(stdout); flush(stderr)
+    return outputfile
+end
+
 
 ################################################################################
 # Age animation helpers (zonal averages + depth slices)

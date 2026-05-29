@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
-#   TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation plotTM
+#   TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM
 #   plot1yr plot10yr plot100yr plotMOC compareNK
 #
 # compareNK: cross-resolution NK age comparison — see docs/IAF_NK_age_comparison_plan.md.
@@ -92,7 +92,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation plotTM"
+    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
     echo ""
     echo "  Shortcuts:"
@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotNK plotNKtrace plotventilation plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -565,6 +565,22 @@ if has_step plotventilation; then
     submit_job plotventilation "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
         scripts/plotting/plot_ventilation.sh \
         --deps "${VENT_CONST:-${NK_CONST:-}}" "${plotvent_overrides[@]}" \
+        --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
+fi
+
+# Seasonal ventilation maps (DJF/MAM/JJA/SON) — per-TW, depends on ventilation compute
+if has_step ventseasonal; then
+    submit_job ventseasonal "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
+        scripts/plotting/plot_ventilation_seasonal.sh \
+        --deps "${VENT_CONST:-${NK_CONST:-}}" \
+        --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
+fi
+
+# Ventilation-map movie — per-TW, reads the 1-year FTS, depends on run1yrNK
+if has_step ventmovie; then
+    submit_job ventmovie "${WALLTIME_VENTMOVIE:-01:00:00}" \
+        scripts/plotting/animate_ventilation.sh \
+        --deps "${RUNNK_CONST:-${NK_CONST:-}}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 

@@ -180,6 +180,9 @@ flush(stdout); flush(stderr)
 
 plot_age_diagnostics(age_buf, grid, wet3D, vol_3D, plot_dir, label; colorrange, levels)
 
+# Combined 1×3 basin zonal-average panel (ATL/PAC/IND), width ∝ latitude extent.
+plot_basin_zonal_panel(age_buf, grid, wet3D, vol_3D, plot_dir, label; colorrange, levels)
+
 ################################################################################
 # Smooth animations (10 MP4 files)
 ################################################################################

@@ -91,13 +91,21 @@ vent_basename = "ventilation$(omega_suffix).jld2"
 
 function ventilation_path(tw)
     tw_root = joinpath(exp_outdir, tw)
-    periodic_root = isempty(gpu_tag) ?
-        joinpath(tw_root, "periodic", model_config) :
-        joinpath(tw_root, "periodic", model_config, gpu_tag)
+    # Search both the gpu_tag root and the bare gpu_tag-less root (some
+    # partitioned runs wrote to `periodic/{MC}` without the `{gpu_tag}` part).
+    periodic_roots = unique(
+        [
+            isempty(gpu_tag) ?
+                joinpath(tw_root, "periodic", model_config) :
+                joinpath(tw_root, "periodic", model_config, gpu_tag),
+            joinpath(tw_root, "periodic", model_config),
+        ]
+    )
     candidate_dirs = unique(
         [
-            joinpath(periodic_root, "NK$(ls.dir_suffix)"),
-            joinpath(periodic_root, "NK"),
+            joinpath(root, sub)
+                for root in periodic_roots
+                for sub in ("NK$(ls.dir_suffix)", "NK")
         ]
     )
     for d in candidate_dirs
