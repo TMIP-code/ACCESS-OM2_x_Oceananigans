@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -199,6 +199,9 @@ COMMON_VARS+=",PLOT_TS=${PLOT_TS:-no}"
 COMMON_VARS+=",GM_REDI=${GM_REDI}"
 COMMON_VARS+=",MONTHLY_KAPPAV=${MONTHLY_KAPPAV}"
 COMMON_VARS+=",IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV}"
+COMMON_VARS+=",KAPPA_H=${KAPPA_H}"
+COMMON_VARS+=",KAPPA_V_ML=${KAPPA_V_ML}"
+COMMON_VARS+=",KAPPA_V_BG=${KAPPA_V_BG}"
 COMMON_VARS+=",W_FORMULATION=${W_FORMULATION}"
 COMMON_VARS+=",PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE}"
 COMMON_VARS+=",TBLOCKING=${TBLOCKING}"
@@ -615,6 +618,12 @@ has_step plotMLD && \
 has_step plotAgeLog && \
     submit_job plotAgeLog "$WALLTIME_PLOT" \
         scripts/plotting/plot_age_per_rank.sh > /dev/null
+
+# plotKVML (no deps — derives κV from monthly MLD + grid z and plots the
+# per-month "k-levels in mixed layer" count map)
+has_step plotKVML && \
+    submit_job plotKVML "$WALLTIME_PLOT" \
+        scripts/plotting/plot_kv_mld_count.sh > /dev/null
 
 # compareNK: cross-resolution NK age comparison
 # Standalone step — reads all 4 (PM × TW) periodic-NK FTS files that must
