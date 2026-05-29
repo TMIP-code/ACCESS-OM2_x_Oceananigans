@@ -85,18 +85,22 @@ vmin, vmax = subsample_quantile(rank_data, 0.99)
 panel_row(r) = nranks - r
 
 function plot_month(month_idx, save_path)
-    fig = Figure(; size = (1500, 1400), backgroundcolor = :white)
+    fig = Figure(; size = (1800, 900), backgroundcolor = :white)
     Label(
-        fig[0, 1], "MLD (m) — month $month_idx (1968–1977 climatology), partition=$PARTITION";
+        fig[0, 1:2], "MLD (m) — month $month_idx (1968–1977 climatology), partition=$PARTITION";
         fontsize = 18, font = :bold
     )
     hms = []
     for r in 0:(nranks - 1)
         data = rank_data[r + 1][month_idx]
         nx, ny = size(data)
+        row = panel_row(r)
+        Label(
+            fig[row, 0], "rank $r — $(nx)×$(ny)";
+            rotation = π / 2, tellheight = false, fontsize = 13, font = :bold
+        )
         ax = Axis(
-            fig[panel_row(r), 1];
-            title = "rank $r (size $(nx)×$(ny), Hx=$(rank_meta[r + 1].Hx) Hy=$(rank_meta[r + 1].Hy))",
+            fig[row, 1];
             xlabel = "i (incl. halos)", ylabel = "j (incl. halos)",
         )
         hm = heatmap!(
@@ -137,16 +141,20 @@ mp4_path = joinpath(plot_dir, "mld_per_rank.mp4")
 obs_month = Observable(1)
 rank_obs = [@lift(rank_data[r + 1][$obs_month]) for r in 0:(nranks - 1)]
 
-fig_anim = Figure(; size = (1500, 1400), backgroundcolor = :white)
+fig_anim = Figure(; size = (1800, 900), backgroundcolor = :white)
 title_obs = @lift("MLD (m) — month $($obs_month) (1968–1977 climatology), partition=$PARTITION")
-Label(fig_anim[0, 1], title_obs; fontsize = 18, font = :bold)
+Label(fig_anim[0, 1:2], title_obs; fontsize = 18, font = :bold)
 hms_anim = []
 for r in 0:(nranks - 1)
     data0 = rank_data[r + 1][1]
     nx, ny = size(data0)
+    row = panel_row(r)
+    Label(
+        fig_anim[row, 0], "rank $r — $(nx)×$(ny)";
+        rotation = π / 2, tellheight = false, fontsize = 13, font = :bold
+    )
     ax = Axis(
-        fig_anim[panel_row(r), 1];
-        title = "rank $r ($(nx)×$(ny))",
+        fig_anim[row, 1];
         xlabel = "i", ylabel = "j",
     )
     hm = heatmap!(
