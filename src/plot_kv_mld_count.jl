@@ -53,34 +53,22 @@ nx, ny = size(monthly_mld[1])
 grid_file = joinpath(experiment_dir, "grid.jld2")
 isfile(grid_file) || error("Grid file not found: $grid_file")
 
-# Read z_centers directly from the JLD2 file
-z_center_full = jldopen(grid_file, "r") do f
-    # OrthogonalSphericalShellGrid stores z as MutableVerticalDiscretization
-    # with cᵃᵃᶜ as the cell-center vector. Try common keys.
-    try
-        return Array(f["z/cᵃᵃᶜ"])
-    catch
-    end
-    try
-        return Array(f["underlying_grid/z/cᵃᵃᶜ"])
-    catch
-    end
-    error("Could not find z-center array in $grid_file; tried 'z/cᵃᵃᶜ' and 'underlying_grid/z/cᵃᵃᶜ'. Top-level keys: $(keys(f))")
+# Read z_faces from grid.jld2 (the grid stores faces; centers are midpoints)
+z_faces_full, Nz = jldopen(grid_file, "r") do f
+    (Array(f["z_faces"]), Int(f["Nz"]))
 end
-@info "z_center array (with halos): length=$(length(z_center_full))  range=$(extrema(z_center_full))"
+@info "z_faces (with halos): length=$(length(z_faces_full))  range=$(extrema(z_faces_full))"
 
-# We need the cell-centers for the INTERIOR (k = 1:Nz). The OffsetArray is
-# typically indexed (-Hz+1):(Nz+Hz). Strip halos by selecting only negative,
-# finite values (excludes any halo placeholders) and clip to interior count
-# by assuming Nz = 75 for OM2-01.
-Nz = 75
-# Find the contiguous block of strictly-negative finite z-centers — that's the ocean
-neg_mask = isfinite.(z_center_full) .& (z_center_full .< 0)
-neg_idx = findall(neg_mask)
-isempty(neg_idx) && error("No negative-z entries in grid z array — unexpected layout")
-# The interior is the first Nz negative values from the bottom up (we take the bottom-most Nz)
-z_neg_sorted = sort(z_center_full[neg_idx])  # most negative first
-z_center = z_neg_sorted[1:Nz]                # bottom (most negative) to top (least negative)
+# Strip halos. The faces array is typically of length Nz + 2Hz + 1; the interior
+# faces span the bottom-most z (most negative, smallest finite value) to surface
+# (0). We take the unique finite faces and clip to the bottom Nz+1 values.
+finite_mask = isfinite.(z_faces_full)
+finite_faces = sort(unique(z_faces_full[finite_mask]))
+# We want the contiguous interior chunk: faces[k=1] is the deepest, faces[k=Nz+1] = 0
+length(finite_faces) < Nz + 1 && error("Not enough finite z-face values to build $Nz interior cells")
+interior_faces = finite_faces[1:(Nz + 1)]
+# Cell centers: midpoint of adjacent faces
+z_center = 0.5 .* (interior_faces[1:Nz] .+ interior_faces[2:(Nz + 1)])
 @info "z_center interior (k=1..$Nz): $(z_center[1]) (deepest) to $(z_center[end]) (shallowest)"
 
 ################################################################################
