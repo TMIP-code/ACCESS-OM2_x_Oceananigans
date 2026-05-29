@@ -72,12 +72,19 @@ IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or n
 IMPLICIT_KAPPAV = IMPLICIT_KAPPAV_STR == "yes"
 TRAF = lowercase(require_env("TRAF")) == "yes"
 if TRAF
-    @info "TRAF=yes — reversing every monthly FTS in time; flipping sign of u, v FTS"
-    W_FORMULATION == "wprescribed" && error(
-        "TRAF=yes is only supported with W_FORMULATION=wdiagnosed in the first cut " *
-            "(w is recomputed from continuity using sign-flipped/time-reversed u, v, η). " *
-            "Support for TRAF + wprescribed is a follow-up.",
-    )
+    @info "TRAF=yes — reversing every monthly FTS in time; flipping sign of u, v (and prescribed parent w) FTS"
+    # TRAF + wprescribed is supported only for the parent-model w (read like u, v:
+    # time-reversed and sign-flipped). The diagnosed-w-prescribed path is not yet
+    # wired up for TRAF — use W_FORMULATION=wdiagnosed (recomputes w from the
+    # sign-flipped/time-reversed u, v, η) instead.
+    if W_FORMULATION == "wprescribed" && require_env("PRESCRIBED_W_SOURCE") == "diagnosed"
+        error(
+            "TRAF=yes with W_FORMULATION=wprescribed is only supported for " *
+                "PRESCRIBED_W_SOURCE=parent (the parent-model w is time-reversed and " *
+                "sign-flipped like u, v). For PRESCRIBED_W_SOURCE=diagnosed, use " *
+                "W_FORMULATION=wdiagnosed (w recomputed from continuity) instead.",
+        )
+    end
 end
 model_config = require_env("MODEL_CONFIG")
 
@@ -238,6 +245,9 @@ if W_FORMULATION == "wprescribed"
     isfile(w_file) || error("W_FORMULATION=wprescribed requires file: $(w_file)")
     arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
     w_ts = load_fts(arch, w_file, "w", grid; backend, time_indexing, fts_kw...)
+    # Under TRAF the parent w is a velocity component: read it backwards in time
+    # and flip its sign, exactly like u and v. (Guarded above to parent-source w.)
+    TRAF && reverse_fts_time!(w_ts; flip_sign = true)
     @show w_ts
     gpu_mem_log("after w FTS load")
 

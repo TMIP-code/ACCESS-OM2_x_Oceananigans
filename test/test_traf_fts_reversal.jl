@@ -2,7 +2,7 @@
 TRAF FTS time-reversal smoke test.
 
 For each monthly FieldTimeSeries that TRAF=yes consumes in setup_model.jl
-(u, v, η, T, S, κV), this script:
+(u, v, parent w, η, T, S, κV), this script:
 
   1. Loads the forward FTS.
   2. Loads a second copy and applies `reverse_fts_time!` with the same
@@ -48,6 +48,9 @@ grid = load_tripolar_grid(grid_file, arch)
 specs = [
     (file = "u_from_total_transport_monthly.jld2", name = "u", flip_sign = true, dir = monthly_dir),
     (file = "v_from_total_transport_monthly.jld2", name = "v", flip_sign = true, dir = monthly_dir),
+    # Parent w, consumed under TRAF + W_FORMULATION=wprescribed (PRESCRIBED_W_SOURCE=parent):
+    # read backwards in time and sign-flipped, exactly like u and v.
+    (file = "w_from_total_transport_monthly.jld2", name = "w", flip_sign = true, dir = monthly_dir),
     (file = "eta_monthly.jld2", name = "η", flip_sign = false, dir = monthly_dir),
     (file = "temp_monthly.jld2", name = "T", flip_sign = false, dir = monthly_dir),
     (file = "salt_monthly.jld2", name = "S", flip_sign = false, dir = monthly_dir),
