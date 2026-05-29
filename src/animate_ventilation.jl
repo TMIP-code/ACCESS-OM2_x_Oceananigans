@@ -281,14 +281,26 @@ outputfile = joinpath(plot_dir, "calVdown_$(leg_tag)_movie$(omega_suffix).mp4")
 @info "Recording $n_frames frames → $outputfile"
 flush(stdout); flush(stderr)
 
-record(fig, outputfile, 1:n_frames; framerate) do i
+# Under TRAF the forcing FTS are reversed in time, so increasing sim-time runs
+# backwards through the calendar. Play the frames in reverse so the adjoint
+# movie advances in calendar order, and label the title by calendar month
+# (= stop_time − t for TRAF; = t for the forward leg).
+month_s = year_s / 12
+play_order = TRAF ? reverse(1:n_frames) : (1:n_frames)
+record(fig, outputfile, play_order; framerate) do i
     age_surf_i = Float64.(@view interior(age_fts[Time(frame_times[i])])[:, :, k_surf])
     cv = calV_from_age_surf(age_surf_i)
     plt.color[] = vcat(fill.(vec(cv), 4)...)
-    title_obs[] = @sprintf(
-        "Surface ventilation %s — %s %s (t = %.1f months)",
-        leg_label_long, parentmodel, time_window, frame_times[i] / (year_s / 12),
-    )
+    cal_month = (TRAF ? (stop_time - frame_times[i]) : frame_times[i]) / month_s
+    title_obs[] = TRAF ?
+        @sprintf(
+            "Surface ventilation %s — %s %s (calendar month %.1f)",
+            leg_label_long, parentmodel, time_window, cal_month,
+        ) :
+        @sprintf(
+            "Surface ventilation %s — %s %s (t = %.1f months)",
+            leg_label_long, parentmodel, time_window, cal_month,
+        )
 end
 
 @info "animate_ventilation.jl complete — saved $outputfile"
