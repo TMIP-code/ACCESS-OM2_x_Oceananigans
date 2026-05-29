@@ -43,7 +43,10 @@ WALLTIME_RUN_100YEARS=48:00:00
 WALLTIME_RUN_LONG=48:00:00
 
 # --- Newton-Krylov solver ---
-WALLTIME_NK=48:00:00
+# Observed range across 15 successful runs: 04:19 – 07:12 (median ~6h);
+# 12 h gives ~1.7× the observed max while keeping gpuhopper scheduling
+# priority better than the old 48 h request.
+WALLTIME_NK=12:00:00
 
 # --- Transport matrix: Jacobian build (create_matrix.jl) ---
 WALLTIME_TM_BUILD=02:00:00       # actual ~1h13m, 178GB mem
