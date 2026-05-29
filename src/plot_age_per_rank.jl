@@ -34,11 +34,10 @@ nranks = px * py
 MODEL_CONFIG = get(ENV, "MODEL_CONFIG", "")
 isempty(MODEL_CONFIG) && error("MODEL_CONFIG must be set (e.g. cgridtransports_wdiagnosed_centered2_AB2_mkappaV_LBS_DTx2)")
 
-LOG_TW_TAG = get(ENV, "LOG_TW_TAG", "1968-1977")
-data_dir = joinpath(outputdir, LOG_TW_TAG, "standardrun", MODEL_CONFIG, PARTITION)
+data_dir = joinpath(outputdir, "standardrun", MODEL_CONFIG, PARTITION)
 isdir(data_dir) || error("Data dir not found: $data_dir")
 
-plot_dir = joinpath(outputdir, LOG_TW_TAG, "diagnostics", "age_per_rank_$(MODEL_CONFIG)_$(PARTITION)")
+plot_dir = joinpath(outputdir, "diagnostics", "age_per_rank_$(MODEL_CONFIG)_$(PARTITION)")
 mkpath(plot_dir)
 
 @info "Config: parentmodel=$parentmodel PARTITION=$PARTITION MODEL_CONFIG=$MODEL_CONFIG"
