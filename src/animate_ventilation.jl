@@ -214,12 +214,10 @@ end
 
 @info "Scanning snapshots for colour-scale max"
 flush(stdout); flush(stderr)
-maxv = 0.0
-for n in 1:(n_times - 1)
+maxv = maximum(1:(n_times - 1)) do n
     age_surf_n = Float64.(@view interior(age_fts[n])[:, :, k_surf])
     cv = calV_from_age_surf(age_surf_n)
-    v = maximum(filter(isfinite, cv); init = 0.0)
-    v > maxv && (maxv = v)
+    return maximum(filter(isfinite, cv); init = 0.0)
 end
 user_p = (haskey(ENV, "VENT_LEVELS_P") && !isempty(ENV["VENT_LEVELS_P"])) ?
     parse(Float64, ENV["VENT_LEVELS_P"]) : nothing

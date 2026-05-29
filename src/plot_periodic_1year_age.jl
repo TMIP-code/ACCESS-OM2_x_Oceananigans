@@ -67,8 +67,21 @@ solver_tag = "$(LINEAR_SOLVER)_$(lumpspray_tag)"
 omega = parse_omega()
 omega_suffix = omega.suffix
 
+# Resolve the 1-year FTS, trying the current tag then legacy "LSprec"/"prec"
+# (older runs used the `yes`→LSprec naming; current parse gives e.g. Q2x2).
+solver_tag_candidates = unique(["$(LINEAR_SOLVER)_$(lumpspray_tag)", "$(LINEAR_SOLVER)_LSprec", "$(LINEAR_SOLVER)_prec"])
 periodic_1year_dir = joinpath(outputdir, "periodic", model_config, "1year", solver_tag)
 output_filepath = joinpath(periodic_1year_dir, "age_periodic_1year$(omega_suffix).jld2")
+for st in solver_tag_candidates
+    d = joinpath(outputdir, "periodic", model_config, "1year", st)
+    f = joinpath(d, "age_periodic_1year$(omega_suffix).jld2")
+    if isfile(f)
+        global solver_tag = st
+        global periodic_1year_dir = d
+        global output_filepath = f
+        break
+    end
+end
 
 @info "Periodic age plot configuration"
 @info "- PARENT_MODEL     = $parentmodel"
