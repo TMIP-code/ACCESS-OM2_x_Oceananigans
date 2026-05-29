@@ -93,10 +93,18 @@ function plot_stack(get_panel_data::Function, fig_title, save_path; cbar_label)
     fig = Figure(; size = (1800, 900), backgroundcolor = :white)
     Label(fig[0, 1:2], fig_title; fontsize = 18, font = :bold)
     hms = []
-    # Common color range across all 4 ranks for direct comparison
-    panel_data = [get_panel_data(r) for r in 0:(nranks - 1)]
+    # Common color range across all 4 ranks for direct comparison. Compute
+    # vmax from finite values only (rank 1 may have Inf cells that would
+    # otherwise saturate everything), then clip Inf/NaN cells to vmax so
+    # they render at the top of the colorbar instead of crashing CairoMakie.
+    panel_data_raw = [get_panel_data(r) for r in 0:(nranks - 1)]
+    vmax = 0.0
+    for d in panel_data_raw, v in d
+        isfinite(v) && v > vmax && (vmax = v)
+    end
+    vmax = vmax > 0 ? vmax : 1.0
     vmin = 0.0
-    vmax = maximum(maximum(d) for d in panel_data)
+    panel_data = [map(v -> isfinite(v) ? Float64(v) : vmax, d) for d in panel_data_raw]
     for r in 0:(nranks - 1)
         data = panel_data[r + 1]
         nx, ny = size(data)
