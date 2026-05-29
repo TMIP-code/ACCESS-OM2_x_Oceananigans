@@ -76,22 +76,26 @@ vmin, vmax = subsample_quantile(rank_data, 0.99)
 @info "Color range: [$(@sprintf("%.2g", vmin)), $(@sprintf("%.2g", vmax))]"
 
 ################################################################################
-# Plot one figure per month: 4 vertically stacked rank panels with halos
+# Plot one figure per month: nranks vertically stacked rank panels (rank 0 at
+# the bottom, matching the physical south→north layout). x decorations are
+# hidden on all but the bottom panel since they share i.
 ################################################################################
 
+# Rank r → figure row (rank 0 at the bottom = nranks)
+panel_row(r) = nranks - r
+
 function plot_month(month_idx, save_path)
-    fig = Figure(; size = (1400, 1200), backgroundcolor = :white)
+    fig = Figure(; size = (1500, 1400), backgroundcolor = :white)
     Label(
-        fig[0, 1:nranks], "MLD (m) — month $month_idx (1968–1977 climatology), partition=$PARTITION";
+        fig[0, 1], "MLD (m) — month $month_idx (1968–1977 climatology), partition=$PARTITION";
         fontsize = 18, font = :bold
     )
     hms = []
     for r in 0:(nranks - 1)
         data = rank_data[r + 1][month_idx]
         nx, ny = size(data)
-        # Show halos as gray-shaded edge
         ax = Axis(
-            fig[1, r + 1];
+            fig[panel_row(r), 1];
             title = "rank $r (size $(nx)×$(ny), Hx=$(rank_meta[r + 1].Hx) Hy=$(rank_meta[r + 1].Hy))",
             xlabel = "i (incl. halos)", ylabel = "j (incl. halos)",
         )
@@ -100,7 +104,6 @@ function plot_month(month_idx, save_path)
             colorrange = (vmin, vmax), colormap = :viridis, nan_color = :lightgray,
         )
         push!(hms, hm)
-        # Mark interior box (halo boundary)
         Hx = rank_meta[r + 1].Hx
         Hy = rank_meta[r + 1].Hy
         lines!(
@@ -108,8 +111,10 @@ function plot_month(month_idx, save_path)
             [Hy + 0.5, Hy + 0.5, ny - Hy + 0.5, ny - Hy + 0.5, Hy + 0.5];
             color = :red, linewidth = 1, linestyle = :dash
         )
+        # Bottom panel (rank 0) is the only one that keeps x decorations
+        r != 0 && hidexdecorations!(ax; grid = false)
     end
-    Colorbar(fig[1, nranks + 1], hms[1]; label = "MLD (m)")
+    Colorbar(fig[1:nranks, 2], hms[1]; label = "MLD (m)")
     save(save_path, fig)
     return fig
 end
@@ -132,15 +137,15 @@ mp4_path = joinpath(plot_dir, "mld_per_rank.mp4")
 obs_month = Observable(1)
 rank_obs = [@lift(rank_data[r + 1][$obs_month]) for r in 0:(nranks - 1)]
 
-fig_anim = Figure(; size = (1400, 1200), backgroundcolor = :white)
+fig_anim = Figure(; size = (1500, 1400), backgroundcolor = :white)
 title_obs = @lift("MLD (m) — month $($obs_month) (1968–1977 climatology), partition=$PARTITION")
-Label(fig_anim[0, 1:nranks], title_obs; fontsize = 18, font = :bold)
+Label(fig_anim[0, 1], title_obs; fontsize = 18, font = :bold)
 hms_anim = []
 for r in 0:(nranks - 1)
     data0 = rank_data[r + 1][1]
     nx, ny = size(data0)
     ax = Axis(
-        fig_anim[1, r + 1];
+        fig_anim[panel_row(r), 1];
         title = "rank $r ($(nx)×$(ny))",
         xlabel = "i", ylabel = "j",
     )
@@ -149,14 +154,16 @@ for r in 0:(nranks - 1)
         colorrange = (vmin, vmax), colormap = :viridis, nan_color = :lightgray
     )
     push!(hms_anim, hm)
-    Hx = rank_meta[r + 1].Hx; Hy = rank_meta[r + 1].Hy
+    Hx = rank_meta[r + 1].Hx
+    Hy = rank_meta[r + 1].Hy
     lines!(
         ax, [Hx + 0.5, nx - Hx + 0.5, nx - Hx + 0.5, Hx + 0.5, Hx + 0.5],
         [Hy + 0.5, Hy + 0.5, ny - Hy + 0.5, ny - Hy + 0.5, Hy + 0.5];
         color = :red, linewidth = 1, linestyle = :dash
     )
+    r != 0 && hidexdecorations!(ax; grid = false)
 end
-Colorbar(fig_anim[1, nranks + 1], hms_anim[1]; label = "MLD (m)")
+Colorbar(fig_anim[1:nranks, 2], hms_anim[1]; label = "MLD (m)")
 
 record(fig_anim, mp4_path, 1:n_months; framerate = 2) do m
     obs_month[] = m
