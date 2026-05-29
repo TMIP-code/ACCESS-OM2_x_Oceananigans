@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -604,6 +604,11 @@ has_step plotgrid && \
     submit_job plotgrid "$WALLTIME_PLOT" \
         scripts/plotting/plot_grid_metrics.sh \
         --deps "${GRID_JOB:-}" > /dev/null
+
+# plotMLD (no deps — reads preprocessed per-rank MLD partition files)
+has_step plotMLD && \
+    submit_job plotMLD "$WALLTIME_PLOT" \
+        scripts/plotting/plot_mld_per_rank.sh > /dev/null
 
 # compareNK: cross-resolution NK age comparison
 # Standalone step — reads all 4 (PM × TW) periodic-NK FTS files that must
