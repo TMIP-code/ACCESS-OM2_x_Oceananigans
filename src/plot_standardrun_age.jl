@@ -256,8 +256,7 @@ end
 #              = κVBG otherwise                            (k_200m below ML)
 MONTHLY_KAPPAV = lowercase(get(ENV, "MONTHLY_KAPPAV", "yes")) == "yes"
 if MONTHLY_KAPPAV && isfile(mld_file) && !isnothing(mld_ts)
-    κVML = 0.1     # m^2/s, same as setup_model.jl
-    κVBG = 3.0e-5  # m^2/s, same as setup_model.jl
+    (; κVML, κVBG) = parse_kappa_env()  # resolution-scaled, same as setup_model.jl
     depth_200m = 200.0
     @info "Deriving κV at $(depth_200m) m from MLD FTS for diagnostic animation"
     κV_at_200m_ts = FieldTimeSeries{Center, Center, Nothing}(

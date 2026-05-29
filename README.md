@@ -201,6 +201,9 @@ bash scripts/print_defaults_tables.sh   # prints the section to stdout
 | `VELOCITY_SOURCE` | `totaltransport` | `totaltransport` | `cgridtransports` |
 | `TIMESTEP_MULT` | `4` | `3` | `2` |
 | `LUMP_AND_SPRAY` | `2x2` | `2x2` | `5x5` |
+| `KAPPA_H` | `300` | `75` | `30` |
+| `KAPPA_V_ML` | `1e-1` | `5e-2` | `25e-3` |
+| `KAPPA_V_BG` | `3e-5` | `15e-6` | `75e-7` |
 | `CPU_QUEUE` | `—` | `hugemem` | `megamem` |
 
 _Resource knobs (walltimes, memory limits, queue choices for individual
@@ -378,12 +381,28 @@ The 4 core config variables determine the model setup and output directory paths
 | `ADVECTION_SCHEME` | `centered2`, `weno3`, `weno5` | `centered2` | Tracer advection scheme |
 | `TIMESTEPPER` | `AB2`, `SRK2`, `SRK3`, `SRK4`, `SRK5` | `AB2` | Time-stepping scheme |
 | `GM_REDI` | `no`, `diff`, `adv` | `no` | Online Redi-GM parameterization (diffusive or advective formulation) |
+| `KAPPA_H` | positive float (m²/s) | **per-model**: `300`/`75`/`30` | Horizontal scalar diffusivity; also used for the GM-Redi isopycnal κ |
+| `KAPPA_V_ML` | positive float (m²/s) | **per-model**: `1e-1`/`5e-2`/`25e-3` | Vertical diffusivity in the mixed layer |
+| `KAPPA_V_BG` | positive float (m²/s) | **per-model**: `3e-5`/`15e-6`/`75e-7` | Vertical (background) diffusivity in the ocean interior |
 
 Timestepper values map to Oceananigans symbols:
 - `AB2` = `:QuasiAdamsBashforth2` (default quasi-Adams-Bashforth 2nd order)
 - `SRK{N}` = `:SplitRungeKutta{N}` (split Runge-Kutta with N = 2..5 stages)
 
-The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `totaltransport_wparent_centered2_AB2` with default OM2-1 settings) determines output directory paths and log filenames. Additional suffixes are appended for non-default flags: `_GMREDI`/`_GMREDIadv` (Redi-GM), `_mkappaV` (`MONTHLY_KAPPAV=yes`), `_noKV` (`IMPLICIT_KAPPAV=no`), `_TB<K>` (temporal blocking), `_LB{S,…}` (load-balanced partition), `_DTx<M>` (`TIMESTEP_MULT>1`), `_traf` (TRAF), `_noACM`.
+The combined tag `MODEL_CONFIG = {VS}_{WF}_{AS}_{TS}` (e.g. `totaltransport_wparent_centered2_AB2` with default OM2-1 settings) determines output directory paths and log filenames. The diffusivity tags `_kH{KAPPA_H}_kVML{KAPPA_V_ML}_kVBG{KAPPA_V_BG}` are **always** appended (e.g. `_kH300_kVML1e-1_kVBG3e-5` for OM2-1, `_kH75_kVML5e-2_kVBG15e-6` for OM2-025) — the env-var string forms are embedded verbatim, so they must parse to a float and stay free of `.` to keep paths clean. Further suffixes are appended for non-default flags: `_GMREDI`/`_GMREDIadv` (Redi-GM), `_mkappaV` (`MONTHLY_KAPPAV=yes`), `_noKV` (`IMPLICIT_KAPPAV=no`), `_TB<K>` (temporal blocking), `_LB{S,…}` (load-balanced partition), `_DTx<M>` (`TIMESTEP_MULT>1`), `_traf` (TRAF), `_noACM`.
+
+#### Resolution scaling of the diffusivities
+
+The `KAPPA_*` defaults shrink as the grid refines, set per model in `model_configs/*.sh`:
+
+| Model   | `KAPPA_H` | `KAPPA_V_ML` | `KAPPA_V_BG` |
+|---------|-----------|--------------|--------------|
+| OM2-1   | `300`     | `1e-1`       | `3e-5`       |
+| OM2-025 | `75`      | `5e-2`       | `15e-6`      |
+| OM2-01  | `30`      | `25e-3`      | `75e-7`      |
+
+- **κH** scales by the ratio of √(cell area): OM2-025 has Δx,Δy ÷4 ⇒ κH ÷4 (300→75); OM2-01 has Δx ÷10 ⇒ κH ÷10 (300→30). The GM-Redi isopycnal κ is tied to the same value.
+- **κV** scales by √(level-ratio × Δx-ratio): OM2-025 = √(1×4) = 2 (κV ÷2); OM2-01 = √(1.5×10) = √15 ≈ 3.87. OM2-01 uses **rounded** values (≈÷4: `0.025`, `7.5e-6`) directly rather than the exact √15 factor, for cleaner tags.
 
 ### GM transport options
 

@@ -26,6 +26,14 @@ TIMESTEP_MULT=${TIMESTEP_MULT:-2}
 # --- NK preconditioner coarsening (large matrix → 5x5 to fit Pardiso budget) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-5x5}
 
+# --- Diffusivities (m²/s) — scaled from OM2-1 for 0.1° resolution ---
+# κH ÷10 (dx ÷10 ⇒ √area ÷10):                        300 → 30
+# κV ÷√15 (√(level-ratio 1.5 × dx-ratio 10)=√15≈3.87),
+#   rounded to clean values (≈÷4): 0.1 → 0.025, 3e-5 → 7.5e-6.
+KAPPA_H=${KAPPA_H:-30}
+KAPPA_V_ML=${KAPPA_V_ML:-25e-3}
+KAPPA_V_BG=${KAPPA_V_BG:-75e-7}
+
 # --- CPU queue (megamem for 0.1° — partition + TMbuild need >1 TB) ---
 CPU_QUEUE=${CPU_QUEUE:-megamem}
 

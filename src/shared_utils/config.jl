@@ -39,6 +39,22 @@ function parse_config_env()
 end
 
 """
+    parse_kappa_env() -> (; κH, κVML, κVBG)
+
+Parse the diffusivity env vars (m²/s): horizontal scalar diffusivity `KAPPA_H`
+(also reused for the GM-Redi isopycnal κ), and the vertical diffusivity in the
+mixed layer `KAPPA_V_ML` and ocean interior `KAPPA_V_BG`. These have per-model
+defaults in `model_configs/*.sh` (scaled by resolution; see README).
+"""
+function parse_kappa_env()
+    κH = parse(Float64, require_env("KAPPA_H"))
+    κVML = parse(Float64, require_env("KAPPA_V_ML"))
+    κVBG = parse(Float64, require_env("KAPPA_V_BG"))
+    all(>(0), (κH, κVML, κVBG)) || error("KAPPA_H/KAPPA_V_ML/KAPPA_V_BG must be positive (got κH=$κH, κVML=$κVML, κVBG=$κVBG)")
+    return (; κH, κVML, κVBG)
+end
+
+"""
     parse_lump_and_spray(s = get(ENV, "LUMP_AND_SPRAY", "no"))
         -> (; di, dj, dk, on, tag, dir_suffix)
 

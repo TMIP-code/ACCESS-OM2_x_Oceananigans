@@ -52,9 +52,9 @@ source "$MODEL_CONF"
 
 # Sanity: model_configs/${PARENT_MODEL}.sh must set these model-dependent vars
 # (no cross-model fallback by design).
-for _v in VELOCITY_SOURCE TIMESTEP_MULT LUMP_AND_SPRAY; do
+for _v in VELOCITY_SOURCE TIMESTEP_MULT LUMP_AND_SPRAY KAPPA_H KAPPA_V_ML KAPPA_V_BG; do
     if [ -z "${!_v:-}" ]; then
-        echo "ERROR: $_v not set after sourcing $MODEL_CONF. Each model_configs/*.sh must set VELOCITY_SOURCE, TIMESTEP_MULT, and LUMP_AND_SPRAY." >&2
+        echo "ERROR: $_v not set after sourcing $MODEL_CONF. Each model_configs/*.sh must set VELOCITY_SOURCE, TIMESTEP_MULT, LUMP_AND_SPRAY, KAPPA_H, KAPPA_V_ML, and KAPPA_V_BG." >&2
         exit 1
     fi
 done
@@ -137,6 +137,10 @@ if [ "$W_FORMULATION" = "wprescribed" ]; then
         MODEL_CONFIG="${VELOCITY_SOURCE}_wparent_${ADVECTION_SCHEME}_${TIMESTEPPER}"
     fi
 fi
+# Diffusivity tags (always present): κH, κV mixed-layer, κV background.
+# The env-var string forms (e.g. 5e-2, 15e-6) are embedded verbatim — they
+# parse to the right Float64 in Julia and contain no '.' so paths stay clean.
+MODEL_CONFIG="${MODEL_CONFIG}_kH${KAPPA_H}_kVML${KAPPA_V_ML}_kVBG${KAPPA_V_BG}"
 case "$GM_REDI" in
     diff|yes)  MODEL_CONFIG="${MODEL_CONFIG}_GMREDI" ;;
     adv)       MODEL_CONFIG="${MODEL_CONFIG}_GMREDIadv" ;;
@@ -163,6 +167,7 @@ export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
 export JVP_METHOD LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
+export KAPPA_H KAPPA_V_ML KAPPA_V_BG
 export TRAF TRAF_TM_SOURCE OMEGA MPI_BINDING
 
 echo "PARENT_MODEL=$PARENT_MODEL"
@@ -192,6 +197,7 @@ echo "TM_SOURCE=$TM_SOURCE"
 echo "GM_REDI=$GM_REDI"
 echo "MONTHLY_KAPPAV=$MONTHLY_KAPPAV"
 echo "IMPLICIT_KAPPAV=$IMPLICIT_KAPPAV"
+echo "KAPPA_H=$KAPPA_H, KAPPA_V_ML=$KAPPA_V_ML, KAPPA_V_BG=$KAPPA_V_BG"
 echo "TBLOCKING=$TBLOCKING"
 echo "GRID_HX=$GRID_HX, GRID_HY=$GRID_HY, GRID_HZ=$GRID_HZ"
 echo "LOAD_BALANCE=$LOAD_BALANCE"

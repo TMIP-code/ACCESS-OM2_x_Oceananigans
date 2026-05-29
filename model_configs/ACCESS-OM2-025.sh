@@ -18,6 +18,13 @@ TIMESTEP_MULT=${TIMESTEP_MULT:-3}
 # --- NK preconditioner coarsening (medium matrix → 2x2) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-2x2}
 
+# --- Diffusivities (m²/s) — scaled from OM2-1 for 0.25° resolution ---
+# κH ÷4 (dx,dy ÷4 ⇒ √area ÷4):            300 → 75
+# κV ÷2 (√(level-ratio 1 × dx-ratio 4)=2): 0.1 → 0.05, 3e-5 → 1.5e-5
+KAPPA_H=${KAPPA_H:-75}
+KAPPA_V_ML=${KAPPA_V_ML:-5e-2}
+KAPPA_V_BG=${KAPPA_V_BG:-15e-6}
+
 # --- CPU queue (hugemem for 0.25° — partition needs ~48 GB per rank) ---
 CPU_QUEUE=${CPU_QUEUE:-hugemem}
 

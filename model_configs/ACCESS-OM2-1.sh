@@ -18,6 +18,13 @@ TIMESTEP_MULT=${TIMESTEP_MULT:-4}
 # --- NK preconditioner coarsening (small matrix → 2x2 is plenty) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-2x2}
 
+# --- Diffusivities (m²/s) — baseline reference values for 1° resolution ---
+# κH (horizontal) scales with √(cell area); κV with √(level-ratio × dx-ratio).
+# OM2-1 is the reference: κH=300, κVML=0.1, κVBG=3.0e-5.
+KAPPA_H=${KAPPA_H:-300}
+KAPPA_V_ML=${KAPPA_V_ML:-1e-1}
+KAPPA_V_BG=${KAPPA_V_BG:-3e-5}
+
 # --- Preprocessing ---
 WALLTIME_PREP=02:00:00            # actual ~16min (20yr), longer for 30yr windows
 PREP_NCPUS=24                     # 4GB/CPU minimum charge; periodicaverage.py uses n_workers=ncpus

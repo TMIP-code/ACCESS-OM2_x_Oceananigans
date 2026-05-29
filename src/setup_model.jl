@@ -271,9 +271,10 @@ free_surface = PrescribedFreeSurface(displacement = η_ts)
 @info "Creating closures"
 flush(stdout); flush(stderr)
 
-# Vertical diffusivity parameters
-κVML = 0.1    # m^2/s in the mixed layer
-κVBG = 3.0e-5 # m^2/s in the ocean interior (background)
+# Diffusivity parameters (m²/s) — resolution-scaled, set per model in
+# model_configs/*.sh (see README); κH also drives the GM-Redi isopycnal κ.
+(; κH, κVML, κVBG) = parse_kappa_env()
+@info "- κH = $κH, κVML = $κVML, κVBG = $κVBG"
 
 # Load MLD-based vertical diffusivity (static yearly average)
 arch isa Distributed && MPI.Barrier(MPI.COMM_WORLD)
@@ -322,8 +323,8 @@ if GM_REDI
     gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
     # AdvectiveFormulation requires scalar κ_skew (Oceananigans limitation);
     # this is fine since T/S have tracer_advection=nothing and are prescribed each step.
-    gm_κ_skew = GM_ADVECTIVE ? 300.0 : (; T = 0.0, S = 0.0, age = 300.0)
-    gm_κ_symmetric = GM_ADVECTIVE ? 300.0 : (; T = 0.0, S = 0.0, age = 300.0)
+    gm_κ_skew = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, age = κH)
+    gm_κ_symmetric = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, age = κH)
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
         skew_flux_formulation = gm_formulation,
         κ_skew = gm_κ_skew,
@@ -336,7 +337,7 @@ else
         VerticallyImplicitTimeDiscretization();
         κ = κVField,
     )
-    horizontal_diffusion = HorizontalScalarDiffusivity(κ = 300.0)
+    horizontal_diffusion = HorizontalScalarDiffusivity(κ = κH)
     closure = IMPLICIT_KAPPAV ? (horizontal_diffusion, implicit_vertical_diffusion) : (horizontal_diffusion,)
 end
 
