@@ -282,12 +282,24 @@ end
 #
 # The 1-year run starts at t=0 (= Jan 1) and saves half-monthly snapshots, so
 # snapshot n (over the averaged 1..n_avg) sits at age_fts.times[n] seconds from
-# Jan 1. Map each to a calendar month (mid-month climatology, index 1 = January;
-# see prep_velocities.jl:146) and bin into the four standard seasons.
+# Jan 1. Map each to the FTS time-slot index midx (mid-month climatology,
+# slot 1 = January; see prep_velocities.jl:146) and bin into the four seasons.
+#
+# IMPORTANT — TRAF (adjoint): under TRAF the monthly forcing FTS are reversed
+# in time by reverse_fts_time! (it swaps the data arrays across time-slots but
+# leaves fts.times unchanged). So FTS time-slot i then carries calendar month
+# 13-i (slot 1 = Dec, slot 2 = Nov, …, slot 12 = Jan). We therefore map the
+# slot index to the calendar month as `13 - midx` for the adjoint leg before
+# binning, so DJF/MAM/JJA/SON are true calendar seasons in both legs.
 ################################################################################
 
 @info "Computing seasonal surface-age means (DJF/MAM/JJA/SON)"
 flush(stdout); flush(stderr)
+
+# Adjoint leg carries the `_traf` suffix on MODEL_CONFIG and runs reversed-time
+# forcing; calendar month = 13 - slot_index there (= slot_index for forward).
+is_traf = endswith(model_config, "_traf")
+@info "- TRAF (reversed-time month mapping) = $is_traf"
 
 year_s = 365.25 * 86400
 month_s = year_s / 12
@@ -296,9 +308,10 @@ const SEASON_MONTHS = Dict(
     :DJF => (12, 1, 2), :MAM => (3, 4, 5), :JJA => (6, 7, 8), :SON => (9, 10, 11),
 )
 function season_of_time(t)
-    midx = mod(floor(Int, t / month_s + 1.0e-9), 12) + 1   # 1..12
+    midx = mod(floor(Int, t / month_s + 1.0e-9), 12) + 1   # FTS time-slot index 1..12
+    cal = is_traf ? 13 - midx : midx                       # calendar month 1..12
     for s in SEASONS
-        midx in SEASON_MONTHS[s] && return s
+        cal in SEASON_MONTHS[s] && return s
     end
     return :DJF   # unreachable
 end
