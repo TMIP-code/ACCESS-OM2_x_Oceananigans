@@ -215,6 +215,7 @@ COMMON_VARS+=",TRAF_TM_SOURCE=${TRAF_TM_SOURCE}"
 COMMON_VARS+=",OMEGA=${OMEGA}"
 COMMON_VARS+=",MATRIX_PROCESSING=${MATRIX_PROCESSING}"
 COMMON_VARS+=",MPI_BINDING=${MPI_BINDING}"
+COMMON_VARS+=",CHECK_BOUNDS=${CHECK_BOUNDS}"
 
 # --- Submission manifest path (TOML, written at exit) ---
 # Mirrors outputdir construction in src/shared_utils/config.jl: when no profile
