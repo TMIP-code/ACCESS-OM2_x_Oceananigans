@@ -76,6 +76,8 @@ MATRIX_PROCESSING=${MATRIX_PROCESSING:-symdrop}         # raw | symfill | dropze
 INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <path to .jld2>
 TM_SOURCE=${TM_SOURCE:-const}                           # const | avg
 TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
+TM_ADVECTION_SCHEME=${TM_ADVECTION_SCHEME:-}           # convenience: derive TM_MODEL_CONFIG from MODEL_CONFIG with only the advection field swapped (e.g. weno5 G! + centered2 preconditioner). Ignored when TM_MODEL_CONFIG is set explicitly.
+case "$TM_ADVECTION_SCHEME" in ""|centered2|weno3|weno5) ;; *) echo "ERROR: TM_ADVECTION_SCHEME must be centered2, weno3, or weno5 (got: $TM_ADVECTION_SCHEME)" >&2; exit 1 ;; esac
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}                   # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
@@ -163,9 +165,20 @@ fi
 if [ "$TRAF" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_traf"
 fi
+# Convenience: when TM_ADVECTION_SCHEME is set (and TM_MODEL_CONFIG isn't), point
+# NK's preconditioner at a TM that differs from the run only in the advection
+# field — e.g. a WENO5 G! map reusing a centered2 TM. The advection token is the
+# 3rd field of the tag (VS_WF_AS_TS_…), so the first "_AS_" match is the right
+# one. The matrix M is Δt-independent (a centered2 TM is a valid preconditioner
+# at any M), but this derivation preserves the run's DTx/diffusivity tags, so the
+# matching centered2 TM must exist at the same tag (build it, or set
+# TM_MODEL_CONFIG explicitly to reuse a different-M centered2 TM).
+if [ -z "$TM_MODEL_CONFIG" ] && [ -n "$TM_ADVECTION_SCHEME" ] && [ "$TM_ADVECTION_SCHEME" != "$ADVECTION_SCHEME" ]; then
+    TM_MODEL_CONFIG="${MODEL_CONFIG/_${ADVECTION_SCHEME}_/_${TM_ADVECTION_SCHEME}_}"
+fi
 export PARENT_MODEL VELOCITY_SOURCE W_FORMULATION PRESCRIBED_W_SOURCE ADVECTION_SCHEME TIMESTEPPER TIMESTEP_MULT PLOT_TS TRACE_SOLVER_HISTORY MODEL_CONFIG
 # export AA_M NLSAA_BETA SMAA_SIGMA_MIN SMAA_STABILIZE SMAA_CHECK_OBJ SMAA_ORDERS
-export JVP_METHOD LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG
+export JVP_METHOD LINEAR_SOLVER LUMP_AND_SPRAY MATRIX_PROCESSING INITIAL_AGE TM_SOURCE TM_MODEL_CONFIG TM_ADVECTION_SCHEME
 export GM_REDI MONTHLY_KAPPAV IMPLICIT_KAPPAV TBLOCKING GRID_HX GRID_HY GRID_HZ LOAD_BALANCE ACTIVE_CELLS_MAP
 export KAPPA_H KAPPA_V_ML KAPPA_V_BG
 export TRAF TRAF_TM_SOURCE OMEGA MPI_BINDING
