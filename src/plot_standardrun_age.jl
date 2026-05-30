@@ -189,7 +189,7 @@ w_ts = FieldTimeSeries(w_file, "w"; grid, backend = InMemory(), time_indexing)
 η_ts = FieldTimeSeries(η_file, "η"; grid, backend = InMemory(), time_indexing)
 
 # Surface k-index: top level for 3D fields (with halos, offset by halo size)
-Hz = grid.Hx  # halo size (same in all directions for this grid)
+Hz = grid.Hz  # z-halo size (NOT grid.Hx — GRID_HZ defaults to 2 while GRID_HX=7)
 k_surface_ccc = Nz + Hz  # top Center level in parent array (with halos)
 k_surface_ccf = Nz + Hz + 1  # top Face level in parent array (w is at faces)
 
