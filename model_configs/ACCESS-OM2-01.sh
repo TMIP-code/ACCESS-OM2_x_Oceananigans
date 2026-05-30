@@ -21,7 +21,12 @@ PARTITION=${PARTITION:-1x4}
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
 
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
-TIMESTEP_MULT=${TIMESTEP_MULT:-2}
+# M=1 (Δt=400s). M=2 (Δt=800s) is CFL-unstable here: with monthly κV the age
+# field develops sharp fronts that push centered2 advection over its Courant
+# limit in the energetic mid-latitude bands → age blow-up (~1e73 yr). Halving
+# Δt (M=1) is stable on all ranks; verified run1yr 169643216 (M=1) vs the
+# M=2 blow-up 169631164. See also weno5 as an alternative if M=2 is wanted.
+TIMESTEP_MULT=${TIMESTEP_MULT:-1}
 
 # --- NK preconditioner coarsening (large matrix → 5x5 to fit Pardiso budget) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-5x5}
@@ -66,7 +71,9 @@ WALLTIME_RUN_100YEARS=48:00:00
 WALLTIME_RUN_LONG=48:00:00
 
 # --- Newton-Krylov solver ---
-WALLTIME_NK=24:00:00
+# 48h: OM2-01 NK is the largest solve (351M unknowns, 1x4 H200) and untested at
+# this resolution; request the max to avoid a walltime kill on first run.
+WALLTIME_NK=48:00:00
 
 # --- Transport matrix ---
 # OM2-01 TMbuild dominates by sparsity detection (3h 12m at 351M wet cells;
