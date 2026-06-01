@@ -85,7 +85,7 @@ age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
 # Positive diff-level boundaries; mirrored + zero-excluded below. Quasi-log by
 # default; comma-separated, overridable via DIFF_LEVELS.
-diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "20,50,100,200,500"), ",")))
+diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "30,100,300,1000"), ",")))
 
 models = [
     ("OM2-1", "ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6", mc_om21),

@@ -46,7 +46,7 @@ Environment variables (all optional; defaults match the paper config):
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
   AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 100)
   DIFF_LEVELS                     – positive diff boundaries, comma-separated
-                                    (default 20,50,100,200,500; mirrored & zero-excluded
+                                    (default 30,100,300,1000; mirrored & zero-excluded
                                     → single white band ∓first-level about zero)
 """
 
@@ -98,7 +98,7 @@ age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
 # Positive diff-level boundaries; the negative mirror + zero-exclusion are
 # applied below. Quasi-log by default; comma-separated, overridable via DIFF_LEVELS.
-diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "20,50,100,200,500"), ",")))
+diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "30,100,300,1000"), ",")))
 
 # (short tag, parent model, experiment, model_config)
 models = [
