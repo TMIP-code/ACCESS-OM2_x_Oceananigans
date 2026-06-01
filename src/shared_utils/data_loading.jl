@@ -379,17 +379,57 @@ function list_iterations(dir, field_name, duration_tag)
 end
 
 """
+    list_iterations_rank0(dir, file_base, var_name) -> Vector{String}
+
+List iteration keys from the rank-0 file of a distributed JLD2Writer output,
+sorted numerically. The per-rank files are named `{file_base}_rank{r}.jld2` and
+store snapshots under `timeseries/{var_name}/{iter}` (the in-file variable name
+`var_name` may differ from the file basename `file_base`).
+"""
+function list_iterations_rank0(dir, file_base, var_name)
+    filepath = joinpath(dir, "$(file_base)_rank0.jld2")
+    isfile(filepath) || error("Rank 0 file not found: $filepath")
+    return jldopen(filepath, "r") do f
+        iters = collect(keys(f["timeseries/$(var_name)"]))
+        filter!(k -> k ≠ "serialized", iters)
+        sort!(iters; by = k -> parse(Int, k))
+        return iters
+    end
+end
+
+"""
     load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny; halo=(0,0,0)) -> (data, time)
 
 Load and stitch distributed rank files for a single snapshot into a global array.
-Each rank has its own JLD2Writer file: `{field}_{tag}_rank{r}.jld2`.
+Each rank has its own JLD2Writer file: `{field}_{tag}_rank{r}.jld2`, with snapshots
+stored under `timeseries/{field}/{iter}`.
 Partition layout is px × py. Oceananigans rank ordering: rank = i * Ry + j.
 
 If `halo` is nonzero, strips halo regions from each rank before stitching
 (needed when data was saved with `with_halos=true`).
 The stitched result is trimmed to `(Nx, Ny, :)` to match serial interior.
+
+Thin wrapper over [`load_distributed_snapshot_by_base`](@ref) for the common case
+where the per-rank file basename is `{field_name}_{duration_tag}` and the in-file
+variable name is `field_name`.
 """
 function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, py, Nx, Ny; halo = (0, 0, 0))
+    return load_distributed_snapshot_by_base(dir, "$(field_name)_$(duration_tag)", field_name, iter_key, px, py, Nx, Ny; halo)
+end
+
+"""
+    load_distributed_snapshot_by_base(dir, file_base, var_name, iter_key, px, py, Nx, Ny; halo=(0,0,0)) -> (data, time)
+
+Like [`load_distributed_snapshot`](@ref), but the per-rank file basename
+(`file_base`, so files are `{file_base}_rank{r}.jld2`) is decoupled from the in-file
+variable name (`var_name`, so snapshots live under `timeseries/{var_name}/{iter}`).
+This is needed when the JLD2Writer filename prefix differs from the field name —
+e.g. files `age_periodic_1year_rank{r}.jld2` storing the variable `age`.
+
+Partition layout is px × py. Oceananigans rank ordering: rank = i * Ry + j.
+The stitched result is trimmed to `(Nx, Ny, :)` to match serial interior.
+"""
+function load_distributed_snapshot_by_base(dir, file_base, var_name, iter_key, px, py, Nx, Ny; halo = (0, 0, 0))
     nranks = px * py
     Hx, Hy, Hz = halo
 
@@ -400,10 +440,10 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
     ndims_data = 0
     for i in 1:px
         rank = (i - 1) * py
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
+        filepath = joinpath(dir, "$(file_base)_rank$(rank).jld2")
         isfile(filepath) || error("Rank file not found: $filepath")
         jldopen(filepath, "r") do f
-            sample = f["timeseries/$(field_name)/$iter_key"]
+            sample = f["timeseries/$(var_name)/$iter_key"]
             rank_interior_nx[i] = size(sample, 1) - 2Hx
             if i == 1
                 ndims_data = ndims(sample)
@@ -416,9 +456,9 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
     end
     for j in 1:py
         rank = j - 1
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
+        filepath = joinpath(dir, "$(file_base)_rank$(rank).jld2")
         jldopen(filepath, "r") do f
-            rank_interior_ny[j] = size(f["timeseries/$(field_name)/$iter_key"], 2) - 2Hy
+            rank_interior_ny[j] = size(f["timeseries/$(var_name)/$iter_key"], 2) - 2Hy
         end
     end
 
@@ -431,14 +471,14 @@ function load_distributed_snapshot(dir, field_name, duration_tag, iter_key, px, 
     t = nothing
 
     for rank in 0:(nranks - 1)
-        filepath = joinpath(dir, "$(field_name)_$(duration_tag)_rank$(rank).jld2")
+        filepath = joinpath(dir, "$(file_base)_rank$(rank).jld2")
         isfile(filepath) || error("Rank file not found: $filepath")
 
         i_rank = div(rank, py) + 1
         j_rank = mod(rank, py) + 1
 
         jldopen(filepath, "r") do f
-            local_full = f["timeseries/$(field_name)/$iter_key"]
+            local_full = f["timeseries/$(var_name)/$iter_key"]
             if t === nothing
                 t = f["timeseries/t/$iter_key"]
             end
