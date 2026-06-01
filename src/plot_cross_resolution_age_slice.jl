@@ -45,7 +45,8 @@ Environment variables (all optional; defaults match the paper config):
   DEPTH               – slice depth in metres (default 2000)
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
   AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 100)
-  DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -1000 / 1000 / 100)
+  DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -1000 / 1000 / 100;
+                                    symmetric, zero excluded → single white band ∓DLEVEL)
 """
 
 @info "Loading packages for cross-resolution age-slice plot"
@@ -284,19 +285,27 @@ age_levels = collect(age_cmin:age_dlevel:age_cmax)
 age_cmap = cgrad(:viridis, length(age_levels) - 1, categorical = true)
 age_range = (age_cmin, age_cmax)
 
-diff_levels = collect(diff_cmin:diff_dlevel:diff_cmax)
-n_diff_bins = length(diff_levels) - 1
-# White-centred diverging map so values close to zero render white, via
-# withwhitecenter (cf. plot_ventilation.jl L235). That helper whitens the centre
-# entry of the colour scheme; it works there because PRGn is an 11-colour scheme
-# sampled at 11 (identity). :balance is a 256-colour scheme, so we first bin it
-# down to n_diff_bins colours as a ColorScheme — withwhitecenter then whitens the
-# real centre bin without the single white entry being diluted on resampling.
+# Diff levels are symmetric and EXCLUDE zero (cf. plot_ventilation.jl L232), so
+# the central band [-diff_dlevel, +diff_dlevel] straddles zero as a single band.
+# That makes the bin count odd, so withwhitecenter whitens exactly that central
+# band → values close to zero render white. mk_piecewise_linear maps the
+# (now non-uniform) central band to an equal-width colour bin.
+diff_ext = max(abs(diff_cmin), abs(diff_cmax))
+diff_pos = collect(diff_dlevel:diff_dlevel:diff_ext)
+diff_levels = [-reverse(diff_pos); diff_pos]
+n_diff_bins = length(diff_levels) - 1                 # odd
+# White-centred diverging map via withwhitecenter (cf. plot_ventilation.jl L235).
+# That helper whitens the centre entry of the colour scheme; it works there
+# because PRGn is an 11-colour scheme sampled at 11 (identity). :balance is a
+# 256-colour scheme, so we first bin it down to n_diff_bins colours as a
+# ColorScheme — withwhitecenter then whitens the real centre band without the
+# single white entry being diluted on resampling.
 balance_binned = Makie.ColorSchemes.ColorScheme(
     [cgrad(:balance, n_diff_bins, categorical = true)[i] for i in 1:n_diff_bins]
 )
 diff_cmap = cgrad(withwhitecenter(balance_binned), n_diff_bins; categorical = true)
-diff_range = (diff_cmin, diff_cmax)
+diff_scale = mk_piecewise_linear(diff_levels)
+diff_range = extrema(diff_levels)
 
 lon_window_start = 20
 
@@ -327,11 +336,12 @@ end
 function drawmap!(ax, field, gm; isdiff)
     cmap = isdiff ? diff_cmap : age_cmap
     crange = isdiff ? diff_range : age_range
+    cscale = isdiff ? diff_scale : identity
     plotmap!(
         ax, field, gm;
         colorrange = crange, colormap = cmap,
         highclip = cmap[end], lowclip = cmap[1],
-        colorscale = identity, lon_window_start,
+        colorscale = cscale, lon_window_start,
     )
     add_coastlines!(ax)
     xlims!(ax, (lon_window_start, lon_window_start + 360))
@@ -384,18 +394,21 @@ end
 # ── Colorbars in the empty [3,3] corner (g[4,4]) ──
 cbs = g[4, 4] = GridLayout()
 age_ticks = age_cmin:max(age_dlevel, (age_cmax - age_cmin) / 4):age_cmax
-diff_ticks = diff_cmin:max(diff_dlevel, (diff_cmax - diff_cmin) / 4):diff_cmax
 Colorbar(
     cbs[1, 1];
     colormap = age_cmap, limits = age_range, highclip = age_cmap[end],
     ticks = collect(age_ticks), label = "Age (years)",
     vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
 )
+# Diff colorbar in index space (0:N_diff) so each colour bin is equal width and
+# ticks sit at the (zero-excluding) level boundaries — the central white band is
+# bracketed by ∓diff_dlevel, no "0" tick (cf. plot_ventilation.jl).
 Colorbar(
     cbs[2, 1];
-    colormap = diff_cmap, limits = diff_range,
+    colormap = diff_cmap, colorrange = (0, n_diff_bins),
     lowclip = diff_cmap[1], highclip = diff_cmap[end],
-    ticks = collect(diff_ticks), label = "Δ Age (years)",
+    ticks = (0:n_diff_bins, divergingcbarticklabelformat(diff_levels)),
+    label = "Δ Age (years)",
     vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
 )
 

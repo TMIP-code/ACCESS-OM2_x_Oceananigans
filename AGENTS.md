@@ -119,7 +119,7 @@ JOB_CHAIN=run1yr-plot1yr bash scripts/driver.sh                          # singl
 GPU_RESOURCES=gpuvolta JOB_CHAIN=NK bash scripts/driver.sh               # on Volta GPUs
 ```
 
-JOB_CHAIN steps: `prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres`
+JOB_CHAIN steps: `prep grid vel clo diagnose_w partition run1yr run1yrfast allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK plotNK plotNKtrace plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal`
 Shortcuts: `preprocessing` (= `prep-grid-vel-clo-diagnose_w-partition`) `standardruns` `TMall` `plotall` `full`
 Range notation: `A..B` follows the dependency DAG (e.g., `run1yrNK..plotNK` = `run1yrNK-plotNK`)
 TM_SOURCE: `const` (default), `avg`, or `both` — filters TMsolve/NK/run1yrNK branches
@@ -195,6 +195,7 @@ Log locations after a job completes:
 | `src/create_velocities.jl` | Preprocess MOM velocities → monthly FTS + yearly Fields | PARENT_MODEL, EXPERIMENT, TIME_WINDOW |
 | `src/plot_outputs.jl` | Plot u/v/w/η outputs from simulation (standalone, CPU-only) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/plot_cross_resolution_age_slice.jl` | 3×3 cross-resolution + cross-decade age depth-slice figure; regrids OM2-1→OM2-025 via ConservativeRegridding.jl (CPU-only) | MODEL_CONFIG_OM21, MODEL_CONFIG_OM2025, SOLVER_TAG, TW1, TW2, DEPTH, TRAF, AGE_*/DIFF_* scale vars |
+| `src/plot_cross_resolution_basin_zonal.jl` | 3 per-basin (ATL/PAC/IND) 3×3 cross-resolution + cross-decade zonal-mean figures; lat-interpolates OM2-1 onto OM2-025 (no 3-D regrid) (CPU-only) | MODEL_CONFIG_OM21, MODEL_CONFIG_OM2025, SOLVER_TAG, TW1, TW2, TRAF, AGE_*/DIFF_* scale vars |
 | `src/create_matrix.jl` | Build transport matrix from constant fields | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/create_snapshot_matrices.jl` | Build snapshot Jacobians + inline averages from 1-year velocity snapshots | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
 | `src/average_snapshot_matrices.jl` | Re-average snapshot matrices from saved files (standalone) | PARENT_MODEL, VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER |
@@ -222,6 +223,7 @@ The unified `scripts/driver.sh` is the single interface for submitting jobs.
 - `scripts/solvers/solve_TM_age_CPU.sh` — solve age from matrix, CPU (Pardiso/ParU/UMFPACK)
 - `scripts/solvers/solve_TM_age_GPU.sh` — solve age from matrix, GPU (CUDSS)
 - `scripts/plotting/plot_cross_resolution_age_slice.sh` — 3×3 cross-resolution + cross-decade age-slice figure (CPU; regrids OM2-1→OM2-025 via ConservativeRegridding.jl)
+- `scripts/plotting/plot_cross_resolution_basin_zonal.sh` — 3 per-basin 3×3 cross-resolution + cross-decade zonal-mean figures (CPU; lat-interpolation, no 3-D regrid)
 - `scripts/plotting/plot_standardrun_age.sh` — plot standard run age diagnostics (CPU, DURATION env var)
 - `scripts/plotting/plot_1year_from_periodic_sol.sh` — plot periodic solution diagnostics (CPU)
 - `scripts/benchmarks/submit_all_gpu_job_modes.sh` — batch submit 1yr runs across config combos

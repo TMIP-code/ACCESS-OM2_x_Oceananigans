@@ -93,7 +93,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
-    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres"
+    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -665,6 +665,17 @@ if has_step plotcrossres; then
         scripts/plotting/plot_cross_resolution_age_slice.sh \
         --deps "$plotcrossres_dep_str" \
         --vars "DEPTH=${DEPTH:-2000},TRAF=${TRAF:-no}" > /dev/null
+fi
+
+# plotcrosszonal — per-basin (ATL/PAC/IND) 3×3 cross-resolution + cross-decade
+# zonal-mean figures. Same data dependencies/semantics as plotcrossres (reads
+# both resolutions and both time windows from disk; no afterok deps).
+if has_step plotcrosszonal; then
+    plotcrosszonal_dep_str="${RUNNK_CONST:-}"
+    submit_job plotcrosszonal "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
+        scripts/plotting/plot_cross_resolution_basin_zonal.sh \
+        --deps "$plotcrosszonal_dep_str" \
+        --vars "TRAF=${TRAF:-no}" > /dev/null
 fi
 
 # ============================================================
