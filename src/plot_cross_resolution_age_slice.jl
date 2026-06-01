@@ -306,8 +306,8 @@ function mapaxis(pos)
     ax = Axis(
         pos;
         backgroundcolor = :lightgray,
-        xgridvisible = false, ygridvisible = false,
-        aspect = DataAspect(),
+        xgridvisible = true, ygridvisible = true,
+        # aspect = DataAspect(),
         xticks = (collect(xticks_map), lonticklabel.(xticks_map)),
         yticks = (collect(yticks_map), latticklabel.(yticks_map)),
     )
@@ -379,14 +379,14 @@ Colorbar(
     cbs[1, 1];
     colormap = age_cmap, limits = age_range, highclip = age_cmap[end],
     ticks = collect(age_ticks), label = "Age (years)",
-    vertical = false, flipaxis = false, tellwidth = false,
+    vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
 )
 Colorbar(
     cbs[2, 1];
     colormap = diff_cmap, limits = diff_range,
     lowclip = diff_cmap[1], highclip = diff_cmap[end],
     ticks = collect(diff_ticks), label = "Δ Age (years)",
-    vertical = false, flipaxis = false, tellwidth = false,
+    vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
 )
 
 Label(
@@ -395,9 +395,9 @@ Label(
     fontsize = 19, font = :bold, tellwidth = false,
 )
 
-colgap!(g, 8)
-rowgap!(g, 8)
-resize_to_layout!(fig)
+# colgap!(g, 8)
+# rowgap!(g, 8)
+# resize_to_layout!(fig)
 
 ################################################################################
 # Save
