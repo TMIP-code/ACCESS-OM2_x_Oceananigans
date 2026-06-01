@@ -93,7 +93,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
-    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC"
+    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -652,6 +652,19 @@ if has_step plotMOC; then
     submit_job plotMOC "$WALLTIME_PLOT" \
         scripts/plotting/plot_MOC.sh \
         --deps "$plotMOC_dep_str" > /dev/null
+fi
+
+# plotcrossres — cross-resolution + cross-decade 3×3 age-slice comparison.
+# Reads the forward (or TRAF) age_periodic_1year.jld2 for BOTH resolutions and
+# BOTH time windows, so it is resolution-agnostic and carries no afterok deps
+# (the upstream NK + run1yrNK chains for both models must already be on disk).
+# Optionally chains after this PM's run1yrNK if it ran in the same invocation.
+if has_step plotcrossres; then
+    plotcrossres_dep_str="${RUNNK_CONST:-}"
+    submit_job plotcrossres "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
+        scripts/plotting/plot_cross_resolution_age_slice.sh \
+        --deps "$plotcrossres_dep_str" \
+        --vars "DEPTH=${DEPTH:-2000},TRAF=${TRAF:-no}" > /dev/null
 fi
 
 # ============================================================
