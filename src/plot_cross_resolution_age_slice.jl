@@ -358,7 +358,7 @@ end
 @info "Building figure"
 flush(stdout); flush(stderr)
 
-fig = Figure(; size = (1750, 875), fontsize = 15)
+fig = Figure(; size = (1488, 744), fontsize = 15)
 g = fig[1, 1] = GridLayout()
 
 # Column headers (row 1; data axes occupy cols 2-4, rows 2-4)
@@ -401,9 +401,10 @@ Colorbar(
     colormap = age_cmap, limits = age_range, highclip = age_cmap[end],
     ticks = collect(age_ticks), label = "Age (years)",
     vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
+    width = Relative(0.8),
 )
 # Diff colorbar in index space (0:N_diff) so each colour bin is equal width and
-# ticks sit at the (zero-excluding) level boundaries — the central white band is
+# ticks sit at the (zero-excluding) level boundaries: the central white band is
 # bracketed by ∓diff_dlevel, no "0" tick (cf. plot_ventilation.jl).
 Colorbar(
     cbs[2, 1];
@@ -412,11 +413,14 @@ Colorbar(
     ticks = (0:n_diff_bins, divergingcbarticklabelformat(diff_levels)),
     label = "Δ Age (years)",
     vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
+    width = Relative(0.8),
 )
+# Pull the two colorbars close together within the corner cell.
+rowgap!(cbs, 2)
 
 Label(
     g[0, 1:4];
-    text = "$leg_long at $(Int(round(depth_m))) m — cross-resolution & cross-decade comparison",
+    text = "$leg_long at $(Int(round(depth_m))) m, cross-resolution & cross-decade comparison",
     fontsize = 19, font = :bold, tellwidth = false,
 )
 

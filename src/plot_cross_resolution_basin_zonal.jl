@@ -311,7 +311,7 @@ function build_basin_figure(basin_name, sym)
     logrange("Δres    $TW1", rdiff_t1); logrange("Δres    $TW2", rdiff_t2)
     logrange("Δdecade OM2-1", ddiff_1); logrange("Δdecade OM2-025", ddiff_2)
 
-    fig = Figure(; size = (1750, 875), fontsize = 15)
+    fig = Figure(; size = (1488, 744), fontsize = 15)
     g = fig[1, 1] = GridLayout()
 
     Label(g[1, 2], "OM2-1"; font = :bold, tellwidth = false)
@@ -351,6 +351,7 @@ function build_basin_figure(basin_name, sym)
         colormap = age_cmap, limits = age_range, highclip = age_cmap[end],
         ticks = collect(age_ticks), label = "Age (years)",
         vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
+        width = Relative(0.8),
     )
     Colorbar(
         cbs[2, 1];
@@ -359,11 +360,14 @@ function build_basin_figure(basin_name, sym)
         ticks = (0:n_diff_bins, divergingcbarticklabelformat(diff_levels)),
         label = "Δ Age (years)",
         vertical = false, flipaxis = false, tellwidth = false, tellheight = false,
+        width = Relative(0.8),
     )
+    # Pull the two colorbars close together within the corner cell.
+    rowgap!(cbs, 2)
 
     Label(
         g[0, 1:4];
-        text = "$leg_long — $basin_name basin zonal mean — cross-resolution & cross-decade",
+        text = "$leg_long, $basin_name basin zonal mean, cross-resolution & cross-decade",
         fontsize = 19, font = :bold, tellwidth = false,
     )
 
