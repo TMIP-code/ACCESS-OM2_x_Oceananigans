@@ -8,3 +8,18 @@
 - [ ] apply adjoint tricks to get water mass fractions and ventilation fractions. This is completely orthogonal to the rest so I should be able to get it done. BTW do iI need to run the model in adjoing mode, i.e., with opposite velocities and go backwards in time for this to work? Need a bit of thought.
 - [ ] Try to solve the slow restoring relaxation issue. Maybe AB3 helps? What about RK3?
 - [ ] Apply xGPU NK solve OM2-01 to meltwater experiments -> paper
+
+
+- [ ] Redo with OMEGA
+    - [ ] 500m
+    - [ ] 2500m
+    - [ ] density space:
+        - [ ] Use NADW, AABW etc density classes
+        - [ ] Build ρ-based masks (maybe call them ρNADW, ρAABW, etc.)
+
+- [ ] Plot basin zonal averages for eah of these OMEGA
+
+- [ ] Plot basin zonal mean diffs for all ages x all OMEGAS;
+    - [ ] In the diff look for signals of watermassses like NADW etc.
+- [ ] Increase colorrange of zonal means to maybe 2000 yr.
+
