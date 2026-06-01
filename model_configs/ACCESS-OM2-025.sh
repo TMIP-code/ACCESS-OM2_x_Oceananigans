@@ -13,7 +13,9 @@ PARTITION=${PARTITION:-1x2}
 VELOCITY_SOURCE=${VELOCITY_SOURCE:-totaltransport}
 
 # --- Tracer timestep multiplier (Δt = M·Δt_base) ---
-TIMESTEP_MULT=${TIMESTEP_MULT:-3}
+# M=2: M=3 blew up the periodic-NK fixed point (G! residual ~1e20 at iter 0,
+# adjoint/TRAF legs in particular) — M=2 is the CFL-stable default for OM2-025.
+TIMESTEP_MULT=${TIMESTEP_MULT:-2}
 
 # --- NK preconditioner coarsening (medium matrix → 2x2) ---
 LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-2x2}
