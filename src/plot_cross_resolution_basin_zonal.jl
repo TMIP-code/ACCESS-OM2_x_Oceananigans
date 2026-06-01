@@ -219,9 +219,11 @@ basin_keys = [("Atlantic", :ATL), ("Pacific", :PAC), ("Indian", :IND)]
 flush(stdout); flush(stderr)
 
 # za[model_tag][tw][basin_sym] = Matrix(Ny, Nz); also keep lat axis + depth.
+# (depth_vals mutated in-place to dodge top-level for-loop scoping on rebinding;
+# both grids share the same 50-level vertical grid.)
 za = Dict{String, Any}()
 lat_of = Dict{String, Vector{Float64}}()
-local depth_vals = nothing
+depth_vals = Float64[]
 
 for (tag, pm, exp, mc) in models
     @info "  $tag: loading grid"
@@ -232,9 +234,7 @@ for (tag, pm, exp, mc) in models
     vol3D = Array(interior(compute_volume(grid)))
     basins = compute_ocean_basin_masks(grid, wet3D)
     lat_of[tag] = Float64.(lat_centres(grid, Nx, Ny))
-    if depth_vals === nothing
-        global depth_vals = -znodes(grid, Center(), Center(), Center())
-    end
+    isempty(depth_vals) && append!(depth_vals, -collect(znodes(grid, Center(), Center(), Center())))
 
     za[tag] = Dict{String, Any}()
     for tw in (TW1, TW2)
