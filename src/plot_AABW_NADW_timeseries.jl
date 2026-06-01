@@ -251,10 +251,7 @@ if length(combined_data) == length(models)
             "NADW $(short_label(d1.model))", "NADW $(short_label(d2.model))",
         ],
         color = :black,
-        textcolor = [
-            water_mass_colors.AABW, water_mass_colors.AABW,
-            water_mass_colors.NADW, water_mass_colors.NADW,
-        ],
+        textcolor = :black,
         align = (:right, :center), fontsize = fontsize - 2,
         path = Ann.Paths.Line(), labelspace = :relative_pixel,
         shrink = (3.0, 5.0),
@@ -286,7 +283,7 @@ if length(combined_data) == length(models)
         [first(d1.aabw_yearly_plot), first(d2.aabw_yearly_plot)];
         text = [short_label(d1.model), short_label(d2.model)],
         color = :black,
-        textcolor = [water_mass_colors.AABW, water_mass_colors.AABW],
+        textcolor = :black,
         align = (:right, :center), fontsize = fontsize - 2,
         path = Ann.Paths.Line(), labelspace = :relative_pixel,
         shrink = (3.0, 5.0),
