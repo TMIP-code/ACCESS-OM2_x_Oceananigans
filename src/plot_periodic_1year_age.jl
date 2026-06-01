@@ -143,8 +143,8 @@ age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)    # age in seconds, NaN-ma
 plot_dir = joinpath(periodic_1year_dir, "plots")
 mkpath(plot_dir)
 
-colorrange = (1, 1600)
-levels = 1:100:1600
+colorrange = (0, 2000)
+levels = 0:100:2000
 colormap = cgrad(:viridis, length(levels) - 1, categorical = true)
 
 @info "Colorrange for all plots: $colorrange years"

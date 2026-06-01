@@ -156,7 +156,7 @@ end
 
 """
     plot_age_diagnostics(age_3D, grid, wet3D, vol_3D, output_dir, label;
-                         colorrange=(0, 1500), levels=0:100:1500, colormap=:viridis)
+                         colorrange=(0, 2000), levels=0:100:2000, colormap=:viridis)
 
 Generate 10 diagnostic figures and save as PNG:
   1-4: Zonal average (global, Atlantic, Pacific, Indian) — contourf (lat vs depth)
@@ -172,8 +172,8 @@ Arguments:
 """
 function plot_age_diagnostics(
         age_3D, grid, wet3D, vol_3D, output_dir, label;
-        colorrange = (0, 1500),
-        levels = 0:100:1500,
+        colorrange = (0, 2000),
+        levels = 0:100:2000,
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         lowclip = colormap[1],
         highclip = colormap[end],
@@ -278,7 +278,7 @@ end
 
 """
     plot_basin_zonal_panel(age_3D, grid, wet3D, vol_3D, output_dir, label;
-                           colorrange=(0, 1500), levels=0:100:1500, colormap=...,
+                           colorrange=(0, 2000), levels=0:100:2000, colormap=...,
                            colorbar_label="Age (years)", title_prefix=label, lat_pad=5)
 
 Single 1×3 figure of the Atlantic / Pacific / Indian volume-weighted zonal
@@ -292,8 +292,8 @@ and `zonalaverage`.
 """
 function plot_basin_zonal_panel(
         age_3D, grid, wet3D, vol_3D, output_dir, label;
-        colorrange = (0, 1500),
-        levels = 0:100:1500,
+        colorrange = (0, 2000),
+        levels = 0:100:2000,
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         colorbar_label = "Age (years)",
         title_prefix = label,
@@ -417,8 +417,8 @@ to years, and computes volume-weighted zonal averages per basin.
 """
 function animate_zonal_averages(
         age_fts, grid, wet3D, vol_3D, output_dir, prefix;
-        colorrange = (0, 1500),
-        levels = 0:100:1500,
+        colorrange = (0, 2000),
+        levels = 0:100:2000,
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         n_frames = 144,
         framerate = 24,
@@ -520,8 +520,8 @@ extracts the nearest depth level.
 """
 function animate_depth_slices(
         age_fts, grid, wet3D, output_dir, prefix;
-        colorrange = (0, 1500),
-        levels = 0:100:1500,
+        colorrange = (0, 2000),
+        levels = 0:100:2000,
         colormap = cgrad(:viridis, length(levels) - 1, categorical = true),
         lowclip = colormap[1],
         highclip = colormap[end],
