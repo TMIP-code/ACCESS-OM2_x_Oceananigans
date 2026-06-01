@@ -235,7 +235,12 @@ function plotmap!(
                 end for i in 1:(length(quad_points) ÷ 4)
         ]...,
     )
-    colors_per_point = vcat(fill.(vec(x2D), 4)...)
+    # `x2D` may be an Observable (for animations) — in that case lift the
+    # per-point colours so updating the Observable recolours the static mesh
+    # geometry in place. The quad geometry itself never changes (fixed grid).
+    colors_per_point = x2D isa Observable ?
+        lift(v -> vcat(fill.(vec(v), 4)...), x2D) :
+        vcat(fill.(vec(x2D), 4)...)
 
     plt = mesh!(
         ax, quad_points, quad_faces;
@@ -252,4 +257,82 @@ function plotmap!(
     translate!(plt, 0, 0, -100)
 
     return plt
+end
+
+################################################################################
+# Tripolar-grid helpers: build plotmap! gridmetrics + coastlines + map axis
+################################################################################
+
+"""
+    gridmetrics_from_grid(grid, Nx, Ny) → (; lon, lat, lon_vertices, lat_vertices)
+
+Build the `gridmetrics` NamedTuple expected by [`plotmap!`](@ref) from an
+Oceananigans tripolar grid. `Nx, Ny` are the **interior** horizontal dimensions
+(excluding the tripolar fold point — i.e. `size(wet3D)[1:2]`). Cell centres come
+from `λᶜᶜᵃ/φᶜᶜᵃ`; the `(4, Nx, Ny)` cell-corner vertices from the face-face
+nodes `λᶠᶠᵃ/φᶠᶠᵃ` with vertex order (i,j) → (i+1,j) → (i+1,j+1) → (i,j+1).
+"""
+function gridmetrics_from_grid(grid, Nx, Ny)
+    ug = hasproperty(grid, :underlying_grid) ? grid.underlying_grid : grid
+
+    # Cell centres (interior). λᶜᶜᵃ / φᶜᶜᵃ are OffsetArrays — interior origin
+    # is at index 1, halos at indices 1-Hx..0. So [1:Nx, 1:Ny] gives the interior.
+    lon2D = Array(ug.λᶜᶜᵃ[1:Nx, 1:Ny])
+    lat2D = Array(ug.φᶜᶜᵃ[1:Nx, 1:Ny])
+
+    # Cell vertices (corners). Need (Nx+1) × (Ny+1) face-face points.
+    λff_full = Array(ug.λᶠᶠᵃ[1:(Nx + 1), 1:(Ny + 1)])
+    φff_full = Array(ug.φᶠᶠᵃ[1:(Nx + 1), 1:(Ny + 1)])
+
+    lon_vertices = Array{eltype(λff_full)}(undef, 4, Nx, Ny)
+    lat_vertices = Array{eltype(φff_full)}(undef, 4, Nx, Ny)
+    @inbounds for j in 1:Ny, i in 1:Nx
+        lon_vertices[1, i, j] = λff_full[i, j]
+        lon_vertices[2, i, j] = λff_full[i + 1, j]
+        lon_vertices[3, i, j] = λff_full[i + 1, j + 1]
+        lon_vertices[4, i, j] = λff_full[i, j + 1]
+        lat_vertices[1, i, j] = φff_full[i, j]
+        lat_vertices[2, i, j] = φff_full[i + 1, j]
+        lat_vertices[3, i, j] = φff_full[i + 1, j + 1]
+        lat_vertices[4, i, j] = φff_full[i, j + 1]
+    end
+
+    return (; lon = lon2D, lat = lat2D, lon_vertices, lat_vertices)
+end
+
+"""
+    add_coastlines!(ax; lon_window_start = 20)
+
+Overlay `GeoMakie.coastlines()` on a `plotmap!` axis. Two copies are drawn,
+the second shifted by +360° in longitude, so coastlines cover both halves of
+the `[lon_window_start, lon_window_start + 360]` window. Both are translated to
+the front in z so they sit above the quad mesh.
+"""
+function add_coastlines!(ax; lon_window_start = 20)
+    coast = GeoMakie.coastlines()   # Vector{LineString{2, Float32}}
+    cl1 = lines!(ax, coast; color = :black, linewidth = 0.7)
+    cl2 = lines!(ax, coast; color = :black, linewidth = 0.7)
+    translate!(cl1, 0, 0, 50)
+    translate!(cl2, 360, 0, 50)
+    return nothing
+end
+
+"""
+    map_axis(fig_position; title = "", lon_window_start = 20) → Axis
+
+Create an `Axis` styled for `plotmap!` tripolar maps: lightgray background (so
+NaN/land cells read as land), no grid, and lon/lat-formatted ticks. `title` may
+be a `String` or an `Observable{String}` (for animations).
+"""
+function map_axis(fig_position; title = "", lon_window_start = 20)
+    xt = collect(0:90:360)
+    yt = collect(-90:30:90)
+    return Axis(
+        fig_position;
+        title,
+        backgroundcolor = :lightgray,
+        xgridvisible = false, ygridvisible = false,
+        xticks = (xt, lonticklabel.(xt)),
+        yticks = (yt, latticklabel.(yt)),
+    )
 end

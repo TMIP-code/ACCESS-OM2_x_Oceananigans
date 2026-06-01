@@ -56,9 +56,12 @@ using JLD2
 using Statistics
 using Printf
 using CairoMakie
+using GeoMakie
+using GeometryBasics
 using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 
 include("shared_functions.jl")
+include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 
 # OCEANS const used by compute_ocean_basin_masks (mirrors plot_standardrun_age.jl).
 const OCEANS = oceanpolygons()

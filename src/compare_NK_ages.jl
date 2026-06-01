@@ -39,6 +39,8 @@ using Oceananigans.Grids: znodes
 using Oceananigans.ImmersedBoundaries: ImmersedBoundaryGrid, mask_immersed_field!
 
 using CairoMakie
+using GeoMakie
+using GeometryBasics
 using ConservativeRegridding
 using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 const OCEANS = oceanpolygons()
@@ -46,6 +48,7 @@ using Statistics
 using Printf
 
 include("shared_functions.jl")
+include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 
 ################################################################################
 # Configuration

@@ -44,6 +44,8 @@ using Statistics
 using JLD2
 using Printf
 using CairoMakie
+using GeoMakie
+using GeometryBasics
 using OceanTransportMatrixBuilder
 using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 using CUDA
@@ -59,6 +61,7 @@ flush(stdout); flush(stderr)
 ################################################################################
 
 include("shared_functions.jl")
+include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 
 (; parentmodel, experiment_dir, outputdir) = load_project_config()
 

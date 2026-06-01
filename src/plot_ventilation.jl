@@ -182,51 +182,14 @@ end
 flush(stdout); flush(stderr)
 grid_file = joinpath(experiment_dir, "grid.jld2")
 grid = load_tripolar_grid(grid_file, CPU())
-ug = grid.underlying_grid
 Nx, Ny = size(calV1)
 
-# Cell centres (interior). λᶜᶜᵃ / φᶜᶜᵃ are OffsetArrays — interior origin
-# is at index 1, halos at indices 1-Hx..0. So [1:Nx, 1:Ny] gives the interior.
-lon2D = Array(ug.λᶜᶜᵃ[1:Nx, 1:Ny])
-lat2D = Array(ug.φᶜᶜᵃ[1:Nx, 1:Ny])
-
-# Cell vertices (corners). Need (Nx+1) × (Ny+1) face-face points.
-λff_full = Array(ug.λᶠᶠᵃ[1:(Nx + 1), 1:(Ny + 1)])
-φff_full = Array(ug.φᶠᶠᵃ[1:(Nx + 1), 1:(Ny + 1)])
-
-# Pack into the (4, Nx, Ny) NamedTuple expected by plotmap!. Vertex order:
-# (i, j) → (i+1, j) → (i+1, j+1) → (i, j+1).
-lon_vertices = Array{eltype(λff_full)}(undef, 4, Nx, Ny)
-lat_vertices = Array{eltype(φff_full)}(undef, 4, Nx, Ny)
-@inbounds for j in 1:Ny, i in 1:Nx
-    lon_vertices[1, i, j] = λff_full[i, j]
-    lon_vertices[2, i, j] = λff_full[i + 1, j]
-    lon_vertices[3, i, j] = λff_full[i + 1, j + 1]
-    lon_vertices[4, i, j] = λff_full[i, j + 1]
-    lat_vertices[1, i, j] = φff_full[i, j]
-    lat_vertices[2, i, j] = φff_full[i + 1, j]
-    lat_vertices[3, i, j] = φff_full[i + 1, j + 1]
-    lat_vertices[4, i, j] = φff_full[i, j + 1]
-end
-
-gridmetrics = (; lon = lon2D, lat = lat2D, lon_vertices, lat_vertices)
-
-################################################################################
-# Coastlines helper — GeoMakie.coastlines() shifted into the [20, 380] window
-################################################################################
+# Build the (4, Nx, Ny) curvilinear gridmetrics expected by plotmap! and the
+# GeoMakie coastline overlay via the shared helpers in plotting_functions.jl.
+gridmetrics = gridmetrics_from_grid(grid, Nx, Ny)
+lat2D = gridmetrics.lat   # interior cell-centre latitudes, used by zonal_integral
 
 lon_window_start = 20  # matches plotmap!'s default
-
-function add_coastlines!(ax)
-    coast = GeoMakie.coastlines()   # Vector{LineString{2, Float32}}
-    cl1 = lines!(ax, coast; color = :black, linewidth = 0.7)
-    cl2 = lines!(ax, coast; color = :black, linewidth = 0.7)
-    # Shift the second copy by +360° in lon so coastlines cover both halves
-    # of the [20, 380] window. Bring both to front in z.
-    translate!(cl1, 0, 0, 50)
-    translate!(cl2, 360, 0, 50)
-    return nothing
-end
 
 ################################################################################
 # Colour scales and palettes

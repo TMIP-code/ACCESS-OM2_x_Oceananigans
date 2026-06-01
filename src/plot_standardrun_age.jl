@@ -41,6 +41,8 @@ using Oceananigans.Units: day, days, second, seconds
 year = years = 365.25days
 
 using CairoMakie
+using GeoMakie
+using GeometryBasics
 using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 const OCEANS = oceanpolygons()
 using Statistics
@@ -49,6 +51,7 @@ using JLD2
 using Printf
 
 include("shared_functions.jl")
+include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 
 ################################################################################
 # Configuration

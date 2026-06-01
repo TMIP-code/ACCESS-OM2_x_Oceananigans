@@ -239,7 +239,10 @@ function plot_age_diagnostics(
         save(outputfile, fig)
     end
 
-    # ── Horizontal slices ───────────────────────────────────────────────
+    # ── Horizontal slices (lon/lat maps via plotmap!) ────────────────────
+
+    # Build the curvilinear gridmetrics once (shared by every depth slice).
+    gridmetrics = gridmetrics_from_grid(grid, Nx′, Ny′)
 
     # Collect (k, file_tag, title_tag) tuples from target_depths and target_k_indices
     slice_specs = Tuple{Int, String, String}[]
@@ -257,12 +260,10 @@ function plot_age_diagnostics(
         slice = age_plot[:, :, k]
 
         fig = Figure(; size = (1000, 500))
-        ax = Axis(
-            fig[1, 1];
-            title = "$title_prefix at $title_tag",
-        )
+        ax = map_axis(fig[1, 1]; title = "$title_prefix at $title_tag")
 
-        hm = heatmap!(ax, slice; colorrange, colormap, nan_color = :black, lowclip, highclip)
+        hm = plotmap!(ax, slice, gridmetrics; colorrange, colormap, lowclip, highclip)
+        add_coastlines!(ax)
         Colorbar(fig[1, 2], hm; label = colorbar_label)
 
         outputfile = joinpath(output_dir, "$(label)_slice_$(file_tag).png")
@@ -544,6 +545,9 @@ function animate_depth_slices(
 
     age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
 
+    # Build the curvilinear gridmetrics once (shared by every frame/depth).
+    gridmetrics = gridmetrics_from_grid(grid, Nx′, Ny′)
+
     # Build figure once; update observables per depth
     age_raw = interior(age_fts[Time(frame_times[1])])
     @. age_buf = ifelse(wet3D, age_raw / year, NaN)
@@ -551,12 +555,10 @@ function animate_depth_slices(
     title_obs = Observable("")
 
     fig = Figure(; size = (1000, 500))
-    ax = Axis(fig[1, 1]; title = title_obs)
+    ax = map_axis(fig[1, 1]; title = title_obs)
 
-    hm = heatmap!(
-        ax, slice_obs; colorrange, colormap, nan_color = :black,
-        lowclip, highclip
-    )
+    hm = plotmap!(ax, slice_obs, gridmetrics; colorrange, colormap, lowclip, highclip)
+    add_coastlines!(ax)
     Colorbar(fig[1, 2], hm; label = "Age (years)")
 
     for (depth, k) in depth_k_indices
@@ -662,13 +664,19 @@ function plot_age_comparison_slice(
     cr = colorrange === :auto ? _safe_colorrange(vcat(vec(A_slice), vec(B_slice))) : colorrange
     dr = diff_range === :auto ? _safe_diff_range(vec(diff_slice)) : diff_range
 
+    Nx′, Ny′, _ = size(wet3D)
+    gridmetrics = gridmetrics_from_grid(grid, Nx′, Ny′)
+
     fig = Figure(; size = (1700, 500))
-    ax_A = Axis(fig[1, 1]; title = label_A)
-    ax_B = Axis(fig[1, 2]; title = label_B)
-    ax_D = Axis(fig[1, 4]; title = "$label_B − $label_A")
-    hm_A = heatmap!(ax_A, A_slice; colorrange = cr, colormap, nan_color = :lightgray)
-    heatmap!(ax_B, B_slice; colorrange = cr, colormap, nan_color = :lightgray)
-    hm_D = heatmap!(ax_D, diff_slice; colorrange = dr, colormap = :balance, nan_color = :lightgray)
+    ax_A = map_axis(fig[1, 1]; title = label_A)
+    ax_B = map_axis(fig[1, 2]; title = label_B)
+    ax_D = map_axis(fig[1, 4]; title = "$label_B − $label_A")
+    hm_A = plotmap!(ax_A, A_slice, gridmetrics; colorrange = cr, colormap)
+    plotmap!(ax_B, B_slice, gridmetrics; colorrange = cr, colormap)
+    hm_D = plotmap!(ax_D, diff_slice, gridmetrics; colorrange = dr, colormap = :balance)
+    add_coastlines!(ax_A)
+    add_coastlines!(ax_B)
+    add_coastlines!(ax_D)
     Colorbar(fig[1, 3], hm_A; label = value_label)
     Colorbar(fig[1, 5], hm_D; label = diff_label)
 
