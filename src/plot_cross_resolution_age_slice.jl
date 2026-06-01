@@ -285,7 +285,17 @@ age_cmap = cgrad(:viridis, length(age_levels) - 1, categorical = true)
 age_range = (age_cmin, age_cmax)
 
 diff_levels = collect(diff_cmin:diff_dlevel:diff_cmax)
-diff_cmap = cgrad(:balance, length(diff_levels) - 1, categorical = true)
+n_diff_bins = length(diff_levels) - 1
+# White-centred diverging map so values close to zero render white, via
+# withwhitecenter (cf. plot_ventilation.jl L235). That helper whitens the centre
+# entry of the colour scheme; it works there because PRGn is an 11-colour scheme
+# sampled at 11 (identity). :balance is a 256-colour scheme, so we first bin it
+# down to n_diff_bins colours as a ColorScheme — withwhitecenter then whitens the
+# real centre bin without the single white entry being diluted on resampling.
+balance_binned = Makie.ColorSchemes.ColorScheme(
+    [cgrad(:balance, n_diff_bins, categorical = true)[i] for i in 1:n_diff_bins]
+)
+diff_cmap = cgrad(withwhitecenter(balance_binned), n_diff_bins; categorical = true)
 diff_range = (diff_cmin, diff_cmax)
 
 lon_window_start = 20
