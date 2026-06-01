@@ -899,8 +899,11 @@ function check_age_field(field, wet3D, grid; kind, min_yr, max_yr, label)
     i, j, k = Tuple(worst_idx)
     worst_val = field[worst_idx]
     ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
-    lon = Array(ug.λᶜᶜᵃ)[i, j]
-    lat = Array(ug.φᶜᶜᵃ)[i, j]
+    # λᶜᶜᵃ/φᶜᶜᵃ are halo-offset arrays (indices start at 1-Hx); index directly
+    # with the 1-based interior (i, j) rather than Array()-materialising (which
+    # would hit an axes-mismatch on the OffsetArray).
+    lon = ug.λᶜᶜᵃ[i, j]
+    lat = ug.φᶜᶜᵃ[i, j]
     z = znodes(grid, Center(), Center(), Center())
     depth = -z[k]
     n_wet = count(wet3D)

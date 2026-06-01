@@ -45,7 +45,7 @@ Environment variables (all optional; defaults match the paper config):
   DEPTH               – slice depth in metres (default 2000)
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
   AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 100)
-  DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -1000 / 1000 / 100;
+  DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -500 / 500 / 100;
                                     symmetric, zero excluded → single white band ∓DLEVEL)
 """
 
@@ -95,8 +95,8 @@ depth_m = parse(Float64, get(ENV, "DEPTH", "2000"))
 age_cmin = parse(Float64, get(ENV, "AGE_CMIN", "0"))
 age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
-diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-1000"))
-diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "1000"))
+diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-500"))
+diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "500"))
 diff_dlevel = parse(Float64, get(ENV, "DIFF_DLEVEL", "100"))
 
 # (short tag, parent model, experiment, model_config)
@@ -178,9 +178,11 @@ function mean_age_slice(fts_path, grid, k)
     end
     out = similar(accum)
     @. out = ifelse(wet_k, accum / (n_avg * YEAR), NaN)   # → years
+    # min_yr = -1e4 (not 0): small negative ages are a normal centered-advection
+    # undershoot, not a pathology; the guard still catches |age| > 1e4 / non-finite.
     check_age_field(
         reshape(out, Nx, Ny, 1), reshape(wet_k, Nx, Ny, 1), grid;
-        kind = "age 2000 m slice", min_yr = 0.0, max_yr = 1.0e4, label = fts_path
+        kind = "age $(Int(round(depth_m))) m slice", min_yr = -1.0e4, max_yr = 1.0e4, label = fts_path
     )
     return out, wet_k
 end

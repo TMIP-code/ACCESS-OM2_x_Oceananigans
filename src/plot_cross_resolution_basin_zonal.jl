@@ -83,8 +83,8 @@ TW2 = get(ENV, "TW2", "1999-2008")
 age_cmin = parse(Float64, get(ENV, "AGE_CMIN", "0"))
 age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
-diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-1000"))
-diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "1000"))
+diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-500"))
+diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "500"))
 diff_dlevel = parse(Float64, get(ENV, "DIFF_DLEVEL", "100"))
 
 models = [
@@ -130,7 +130,11 @@ function mean_age_3D(fts_path, grid, wet3D)
     end
     out = similar(accum)
     @. out = ifelse(wet3D, accum / (n_avg * YEAR), NaN)   # → years
-    check_age_field(out, wet3D, grid; kind = "zonal-mean age 3D", min_yr = 0.0, max_yr = 1.0e4, label = fts_path)
+    # min_yr = -1e4 (not 0): small negative ages near the surface sink are a
+    # normal centered-advection undershoot (here down to ~-100 yr), not a solver
+    # pathology. The guard still catches catastrophic blowups (|age| > 1e4) and
+    # non-finite values, matching the project's age-sanity convention.
+    check_age_field(out, wet3D, grid; kind = "zonal-mean age 3D", min_yr = -1.0e4, max_yr = 1.0e4, label = fts_path)
     return out
 end
 
