@@ -59,6 +59,13 @@ nadw_specs = [
     ),
 ]
 
+# Cross-resolution combined-figure styling — one entry per model in `models`
+combined_styles = [
+    (color = :black, linestyle = :solid),
+    (color = :darkorange, linestyle = :solid),
+]
+combined_data = NamedTuple[]
+
 # ── Main loop ─────────────────────────────────────────────────────────────
 
 for (model, experiment) in models
@@ -170,4 +177,85 @@ for (model, experiment) in models
                 "max=$(round(maximum(finite); digits = 2))  Sv"
         end
     end
+
+    # Stash data for cross-resolution combined figures (NADW: 4th spec only,
+    # i.e. 26°N–65°N × ρ ∈ [1035, 1037]).
+    push!(
+        combined_data, (
+            model = model,
+            aabw_years = aabw_years,
+            aabw_yearly_plot = aabw_yearly_plot,
+            nadw_years = nadw_series[4].years,
+            nadw_yearly = nadw_series[4].yearly,
+        )
+    )
+end
+
+# ── Cross-resolution combined figures ────────────────────────────────────
+
+if length(combined_data) == length(models)
+    combined_outdir = joinpath(@__DIR__, "..", "outputs", "cross_resolution", "AABW_NADW")
+    mkpath(combined_outdir)
+
+    # Style helpers
+    fontsize = 14
+    decadal_vspans!(ax) = for (y1, y2, color, _) in decadal_windows
+        vspan!(ax, y1 - 0.5, y2 + 0.5; color = (color, 0.1))
+    end
+
+    # 1) AABW + NADW (2×1)
+    fig_an = Figure(; size = (650, 550), fontsize = fontsize)
+    ax_a = Axis(
+        fig_an[1, 1];
+        ylabel = "AABW (Sv)",
+        title = "AABW (global ψ) & NADW (Atlantic ψ, 26°N–65°N, ρ∈[1035,1037] kg/m³)",
+        titlesize = fontsize,
+        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
+    )
+    ax_n = Axis(
+        fig_an[2, 1];
+        xlabel = "Year", ylabel = "NADW (Sv)",
+        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
+    )
+    linkxaxes!(ax_a, ax_n)
+    hidexdecorations!(ax_a; ticks = false, grid = false)
+    decadal_vspans!(ax_a); decadal_vspans!(ax_n)
+    for (d, s) in zip(combined_data, combined_styles)
+        lines!(
+            ax_a, d.aabw_years, d.aabw_yearly_plot;
+            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+        )
+        lines!(
+            ax_n, d.nadw_years, d.nadw_yearly;
+            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+        )
+    end
+    axislegend(ax_a; position = :rt, labelsize = fontsize - 2, framevisible = true)
+    rowgap!(fig_an.layout, 6)
+
+    outfile_an = joinpath(combined_outdir, "AABW_NADW_combined_rhospace_timeseries.png")
+    save(outfile_an, fig_an; px_per_unit = 3)
+    @info "Saved: $outfile_an"
+
+    # 2) AABW only (1×1)
+    fig_a = Figure(; size = (650, 350), fontsize = fontsize)
+    ax = Axis(
+        fig_a[1, 1];
+        xlabel = "Year", ylabel = "AABW (Sv)",
+        title = "AABW transport (global ψ, min ψ over lat<0°, ρ≥1036 kg/m³)",
+        titlesize = fontsize,
+        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
+    )
+    decadal_vspans!(ax)
+    for (d, s) in zip(combined_data, combined_styles)
+        lines!(
+            ax, d.aabw_years, d.aabw_yearly_plot;
+            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+        )
+    end
+    axislegend(ax; position = :rt, labelsize = fontsize - 2, framevisible = true)
+
+    outfile_a = joinpath(combined_outdir, "AABW_combined_rhospace_timeseries.png")
+    save(outfile_a, fig_a; px_per_unit = 3)
+    @info "Saved: $outfile_a"
 end
