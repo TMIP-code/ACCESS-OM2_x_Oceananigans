@@ -83,9 +83,9 @@ TW2 = get(ENV, "TW2", "1999-2008")
 age_cmin = parse(Float64, get(ENV, "AGE_CMIN", "0"))
 age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
-diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-500"))
-diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "500"))
-diff_dlevel = parse(Float64, get(ENV, "DIFF_DLEVEL", "100"))
+# Positive diff-level boundaries; mirrored + zero-excluded below. Quasi-log by
+# default; comma-separated, overridable via DIFF_LEVELS.
+diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "20,50,100,200,500"), ",")))
 
 models = [
     ("OM2-1", "ACCESS-OM2-1", "1deg_jra55_iaf_omip2_cycle6", mc_om21),
@@ -106,7 +106,7 @@ grid_path(pm, exp) = joinpath(repo_root, "preprocessed_inputs", pm, exp, "grid.j
 @info "- OM2-025 config = $mc_om2025"
 @info "- time windows   = $TW1, $TW2"
 @info "- age scale      = ($age_cmin, $age_cmax) step $age_dlevel"
-@info "- diff scale     = (±$(max(abs(diff_cmin), abs(diff_cmax)))) step $diff_dlevel"
+@info "- diff levels    = ±$(diff_pos)"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -200,10 +200,8 @@ age_levels = collect(age_cmin:age_dlevel:age_cmax)
 age_cmap = cgrad(:viridis, length(age_levels) - 1, categorical = true)
 age_range = (age_cmin, age_cmax)
 
-# Diff levels symmetric, EXCLUDING zero → single white band ∓diff_dlevel about 0
+# Diff levels symmetric, EXCLUDING zero → single white band ∓diff_pos[1] about 0
 # (cf. plot_ventilation.jl L232). Odd bin count, so withwhitecenter whitens it.
-diff_ext = max(abs(diff_cmin), abs(diff_cmax))
-diff_pos = collect(diff_dlevel:diff_dlevel:diff_ext)
 diff_levels = [-reverse(diff_pos); diff_pos]
 n_diff_bins = length(diff_levels) - 1
 # :balance is a 256-colour scheme; bin it to n_diff_bins colours first so

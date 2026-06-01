@@ -45,8 +45,9 @@ Environment variables (all optional; defaults match the paper config):
   DEPTH               – slice depth in metres (default 2000)
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
   AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 100)
-  DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -500 / 500 / 100;
-                                    symmetric, zero excluded → single white band ∓DLEVEL)
+  DIFF_LEVELS                     – positive diff boundaries, comma-separated
+                                    (default 20,50,100,200,500; mirrored & zero-excluded
+                                    → single white band ∓first-level about zero)
 """
 
 @info "Loading packages for cross-resolution age-slice plot"
@@ -95,9 +96,9 @@ depth_m = parse(Float64, get(ENV, "DEPTH", "2000"))
 age_cmin = parse(Float64, get(ENV, "AGE_CMIN", "0"))
 age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
 age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
-diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-500"))
-diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "500"))
-diff_dlevel = parse(Float64, get(ENV, "DIFF_DLEVEL", "100"))
+# Positive diff-level boundaries; the negative mirror + zero-exclusion are
+# applied below. Quasi-log by default; comma-separated, overridable via DIFF_LEVELS.
+diff_pos = sort(parse.(Float64, split(get(ENV, "DIFF_LEVELS", "20,50,100,200,500"), ",")))
 
 # (short tag, parent model, experiment, model_config)
 models = [
@@ -121,7 +122,7 @@ grid_path(pm, exp) = joinpath(repo_root, "preprocessed_inputs", pm, exp, "grid.j
 @info "- time windows   = $TW1, $TW2"
 @info "- depth          = $depth_m m"
 @info "- age scale      = ($age_cmin, $age_cmax) step $age_dlevel"
-@info "- diff scale     = ($diff_cmin, $diff_cmax) step $diff_dlevel"
+@info "- diff levels    = ±$(diff_pos)"
 flush(stdout); flush(stderr)
 
 ################################################################################
@@ -288,12 +289,10 @@ age_cmap = cgrad(:viridis, length(age_levels) - 1, categorical = true)
 age_range = (age_cmin, age_cmax)
 
 # Diff levels are symmetric and EXCLUDE zero (cf. plot_ventilation.jl L232), so
-# the central band [-diff_dlevel, +diff_dlevel] straddles zero as a single band.
+# the central band [-diff_pos[1], +diff_pos[1]] straddles zero as a single band.
 # That makes the bin count odd, so withwhitecenter whitens exactly that central
 # band → values close to zero render white. mk_piecewise_linear maps the
-# (now non-uniform) central band to an equal-width colour bin.
-diff_ext = max(abs(diff_cmin), abs(diff_cmax))
-diff_pos = collect(diff_dlevel:diff_dlevel:diff_ext)
+# (non-uniform / quasi-log) levels to equal-width colour bins.
 diff_levels = [-reverse(diff_pos); diff_pos]
 n_diff_bins = length(diff_levels) - 1                 # odd
 # White-centred diverging map via withwhitecenter (cf. plot_ventilation.jl L235).
