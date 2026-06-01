@@ -44,7 +44,7 @@ Environment variables (all optional; defaults match the paper config):
   TW1, TW2            – the two time windows  (default 1968-1977, 1999-2008)
   DEPTH               – slice depth in metres (default 2000)
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
-  AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 10)
+  AGE_CMIN/AGE_CMAX/AGE_DLEVEL    – age colour scale     (default 0 / 2000 / 100)
   DIFF_CMIN/DIFF_CMAX/DIFF_DLEVEL – diff colour scale     (default -1000 / 1000 / 100)
 """
 
@@ -93,7 +93,7 @@ depth_m = parse(Float64, get(ENV, "DEPTH", "2000"))
 
 age_cmin = parse(Float64, get(ENV, "AGE_CMIN", "0"))
 age_cmax = parse(Float64, get(ENV, "AGE_CMAX", "2000"))
-age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "10"))
+age_dlevel = parse(Float64, get(ENV, "AGE_DLEVEL", "100"))
 diff_cmin = parse(Float64, get(ENV, "DIFF_CMIN", "-1000"))
 diff_cmax = parse(Float64, get(ENV, "DIFF_CMAX", "1000"))
 diff_dlevel = parse(Float64, get(ENV, "DIFF_DLEVEL", "100"))
@@ -378,13 +378,15 @@ diff_ticks = diff_cmin:max(diff_dlevel, (diff_cmax - diff_cmin) / 4):diff_cmax
 Colorbar(
     cbs[1, 1];
     colormap = age_cmap, limits = age_range, highclip = age_cmap[end],
-    ticks = collect(age_ticks), label = "Age (years)", vertical = true,
+    ticks = collect(age_ticks), label = "Age (years)",
+    vertical = false, flipaxis = false, tellwidth = false,
 )
 Colorbar(
-    cbs[1, 2];
+    cbs[2, 1];
     colormap = diff_cmap, limits = diff_range,
     lowclip = diff_cmap[1], highclip = diff_cmap[end],
-    ticks = collect(diff_ticks), label = "Δ Age (years)", vertical = true,
+    ticks = collect(diff_ticks), label = "Δ Age (years)",
+    vertical = false, flipaxis = false, tellwidth = false,
 )
 
 Label(
