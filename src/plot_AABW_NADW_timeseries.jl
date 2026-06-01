@@ -60,10 +60,12 @@ nadw_specs = [
 ]
 
 # Cross-resolution combined-figure styling — one entry per model in `models`
+# (OM2-1 dashed, OM2-025 solid; color encodes water mass, see water_mass_colors)
 combined_styles = [
-    (color = :black, linestyle = :solid),
-    (color = :darkorange, linestyle = :solid),
+    (linestyle = :dash,),
+    (linestyle = :solid,),
 ]
+water_mass_colors = (AABW = :teal, NADW = :darkorange)
 combined_data = NamedTuple[]
 
 # ── Main loop ─────────────────────────────────────────────────────────────
@@ -203,57 +205,91 @@ if length(combined_data) == length(models)
         vspan!(ax, y1 - 0.5, y2 + 0.5; color = (color, 0.1))
     end
 
-    # 1) AABW + NADW (2×1)
-    fig_an = Figure(; size = (650, 550), fontsize = fontsize)
-    ax_a = Axis(
+    # Start-of-line annotations via Makie's `annotation!` (Makie 0.22+).
+    # Labels sit to the LEFT of each line's first data point in pixel space,
+    # connected by a short leader (Ann.Paths.Line()). xlim is extended left
+    # to make room without adding ticks (xticks stays at 1960:10:2020).
+    short_label(model) = replace(model, "ACCESS-" => "")
+
+    xmin = 1935
+    xmax = maximum(maximum(d.aabw_years) for d in combined_data) + 1
+
+    # 1) AABW + NADW on a single panel — color encodes water mass, linestyle encodes resolution.
+    fig_an = Figure(; size = (600, 340), fontsize = fontsize)
+    ax_an = Axis(
         fig_an[1, 1];
-        ylabel = "AABW (Sv)",
-        title = "AABW (global ψ) & NADW (Atlantic ψ, 26°N–65°N, ρ∈[1035,1037] kg/m³)",
-        titlesize = fontsize,
-        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
+        xlabel = "Year", ylabel = "Transport (Sv)",
+        xticks = 1960:10:2020, limits = (xmin, xmax, 0, nothing),
     )
-    ax_n = Axis(
-        fig_an[2, 1];
-        xlabel = "Year", ylabel = "NADW (Sv)",
-        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
-    )
-    linkxaxes!(ax_a, ax_n)
-    hidexdecorations!(ax_a; ticks = false, grid = false)
-    decadal_vspans!(ax_a); decadal_vspans!(ax_n)
+    decadal_vspans!(ax_an)
     for (d, s) in zip(combined_data, combined_styles)
         lines!(
-            ax_a, d.aabw_years, d.aabw_yearly_plot;
-            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+            ax_an, d.aabw_years, d.aabw_yearly_plot;
+            color = water_mass_colors.AABW, linestyle = s.linestyle, linewidth = 2,
         )
         lines!(
-            ax_n, d.nadw_years, d.nadw_yearly;
-            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+            ax_an, d.nadw_years, d.nadw_yearly;
+            color = water_mass_colors.NADW, linestyle = s.linestyle, linewidth = 2,
         )
     end
-    axislegend(ax_a; position = :rt, labelsize = fontsize - 2, framevisible = true)
-    rowgap!(fig_an.layout, 6)
+    # AABW labels: lines are well-separated — minimal offset, no vertical shift.
+    # NADW labels: lines are close — push apart vertically with a leader line.
+    d1, d2 = combined_data[1], combined_data[2]
+    annotation!(
+        ax_an,
+        [-25.0, -25.0, -35.0, -35.0],
+        [0.0, 0.0, -14.0, 14.0],
+        [
+            first(d1.aabw_years), first(d2.aabw_years),
+            first(d1.nadw_years), first(d2.nadw_years),
+        ],
+        [
+            first(d1.aabw_yearly_plot), first(d2.aabw_yearly_plot),
+            first(d1.nadw_yearly), first(d2.nadw_yearly),
+        ];
+        text = [
+            "AABW $(short_label(d1.model))", "AABW $(short_label(d2.model))",
+            "NADW $(short_label(d1.model))", "NADW $(short_label(d2.model))",
+        ],
+        color = [
+            water_mass_colors.AABW, water_mass_colors.AABW,
+            water_mass_colors.NADW, water_mass_colors.NADW,
+        ],
+        align = (:right, :center), fontsize = fontsize - 2,
+        path = Ann.Paths.Line(), labelspace = :relative_pixel,
+        shrink = (3.0, 5.0),
+    )
 
     outfile_an = joinpath(combined_outdir, "AABW_NADW_combined_rhospace_timeseries.png")
     save(outfile_an, fig_an; px_per_unit = 3)
     @info "Saved: $outfile_an"
 
-    # 2) AABW only (1×1)
-    fig_a = Figure(; size = (650, 350), fontsize = fontsize)
+    # 2) AABW only (1×1) — same resolution-linestyle convention, AABW color.
+    fig_a = Figure(; size = (600, 290), fontsize = fontsize)
     ax = Axis(
         fig_a[1, 1];
         xlabel = "Year", ylabel = "AABW (Sv)",
-        title = "AABW transport (global ψ, min ψ over lat<0°, ρ≥1036 kg/m³)",
-        titlesize = fontsize,
-        xticks = 1960:10:2020, limits = (nothing, nothing, 0, nothing),
+        xticks = 1960:10:2020, limits = (xmin, xmax, 0, nothing),
     )
     decadal_vspans!(ax)
     for (d, s) in zip(combined_data, combined_styles)
         lines!(
             ax, d.aabw_years, d.aabw_yearly_plot;
-            color = s.color, linestyle = s.linestyle, linewidth = 2, label = d.model,
+            color = water_mass_colors.AABW, linestyle = s.linestyle, linewidth = 2,
         )
     end
-    axislegend(ax; position = :rt, labelsize = fontsize - 2, framevisible = true)
+    annotation!(
+        ax,
+        [-25.0, -25.0],
+        [0.0, 0.0],
+        [first(d1.aabw_years), first(d2.aabw_years)],
+        [first(d1.aabw_yearly_plot), first(d2.aabw_yearly_plot)];
+        text = [short_label(d1.model), short_label(d2.model)],
+        color = [water_mass_colors.AABW, water_mass_colors.AABW],
+        align = (:right, :center), fontsize = fontsize - 2,
+        path = Ann.Paths.Line(), labelspace = :relative_pixel,
+        shrink = (3.0, 5.0),
+    )
 
     outfile_a = joinpath(combined_outdir, "AABW_combined_rhospace_timeseries.png")
     save(outfile_a, fig_a; px_per_unit = 3)
