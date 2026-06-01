@@ -336,7 +336,7 @@ end
 @info "Building figure"
 flush(stdout); flush(stderr)
 
-fig = Figure(; size = (1750, 1250), fontsize = 15)
+fig = Figure(; size = (1750, 875), fontsize = 15)
 g = fig[1, 1] = GridLayout()
 
 # Column headers (row 1; data axes occupy cols 2-4, rows 2-4)
