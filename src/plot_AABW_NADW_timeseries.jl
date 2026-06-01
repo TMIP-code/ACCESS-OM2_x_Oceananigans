@@ -232,13 +232,12 @@ if length(combined_data) == length(models)
             color = water_mass_colors.NADW, linestyle = s.linestyle, linewidth = 2,
         )
     end
-    # AABW labels: lines are well-separated — minimal offset, no vertical shift.
-    # NADW labels: lines are close — push apart vertically with a leader line.
+    # Uniform left offset for all 4 labels; plain black leaders, colored text.
     d1, d2 = combined_data[1], combined_data[2]
     annotation!(
         ax_an,
-        [-25.0, -25.0, -35.0, -35.0],
-        [0.0, 0.0, -14.0, 14.0],
+        [-25.0, -25.0, -25.0, -25.0],
+        [0.0, 0.0, 0.0, 0.0],
         [
             first(d1.aabw_years), first(d2.aabw_years),
             first(d1.nadw_years), first(d2.nadw_years),
@@ -251,7 +250,8 @@ if length(combined_data) == length(models)
             "AABW $(short_label(d1.model))", "AABW $(short_label(d2.model))",
             "NADW $(short_label(d1.model))", "NADW $(short_label(d2.model))",
         ],
-        color = [
+        color = :black,
+        textcolor = [
             water_mass_colors.AABW, water_mass_colors.AABW,
             water_mass_colors.NADW, water_mass_colors.NADW,
         ],
@@ -285,7 +285,8 @@ if length(combined_data) == length(models)
         [first(d1.aabw_years), first(d2.aabw_years)],
         [first(d1.aabw_yearly_plot), first(d2.aabw_yearly_plot)];
         text = [short_label(d1.model), short_label(d2.model)],
-        color = [water_mass_colors.AABW, water_mass_colors.AABW],
+        color = :black,
+        textcolor = [water_mass_colors.AABW, water_mass_colors.AABW],
         align = (:right, :center), fontsize = fontsize - 2,
         path = Ann.Paths.Line(), labelspace = :relative_pixel,
         shrink = (3.0, 5.0),
