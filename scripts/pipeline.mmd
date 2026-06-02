@@ -18,7 +18,7 @@ graph TD
         TMbuild & TMsnapshot
     end
     subgraph solvers
-        TMsolve:::gpu & NK:::gpu & run1yrNK:::gpu & combine1yr & ventilation
+        TMsolve:::gpu & TMprecbench & NK:::gpu & run1yrNK:::gpu & combine1yr & ventilation
     end
     subgraph plotting
         plotgrid & plot1yr & plot10yr & plot100yr & plotTM & plotNK & plotNKtrace & plotventilation & plotMOC
@@ -32,6 +32,7 @@ graph TD
     run10yr --> plot10yr
     run100yr --> plot100yr
     TMbuild & TMsnapshot --> TMsolve & NK & plotTM
+    TMbuild --> TMprecbench
     NK --> run1yrNK & plotNKtrace
     run1yrNK --> combine1yr
     combine1yr --> plotNK & ventilation

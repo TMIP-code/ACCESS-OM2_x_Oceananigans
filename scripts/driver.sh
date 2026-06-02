@@ -14,8 +14,13 @@ set -euo pipefail
 #
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
-#   TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM
+#   TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM
 #   plot1yr plot10yr plot100yr plotMOC compareNK
+#
+# TMprecbench: benchmark the NK preconditioner's coarsened factorize+solve
+#   (time + memory) over LAS_VALUES (default "5x5 4x4 3x3"); one CPU job per
+#   coarsening factor. Depends on the const-M TMbuild (pre-set TMBUILD_JOB to
+#   chain onto an existing build). LAS_VALUES overrides LUMP_AND_SPRAY here only.
 #
 # compareNK: cross-resolution NK age comparison — see docs/IAF_NK_age_comparison_plan.md.
 #   Standalone (does not consume PARENT_MODEL/EXPERIMENT/TIME_WINDOW).
@@ -92,7 +97,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
+    echo "    TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal"
     echo ""
     echo "  Shortcuts:"
@@ -113,7 +118,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -256,7 +261,10 @@ fi
 #  PARTITION=1x4 JOB_CHAIN=partition-run1yr bash scripts/driver.sh`)
 PREP_JOB="${PREP_JOB:-}" GRID_JOB="${GRID_JOB:-}" VEL_JOB="${VEL_JOB:-}" CLO_JOB="${CLO_JOB:-}" DIAGW_JOB="${DIAGW_JOB:-}" PARTITION_JOB="${PARTITION_JOB:-}"
 RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
-TMBUILD_JOB="" TMSNAP_JOB=""
+# TMBUILD_JOB/TMSNAP_JOB are preservable so downstream-only chains (e.g.
+# JOB_CHAIN=TMsolve or TMprecbench) can afterok-depend on a build submitted by an
+# earlier invocation: `TMBUILD_JOB=12345.gadi-pbs JOB_CHAIN=TMprecbench bash scripts/driver.sh`
+TMBUILD_JOB="${TMBUILD_JOB:-}" TMSNAP_JOB="${TMSNAP_JOB:-}"
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="${NK_CONST:-}" NK_AVG="${NK_AVG:-}" RUNNK_CONST="${RUNNK_CONST:-}" RUNNK_AVG="${RUNNK_AVG:-}" VENT_CONST="${VENT_CONST:-}" VENT_AVG="${VENT_AVG:-}"
 COMBINE1YR_CONST="${COMBINE1YR_CONST:-}" COMBINE1YR_AVG="${COMBINE1YR_AVG:-}"
@@ -460,6 +468,23 @@ if has_step TMsolve; then
             --gpu-single --deps "${TMSNAP_JOB:-}" \
             --vars "TM_SOURCE=avg,LUMP_AND_SPRAY=${LUMP_AND_SPRAY}")
     fi
+fi
+
+# ------------------------------------------------------------
+# 4b. Preconditioner-solve benchmark (sweep LUMP_AND_SPRAY)
+# ------------------------------------------------------------
+# Benchmark the NK preconditioner's coarsened factorize+solve (time + memory)
+# for each LAS_VALUES entry. One CPU job per coarsening factor so PBS
+# resources_used.mem cleanly attributes peak memory. Depends on the const-M
+# TMbuild (pre-set TMBUILD_JOB=<jobid> to chain onto an existing build).
+# LAS_VALUES overrides the single LUMP_AND_SPRAY for this step only.
+if has_step TMprecbench; then
+    for _las in ${LAS_VALUES:-5x5 4x4 3x3}; do
+        submit_job pcbench_${_las} "${WALLTIME_PRECBENCH:-06:00:00}" \
+            scripts/benchmarks/benchmark_precond_solve.sh \
+            --deps "${TMBUILD_JOB:-}" \
+            --vars "TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${_las}" > /dev/null
+    done
 fi
 
 # ============================================================
