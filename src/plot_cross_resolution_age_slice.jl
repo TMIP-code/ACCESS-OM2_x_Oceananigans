@@ -38,9 +38,9 @@ julia --project src/plot_cross_resolution_age_slice.jl
 ```
 
 Environment variables (all optional; defaults match the paper config):
-  MODEL_CONFIG_OM21   – OM2-1 model_config   (default totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12)
-  MODEL_CONFIG_OM2025 – OM2-025 model_config (default totaltransport_wdiagnosed_centered2_SRK3_mkappaV_LBS_DTx9)
-  SOLVER_TAG          – 1-year solver tag dir (default Pardiso_LSprec)
+  MODEL_CONFIG_OM21   – OM2-1 model_config   (default totaltransport_wparent_centered2_AB2_kH300_kVML1e-1_kVBG3e-5_mkappaV_DTx4)
+  MODEL_CONFIG_OM2025 – OM2-025 model_config (default totaltransport_wparent_centered2_AB2_kH75_kVML5e-2_kVBG15e-6_mkappaV_LBS_DTx2)
+  SOLVER_TAG          – 1-year solver tag dir (default Pardiso_Q2x2)
   TW1, TW2            – the two time windows  (default 1968-1977, 1999-2008)
   DEPTH               – slice depth in metres (default 2000)
   TRAF                – yes ⇒ adjoint age (age_traf, `_traf` model_config suffix)
@@ -84,9 +84,9 @@ age_var = "age"                                  # FTS variable name (forward or
 config_suffix = TRAF ? "_traf" : ""
 leg_long = TRAF ? "Adjoint age Γ↑" : "Forward age Γ↓"
 
-mc_om21 = get(ENV, "MODEL_CONFIG_OM21", "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12") * config_suffix
-mc_om2025 = get(ENV, "MODEL_CONFIG_OM2025", "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_LBS_DTx9") * config_suffix
-solver_tag = get(ENV, "SOLVER_TAG", "Pardiso_LSprec")
+mc_om21 = get(ENV, "MODEL_CONFIG_OM21", "totaltransport_wparent_centered2_AB2_kH300_kVML1e-1_kVBG3e-5_mkappaV_DTx4") * config_suffix
+mc_om2025 = get(ENV, "MODEL_CONFIG_OM2025", "totaltransport_wparent_centered2_AB2_kH75_kVML5e-2_kVBG15e-6_mkappaV_LBS_DTx2") * config_suffix
+solver_tag = get(ENV, "SOLVER_TAG", "Pardiso_Q2x2")
 
 TW1 = get(ENV, "TW1", "1968-1977")
 TW2 = get(ENV, "TW2", "1999-2008")

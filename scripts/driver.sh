@@ -706,7 +706,9 @@ fi
 # (the upstream NK + run1yrNK chains for both models must already be on disk).
 # Optionally chains after this PM's run1yrNK if it ran in the same invocation.
 if has_step plotcrossres; then
-    plotcrossres_dep_str="${RUNNK_CONST:-}"
+    # Prefer a same-invocation combine1yr (partitioned OM2-025) so the adjoint
+    # plot waits for the stitched file; else this PM's run1yrNK; else no deps.
+    plotcrossres_dep_str="${COMBINE1YR_CONST:-${RUNNK_CONST:-}}"
     submit_job plotcrossres "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
         scripts/plotting/plot_cross_resolution_age_slice.sh \
         --deps "$plotcrossres_dep_str" \
@@ -717,7 +719,7 @@ fi
 # zonal-mean figures. Same data dependencies/semantics as plotcrossres (reads
 # both resolutions and both time windows from disk; no afterok deps).
 if has_step plotcrosszonal; then
-    plotcrosszonal_dep_str="${RUNNK_CONST:-}"
+    plotcrosszonal_dep_str="${COMBINE1YR_CONST:-${RUNNK_CONST:-}}"
     submit_job plotcrosszonal "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
         scripts/plotting/plot_cross_resolution_basin_zonal.sh \
         --deps "$plotcrosszonal_dep_str" \

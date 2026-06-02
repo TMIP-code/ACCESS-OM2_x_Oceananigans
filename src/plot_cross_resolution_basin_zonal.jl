@@ -73,9 +73,9 @@ config_suffix = TRAF ? "_traf" : ""
 leg_long = TRAF ? "Adjoint age Γ↑" : "Forward age Γ↓"
 leg_tag = TRAF ? "adjoint" : "forward"
 
-mc_om21 = get(ENV, "MODEL_CONFIG_OM21", "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_DTx12") * config_suffix
-mc_om2025 = get(ENV, "MODEL_CONFIG_OM2025", "totaltransport_wdiagnosed_centered2_SRK3_mkappaV_LBS_DTx9") * config_suffix
-solver_tag = get(ENV, "SOLVER_TAG", "Pardiso_LSprec")
+mc_om21 = get(ENV, "MODEL_CONFIG_OM21", "totaltransport_wparent_centered2_AB2_kH300_kVML1e-1_kVBG3e-5_mkappaV_DTx4") * config_suffix
+mc_om2025 = get(ENV, "MODEL_CONFIG_OM2025", "totaltransport_wparent_centered2_AB2_kH75_kVML5e-2_kVBG15e-6_mkappaV_LBS_DTx2") * config_suffix
+solver_tag = get(ENV, "SOLVER_TAG", "Pardiso_Q2x2")
 
 TW1 = get(ENV, "TW1", "1968-1977")
 TW2 = get(ENV, "TW2", "1999-2008")
