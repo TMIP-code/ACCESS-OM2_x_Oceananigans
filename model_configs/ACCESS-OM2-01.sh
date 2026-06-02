@@ -28,8 +28,8 @@ VELOCITY_SOURCE=${VELOCITY_SOURCE:-cgridtransports}
 # M=2 blow-up 169631164. See also weno5 as an alternative if M=2 is wanted.
 TIMESTEP_MULT=${TIMESTEP_MULT:-1}
 
-# --- NK preconditioner coarsening (large matrix → 5x5 to fit Pardiso budget) ---
-LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-5x5}
+# --- NK preconditioner coarsening (large matrix → 4x4 to fit Pardiso budget) ---
+LUMP_AND_SPRAY=${LUMP_AND_SPRAY:-4x4}
 
 # --- Diffusivities (m²/s) — scaled from OM2-1 for 0.1° resolution ---
 # κH ÷10 (dx ÷10 ⇒ √area ÷10):                        300 → 30
