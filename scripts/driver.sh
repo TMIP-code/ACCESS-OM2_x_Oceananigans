@@ -113,7 +113,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -259,6 +259,7 @@ RUN1YR_JOB="" RUN1YRFAST_JOB="" RUN10YR_JOB="" RUN100YR_JOB="" RUNLONG_JOB=""
 TMBUILD_JOB="" TMSNAP_JOB=""
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="${NK_CONST:-}" NK_AVG="${NK_AVG:-}" RUNNK_CONST="${RUNNK_CONST:-}" RUNNK_AVG="${RUNNK_AVG:-}" VENT_CONST="${VENT_CONST:-}" VENT_AVG="${VENT_AVG:-}"
+COMBINE1YR_CONST="${COMBINE1YR_CONST:-}" COMBINE1YR_AVG="${COMBINE1YR_AVG:-}"
 
 # ============================================================
 # 1. Preprocessing
@@ -505,6 +506,26 @@ if has_step run1yrNK; then
 fi
 
 # ============================================================
+# 5b'. Combine per-rank 1yr age into a single file (CPU, depends on run1yrNK)
+# Only needed for partitioned runs: serial (1x1) writes the combined file directly.
+# Downstream consumers (ventilation/plotNK/ventmovie) read the combined file.
+# ============================================================
+
+COMBINE_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
+
+if has_step combine1yr && [[ "$PARTITION" != "1x1" ]]; then
+    run_const && \
+        COMBINE1YR_CONST=$(submit_job combine1yr_c "${WALLTIME_COMBINE1YR:-00:30:00}" \
+            scripts/postprocessing/combine_1year.sh \
+            --deps "${RUNNK_CONST:-${NK_CONST:-}}" --vars "TM_SOURCE=const,${COMBINE_VARS}")
+
+    run_avg && \
+        COMBINE1YR_AVG=$(submit_job combine1yr_a "${WALLTIME_COMBINE1YR:-00:30:00}" \
+            scripts/postprocessing/combine_1year.sh \
+            --deps "${RUNNK_AVG:-${NK_AVG:-}}" --vars "TM_SOURCE=avg,${COMBINE_VARS}")
+fi
+
+# ============================================================
 # 5c. Surface ventilation diagnostic (CPU, depends on NK)
 # ============================================================
 
@@ -514,12 +535,12 @@ if has_step ventilation; then
     run_const && \
         VENT_CONST=$(submit_job ventilation_c "${WALLTIME_VENTILATION:-00:30:00}" \
             scripts/solvers/compute_ventilation.sh \
-            --deps "${RUNNK_CONST:-${NK_CONST:-}}" --vars "TM_SOURCE=const,${VENT_VARS}")
+            --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" --vars "TM_SOURCE=const,${VENT_VARS}")
 
     run_avg && \
         VENT_AVG=$(submit_job ventilation_a "${WALLTIME_VENTILATION:-00:30:00}" \
             scripts/solvers/compute_ventilation.sh \
-            --deps "${RUNNK_AVG:-${NK_AVG:-}}" --vars "TM_SOURCE=avg,${VENT_VARS}")
+            --deps "${COMBINE1YR_AVG:-${RUNNK_AVG:-${NK_AVG:-}}}" --vars "TM_SOURCE=avg,${VENT_VARS}")
 fi
 
 # ============================================================
@@ -553,7 +574,7 @@ if has_step plotNK; then
     [ -n "${PLOT_NK_MEM:-}" ] && plotNK_overrides+=(--mem "$PLOT_NK_MEM")
     submit_job plotNK "$WALLTIME_PLOT_NK" \
         scripts/plotting/plot_1year_from_periodic_sol.sh \
-        --deps "${RUNNK_CONST:-${NK_CONST:-}}" "${plotNK_overrides[@]}" \
+        --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" "${plotNK_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
 fi
 
@@ -584,7 +605,7 @@ fi
 if has_step ventmovie; then
     submit_job ventmovie "${WALLTIME_VENTMOVIE:-01:00:00}" \
         scripts/plotting/animate_ventilation.sh \
-        --deps "${RUNNK_CONST:-${NK_CONST:-}}" \
+        --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 
