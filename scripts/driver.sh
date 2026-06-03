@@ -98,7 +98,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
-    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal"
+    echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -118,7 +118,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -723,6 +723,26 @@ if has_step plotcrosszonal; then
     submit_job plotcrosszonal "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
         scripts/plotting/plot_cross_resolution_basin_zonal.sh \
         --deps "$plotcrosszonal_dep_str" \
+        --vars "TRAF=${TRAF:-no}" > /dev/null
+fi
+
+# plotcrossvent — 3×3 cross-resolution ventilation MAP figure (no zonal panels).
+# Reads ventilation.jld2 for both resolutions/TWs; prefers a same-invocation
+# ventilation compute, else combine1yr, else this PM's run1yrNK.
+if has_step plotcrossvent; then
+    plotcrossvent_dep_str="${VENT_CONST:-${COMBINE1YR_CONST:-${RUNNK_CONST:-}}}"
+    submit_job plotcrossvent "${WALLTIME_PLOT_VENTILATION:-01:00:00}" \
+        scripts/plotting/plot_cross_resolution_ventilation.sh \
+        --deps "$plotcrossvent_dep_str" \
+        --vars "TRAF=${TRAF:-no}" > /dev/null
+fi
+
+# plotcrossventprof — zonal-integral ventilation-profile corner plot.
+if has_step plotcrossventprof; then
+    plotcrossventprof_dep_str="${VENT_CONST:-${COMBINE1YR_CONST:-${RUNNK_CONST:-}}}"
+    submit_job plotcrossventprof "${WALLTIME_PLOT:-01:00:00}" \
+        scripts/plotting/plot_cross_resolution_ventilation_profiles.sh \
+        --deps "$plotcrossventprof_dep_str" \
         --vars "TRAF=${TRAF:-no}" > /dev/null
 fi
 
