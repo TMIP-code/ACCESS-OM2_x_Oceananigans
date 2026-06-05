@@ -131,37 +131,14 @@ M = load(M_file, "M")
 flush(stdout); flush(stderr)
 
 ################################################################################
-# Build Q exactly as solve_periodic_NK.jl:173-197
+# Build Q exactly as solve_periodic_NK.jl (shared build_precond_Q helper)
 #   coarsen RAW M → Mc = LUMP*M*SPRAY → Q = stop_time*Mc → process_sparse_matrix
 # (stop_time is a uniform scalar on the nonzeros: cosmetic for factorization cost
 #  and memory, applied only for numerical parity with the NK preconditioner.)
 ################################################################################
 
 stop_time = year
-
-if LUMP_AND_SPRAY
-    @info "Computing LUMP and SPRAY matrices (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk))"
-    flush(stdout); flush(stderr)
-    LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(
-        wet3D, v1D, M; di = ls.di, dj = ls.dj, dk = ls.dk,
-    )
-    Mc = LUMP * M * SPRAY
-    @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
-    Q = copy(Mc)
-    Q.nzval .*= stop_time
-else
-    @info "LUMP_AND_SPRAY=no — using full Q = stop_time * M (no coarsening)"
-    LUMP = I
-    SPRAY = I
-    Mc = M
-    Q = copy(M)
-    Q.nzval .*= stop_time
-end
-flush(stdout); flush(stderr)
-
-@info "Processing Q (MATRIX_PROCESSING=$MATRIX_PROCESSING)"
-flush(stdout); flush(stderr)
-Q = process_sparse_matrix(Q, MATRIX_PROCESSING)
+(; Q, LUMP, SPRAY, Mc) = build_precond_Q(M, wet3D, v1D, ls, stop_time, MATRIX_PROCESSING)
 
 n_coarse = size(Q, 1)
 nnz_Mc = nnz(Mc)

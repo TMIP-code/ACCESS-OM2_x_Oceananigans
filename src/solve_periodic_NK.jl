@@ -170,31 +170,23 @@ if rank == 0
     # LUMP, SPRAY, and preconditioner matrix Q_precond
     ############################################################################
 
-    if LUMP_AND_SPRAY
-        @info "Computing LUMP and SPRAY matrices (di=$(ls.di), dj=$(ls.dj), dk=$(ls.dk))"
-        flush(stdout); flush(stderr)
-        LUMP, SPRAY, v_c = OceanTransportMatrixBuilder.lump_and_spray(
-            wet3D_global, v1D, M; di = ls.di, dj = ls.dj, dk = ls.dk,
-        )
-        Mc = LUMP * M * SPRAY
-        @info "Coarsened Jacobian Mc: $(size(Mc, 1))×$(size(Mc, 2)), nnz=$(nnz(Mc))"
-        Q_precond = copy(Mc)
-        Q_precond.nzval .*= stop_time
-    else
-        @info "Skipping LUMP/SPRAY (LUMP_AND_SPRAY=no); using full Q = stop_time * M"
-        LUMP = I
-        SPRAY = I
-        Q_precond = copy(M)
-        Q_precond.nzval .*= stop_time
-    end
+    # Build Q exactly as the offline factorizer does (shared single source of truth).
+    precond = build_precond_Q(M, wet3D_global, v1D, ls, stop_time, MATRIX_PROCESSING)
+    LUMP = precond.LUMP
+    SPRAY = precond.SPRAY
+    Q_precond = precond.Q
+    precond = nothing
     flush(stdout); flush(stderr)
+
+    # Free the raw transport matrix before factorization: the Jv's use the GPU forward
+    # model, not M, so the tens-of-GB sparse M on rank 0 is dead weight during the
+    # (memory-peak) factorization. LUMP/SPRAY/Q_precond are all we need from here on.
+    M = nothing
+    GC.gc()
 
     ############################################################################
     # Preconditioner setup
     ############################################################################
-
-    @info "Processing Q_precond (MATRIX_PROCESSING=$MATRIX_PROCESSING)"
-    Q_precond = process_sparse_matrix(Q_precond, MATRIX_PROCESSING)
 
     @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
     flush(stdout); flush(stderr)

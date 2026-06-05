@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Steps:
 #   prep grid vel clo run1yr run10yr run100yr runlong
-#   TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM
+#   TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM
 #   plot1yr plot10yr plot100yr plotMOC compareNK
 #
 # TMprecbench: benchmark the NK preconditioner's coarsened factorize+solve
@@ -97,7 +97,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo ""
     echo "  Steps:"
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
-    echo "    TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
+    echo "    TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof"
     echo ""
     echo "  Shortcuts:"
@@ -118,7 +118,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -484,6 +484,22 @@ if has_step TMprecbench; then
             scripts/benchmarks/benchmark_precond_solve.sh \
             --deps "${TMBUILD_JOB:-}" \
             --vars "TM_SOURCE=const,LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${_las}" > /dev/null
+    done
+fi
+
+# 4c. Offline-factorization toy (save → load → reuse cycle)
+# ------------------------------------------------------------
+# Prove the offline preconditioner-factor save/load/reuse cycle for each
+# OFFLINE_SOLVERS entry (UMFPACK | PureUMFPACK | MUMPS). One CPU job per solver.
+# Phase 1 toy runs on OM2-1 with LUMP_AND_SPRAY=2x2. Depends on the const-M TMbuild
+# (pre-set TMBUILD_JOB to chain onto an existing build, or rely on M.jld2 on disk).
+# See src/benchmark_offline_factor.jl and docs/offline_factorization.md.
+if has_step TMofflinefact; then
+    for _solver in ${OFFLINE_SOLVERS:-UMFPACK}; do
+        submit_job offfact_${_solver} "${WALLTIME_OFFLINEFACT:-01:00:00}" \
+            scripts/benchmarks/benchmark_offline_factor.sh \
+            --deps "${TMBUILD_JOB:-}" \
+            --vars "TM_SOURCE=const,OFFLINE_SOLVER=${_solver},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
     done
 fi
 
