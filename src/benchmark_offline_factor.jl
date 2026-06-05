@@ -110,6 +110,19 @@ gb(x) = x / bytes_per_GB
 @info "- art_dir           = $art_dir"
 flush(stdout); flush(stderr)
 
+# Lazily load the optional-dep solver packages only when selected, so a UMFPACK-only
+# run needs neither PureUMFPACK nor MPI/MUMPS. (UMFPACK helpers live in matrix.jl.)
+if solver == "PureUMFPACK"
+    using PureUMFPACK
+elseif solver == "MUMPS"
+    using MPI
+    using MUMPS
+    MPI.Initialized() || MPI.Init()
+end
+
+# MUMPS save/restore writes to a directory with a fixed prefix; both phases must agree.
+const MUMPS_SAVE_PREFIX = "offlinefactor"
+
 # Artifact paths shared between phases.
 Q_file = joinpath(art_dir, "Q.jld2")
 LUMP_file = joinpath(art_dir, "LUMP.jld2")
@@ -131,9 +144,23 @@ function factorize_and_save(solver, Q, path)
         save_umfpack_factor(path, F)
         return F   # also usable as the in-process reference
     elseif solver == "PureUMFPACK"
-        error("PureUMFPACK branch not wired yet (todo: add PureUMFPACK.jl dep)")
+        # PureLU is plain Julia data → serialize the whole factor directly. (A is the
+        # coarse Q, small vs the L/U factors, so we keep it rather than strip it.)
+        F = PureUMFPACK.splu(Q)
+        jldsave(path; F)
+        return F
     elseif solver == "MUMPS"
-        error("MUMPS branch not wired yet (todo: add MUMPS.jl dep + JOB=7/8)")
+        # MUMPS native save/restore: factorize, then JOB=7 (SAVE_DATA) to `path`.
+        mkpath(path)
+        m = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric)
+        MUMPS.associate_matrix!(m, Q)
+        MUMPS.factorize!(m)
+        MUMPS.set_save_dir!(m, path)
+        MUMPS.set_save_prefix!(m, MUMPS_SAVE_PREFIX)
+        MUMPS.set_job!(m, MUMPS.SAVE_DATA)
+        MUMPS.invoke_mumps!(m)
+        MUMPS.finalize!(m)
+        return m
     end
 end
 
@@ -142,9 +169,21 @@ function load_and_apply(solver, path, b)
         fac = load_umfpack_factor(path)
         return apply_umfpack_factor(fac, b)
     elseif solver == "PureUMFPACK"
-        error("PureUMFPACK branch not wired yet (todo: add PureUMFPACK.jl dep)")
+        F = load(path, "F")
+        return PureUMFPACK.solve(F, b)
     elseif solver == "MUMPS"
-        error("MUMPS branch not wired yet (todo: add MUMPS.jl dep + JOB=7/8)")
+        # JOB=8 (RESTORE_DATA) into a fresh instance, then a pure SOLVE on the
+        # restored factors. (The constructor already runs JOB=-1 INITIALIZE.)
+        m = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric)
+        MUMPS.set_save_dir!(m, path)
+        MUMPS.set_save_prefix!(m, MUMPS_SAVE_PREFIX)
+        MUMPS.set_job!(m, MUMPS.RESTORE_DATA)
+        MUMPS.invoke_mumps!(m)
+        MUMPS.associate_rhs!(m, b)
+        MUMPS.mumps_solve!(m; rhs_changed = true)
+        x = copy(MUMPS.get_solution(m))
+        MUMPS.finalize!(m)
+        return x
     end
 end
 
