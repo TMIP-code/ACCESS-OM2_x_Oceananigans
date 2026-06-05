@@ -268,7 +268,8 @@ end
 ################################################################################
 
 g(k) = get(results, k, "")
-fmt(k, f) = haskey(results, k) ? @sprintf(f, results[k]) : ""
+# Runtime format string ⇒ use Printf.Format (the @sprintf macro needs a literal).
+fmt(k, f) = haskey(results, k) ? Printf.format(Printf.Format(f), results[k]) : ""
 
 @info "================ OFFLINE FACTORIZATION TOY SUMMARY ================"
 @info "solver=$solver phase=$phase tag=$coarse_tag MATRIX_PROCESSING=$MATRIX_PROCESSING"
