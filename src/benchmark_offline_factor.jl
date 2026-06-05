@@ -144,9 +144,12 @@ function factorize_and_save(solver, Q, path)
         save_umfpack_factor(path, F)
         return F   # also usable as the in-process reference
     elseif solver == "PureUMFPACK"
+        # Use the supernodal multifrontal (BLAS-3) kernel: the default :gplu is the
+        # unblocked left-looking LU, 4-20x slower than UMFPACK on 3D-like problems —
+        # it overran walltime on this 710k-row ocean matrix. multifrontal is ~parity.
         # PureLU is plain Julia data → serialize the whole factor directly. (A is the
         # coarse Q, small vs the L/U factors, so we keep it rather than strip it.)
-        F = PureUMFPACK.splu(Q)
+        F = PureUMFPACK.splu(Q; method = :multifrontal)
         jldsave(path; F)
         return F
     elseif solver == "MUMPS"
