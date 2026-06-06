@@ -487,19 +487,40 @@ if has_step TMprecbench; then
     done
 fi
 
-# 4c. Offline-factorization toy (save → load → reuse cycle)
+# 4c. Offline-factorization benchmark (save → load → reuse cycle)
 # ------------------------------------------------------------
-# Prove the offline preconditioner-factor save/load/reuse cycle for each
-# OFFLINE_SOLVERS entry (UMFPACK | PureUMFPACK | MUMPS). One CPU job per solver.
-# Phase 1 toy runs on OM2-1 with LUMP_AND_SPRAY=2x2. Depends on the const-M TMbuild
-# (pre-set TMBUILD_JOB to chain onto an existing build, or rely on M.jld2 on disk).
+# Prove + benchmark the offline preconditioner-factor save/load/reuse cycle for each
+# OFFLINE_SOLVERS entry (UMFPACK | PureUMFPACK | MUMPS) × each LAS_VALUES coarsening.
+# One CPU job per (solver, LAS). Depends on the const-M TMbuild (pre-set TMBUILD_JOB
+# to chain onto an existing build, or rely on M.jld2 on disk).
+#
+# Queue/mem auto-size by coarsening (finer = more unknowns = more RAM); override with
+# OFFLINE_QUEUE / OFFLINE_MEM / OFFLINE_NCPUS / WALLTIME_OFFLINEFACT. The OM2-1 toy
+# (di*dj large, tiny matrix) stays on normal; OM2-01 finer coarsenings go to megamem.
 # See src/benchmark_offline_factor.jl and docs/offline_factorization.md.
 if has_step TMofflinefact; then
     for _solver in ${OFFLINE_SOLVERS:-UMFPACK}; do
-        submit_job offfact_${_solver} "${WALLTIME_OFFLINEFACT:-01:00:00}" \
-            scripts/benchmarks/benchmark_offline_factor.sh \
-            --deps "${TMBUILD_JOB:-}" \
-            --vars "TM_SOURCE=const,OFFLINE_SOLVER=${_solver},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
+        for _las in ${LAS_VALUES:-${LUMP_AND_SPRAY}}; do
+            # Auto-size the queue/mem by coarsening unknowns (∝ 1/(di*dj)), unless
+            # the OM2-1 toy (tiny) or an explicit OFFLINE_QUEUE override applies.
+            _di=${_las%x*}; _dj=${_las#*x}; _prod=$((_di * _dj))
+            if [ -n "${OFFLINE_QUEUE:-}" ]; then
+                _q="$OFFLINE_QUEUE"; _mem="${OFFLINE_MEM:-1470GB}"
+            elif [ "$PARENT_MODEL" = "ACCESS-OM2-1" ]; then
+                _q="normal"; _mem="${OFFLINE_MEM:-48GB}"
+            elif [ "$_prod" -le 6 ]; then       # 2x2, 2x3, 3x2 — finest, most RAM
+                _q="megamem"; _mem="${OFFLINE_MEM:-2900GB}"
+            else                                # 3x3, 3x4, 4x3, 4x4
+                _q="hugemem"; _mem="${OFFLINE_MEM:-1470GB}"
+            fi
+            _ncpus="${OFFLINE_NCPUS:-48}"
+            [ "$PARENT_MODEL" = "ACCESS-OM2-1" ] && _ncpus="${OFFLINE_NCPUS:-12}"
+            submit_job offfact_${_solver}_${_las} "${WALLTIME_OFFLINEFACT:-06:00:00}" \
+                scripts/benchmarks/benchmark_offline_factor.sh \
+                --queue "$_q" --ncpus "$_ncpus" --mem "$_mem" \
+                --deps "${TMBUILD_JOB:-}" \
+                --vars "TM_SOURCE=const,OFFLINE_SOLVER=${_solver},LUMP_AND_SPRAY=${_las}" > /dev/null
+        done
     done
 fi
 
@@ -508,6 +529,9 @@ fi
 # ============================================================
 
 NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},INITIAL_AGE=${INITIAL_AGE},PARTITION=${PARTITION},TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}"
+# Offline preconditioner reuse: PRECOND_FACTOR=<offline_bench dir> makes NK restore a
+# saved MUMPS factor (JOB=8) on rank 0 instead of building/factorizing Q (see §5b).
+[ -n "${PRECOND_FACTOR:-}" ] && NK_VARS="${NK_VARS},PRECOND_FACTOR=${PRECOND_FACTOR}"
 
 if has_step NK; then
     # NK depends on TMbuild only (the preconditioner matrix). The previous

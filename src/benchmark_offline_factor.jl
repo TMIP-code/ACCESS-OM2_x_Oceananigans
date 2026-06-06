@@ -215,22 +215,18 @@ if phase ∈ ("factor", "both")
     n_coarse = size(Q, 1)
     @info "[factor] Q: $(n_coarse)×$(size(Q, 2)), nnz=$(nnz(Q))"
 
-    # Persist Q + coarsening operators + a representative coarse RHS and reference
-    # solution for the reuse-phase correctness gate. The NK preconditioner solves
-    # Q u = LUMP*x each GMRES apply, so draw b that way.
+    # Persist Q + coarsening operators + a representative coarse RHS for the reuse-phase
+    # correctness gate. The NK preconditioner solves Q u = LUMP*x each GMRES apply, so
+    # draw b that way. The gate is residual-based (‖Q u − b‖/‖b‖, computed in the reuse
+    # phase from saved Q) — NOT a comparison against a second in-process factorization,
+    # which would not scale (a reference LU of a 40M+ OM2-01 system would itself OOM).
     x_fine = randn(size(M, 1))
     b = ls.on ? LUMP * x_fine : x_fine
-    Fref = lu(Q)
-    u_ref = Fref \ b
-    @info @sprintf(
-        "[factor] reference residual ||Q u_ref - b||/||b|| = %.2e",
-        norm(Q * u_ref - b) / norm(b)
-    )
 
     jldsave(Q_file; Q)
     jldsave(LUMP_file; LUMP = ls.on ? LUMP : I)
     jldsave(SPRAY_file; SPRAY = ls.on ? SPRAY : I)
-    jldsave(rhs_file; b, u_ref, n_coarse, n_fine = Nidx, nnz_Q = nnz(Q))
+    jldsave(rhs_file; b, n_coarse, n_fine = Nidx, nnz_Q = nnz(Q))
 
     # Factorize with the chosen solver and save the factor.
     @info "[factor] Factorizing with $solver"
@@ -261,46 +257,43 @@ end
 ################################################################################
 
 if phase ∈ ("reuse", "both")
-    @info "[reuse] Loading saved LUMP/SPRAY + test RHS/reference"
+    @info "[reuse] Loading saved Q + LUMP/SPRAY + test RHS"
     flush(stdout); flush(stderr)
+    Q = load(Q_file, "Q")
     LUMP = load(LUMP_file, "LUMP")
     SPRAY = load(SPRAY_file, "SPRAY")
-    rhs = load(rhs_file)
-    b = rhs["b"]
-    u_ref = rhs["u_ref"]
+    b = load(rhs_file, "b")
 
     GC.gc()
     fpath = factor_path(solver)
     @info "[reuse] Loading + applying factor from $fpath"
     flush(stdout); flush(stderr)
-    res_load = @timed begin
-        u = load_and_apply(solver, fpath, b)
-        u
-    end
+    res_load = @timed load_and_apply(solver, fpath, b)
     u = res_load.value
     maxrss_reuse = Sys.maxrss()
 
-    # Correctness gate: reloaded solve must match the in-process reference.
-    rel_err = norm(u - u_ref) / norm(u_ref)
-    # Full preconditioner action P x = SPRAY*(Q⁻¹ LUMP x) - x is linear in u, so a
-    # matching u guarantees a matching action; report the action norm for sanity.
+    # Correctness gate: the reloaded factor must actually invert Q, i.e. the residual
+    # ‖Q u − b‖/‖b‖ must be tiny. Residual-based (one sparse matvec) so it scales to
+    # OM2-01, unlike comparing against a second in-process factorization. Also exercise
+    # the full preconditioner action P x = SPRAY*(Q⁻¹ LUMP x) − x for a sanity norm.
+    residual = norm(Q * u - b) / norm(b)
     action = SPRAY * u
     @info @sprintf(
-        "[reuse] %s: load+apply %.3f s, maxrss %.2f GB, rel-err vs ref = %.3e",
-        solver, res_load.time, gb(maxrss_reuse), rel_err,
+        "[reuse] %s: load+apply %.3f s, maxrss %.2f GB, residual ‖Qu-b‖/‖b‖ = %.3e",
+        solver, res_load.time, gb(maxrss_reuse), residual,
     )
 
     gate = 1.0e-8
-    if rel_err < gate
-        @info @sprintf("[reuse] CORRECTNESS GATE PASSED (rel-err %.3e < %.0e)", rel_err, gate)
+    if residual < gate
+        @info @sprintf("[reuse] CORRECTNESS GATE PASSED (residual %.3e < %.0e)", residual, gate)
     else
-        error(@sprintf("[reuse] CORRECTNESS GATE FAILED: rel-err %.3e ≥ %.0e", rel_err, gate))
+        error(@sprintf("[reuse] CORRECTNESS GATE FAILED: residual %.3e ≥ %.0e", residual, gate))
     end
 
     results[:t_loadapply_s] = res_load.time
     results[:maxrss_reuse_GB] = gb(maxrss_reuse)
-    results[:rel_err] = rel_err
-    results[:reuse_correct] = rel_err < gate
+    results[:residual] = residual
+    results[:reuse_correct] = residual < gate
     results[:action_norm] = norm(action)
     flush(stdout); flush(stderr)
 end
@@ -313,7 +306,7 @@ g(k) = get(results, k, "")
 # Runtime format string ⇒ use Printf.Format (the @sprintf macro needs a literal).
 fmt(k, f) = haskey(results, k) ? Printf.format(Printf.Format(f), results[k]) : ""
 
-@info "================ OFFLINE FACTORIZATION TOY SUMMARY ================"
+@info "================ OFFLINE FACTORIZATION SUMMARY ================"
 @info "solver=$solver phase=$phase tag=$coarse_tag MATRIX_PROCESSING=$MATRIX_PROCESSING"
 haskey(results, :n_coarse) && @info "n_fine=$(g(:n_fine)) n_coarse=$(g(:n_coarse)) nnz_Q=$(g(:nnz_Q))"
 haskey(results, :t_factorize_s) && @info @sprintf(
@@ -321,8 +314,8 @@ haskey(results, :t_factorize_s) && @info @sprintf(
     results[:t_factorize_s], results[:maxrss_factor_GB], results[:factor_size_GB]
 )
 haskey(results, :t_loadapply_s) && @info @sprintf(
-    "load+apply = %.3f s, maxrss %.2f GB, rel-err %.3e, correct=%s",
-    results[:t_loadapply_s], results[:maxrss_reuse_GB], results[:rel_err], results[:reuse_correct]
+    "load+apply = %.3f s, maxrss %.2f GB, residual %.3e, correct=%s",
+    results[:t_loadapply_s], results[:maxrss_reuse_GB], results[:residual], results[:reuse_correct]
 )
 @info "NOTE: authoritative peak memory is PBS resources_used.mem (one phase per job)."
 @info "GIT_COMMIT=$git_commit"
@@ -333,7 +326,7 @@ header = join(
         "solver", "phase", "tag", "di", "dj", "MATRIX_PROCESSING",
         "n_fine", "n_coarse", "nnz_Q",
         "t_factorize_s", "maxrss_factor_GB", "factor_size_GB",
-        "t_loadapply_s", "maxrss_reuse_GB", "rel_err", "reuse_correct",
+        "t_loadapply_s", "maxrss_reuse_GB", "residual", "reuse_correct",
         "git_commit",
     ], "\t"
 )
@@ -342,7 +335,7 @@ row = join(
         solver, phase, coarse_tag, ls.di, ls.dj, MATRIX_PROCESSING,
         g(:n_fine), g(:n_coarse), g(:nnz_Q),
         fmt(:t_factorize_s, "%.3f"), fmt(:maxrss_factor_GB, "%.2f"), fmt(:factor_size_GB, "%.4f"),
-        fmt(:t_loadapply_s, "%.3f"), fmt(:maxrss_reuse_GB, "%.2f"), fmt(:rel_err, "%.3e"), g(:reuse_correct),
+        fmt(:t_loadapply_s, "%.3f"), fmt(:maxrss_reuse_GB, "%.2f"), fmt(:residual, "%.3e"), g(:reuse_correct),
         git_commit,
     ], "\t"
 )

@@ -58,6 +58,18 @@ const nprocs = parse(Int, get(ENV, "PARDISO_NPROCS", ENV["PBS_NCPUS"]))
 LINEAR_SOLVER = require_env("LINEAR_SOLVER")
 (LINEAR_SOLVER ∈ ("Pardiso", "ParU", "UMFPACK")) || error("LINEAR_SOLVER must be one of: Pardiso, ParU, UMFPACK (got: $LINEAR_SOLVER)")
 
+# Offline preconditioner reuse (Phase 2): if PRECOND_FACTOR points at an offline_bench
+# dir (from benchmark_offline_factor.jl), rank 0 loads LUMP/SPRAY + RESTORES the saved
+# MUMPS factor (JOB=8) instead of building Q and factorizing in-job. The MUMPS instance
+# runs on a 1-rank COMM_SELF communicator on rank 0 — decoupled from NK's GPU-partition
+# MPI ranks (whose worker loop never calls MUMPS), so its collective calls can't deadlock
+# and the single-rank-saved factor restores regardless of NK's rank count. LINEAR_SOLVER
+# is then ignored for the factorization (still used for output tags).
+PRECOND_FACTOR = get(ENV, "PRECOND_FACTOR", "")
+if !isempty(PRECOND_FACTOR)
+    import MUMPS
+end
+
 ls = parse_lump_and_spray()
 LUMP_AND_SPRAY = ls.on
 lumpspray_tag = ls.tag
@@ -152,67 +164,107 @@ function LinearAlgebra.ldiv!(y::AbstractVector, Pl::TMPreconditioner, x::Abstrac
     return y
 end
 
-if rank == 0
-    ############################################################################
-    # Load pre-built transport matrix M from disk
-    ############################################################################
-
-    M_file = joinpath(matrices_dir, TM_SOURCE, M_basename)
-    @info "[rank 0] Loading transport matrix from $M_file"
-    flush(stdout); flush(stderr)
-    M = load(M_file, "M")
-    @info "[rank 0] Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
-    flush(stdout); flush(stderr)
-
-    @assert Nidx_global == size(M, 1) "Mismatch: global wet cells ($Nidx_global) ≠ matrix rows ($(size(M, 1)))"
-
-    ############################################################################
-    # LUMP, SPRAY, and preconditioner matrix Q_precond
-    ############################################################################
-
-    # Build Q exactly as the offline factorizer does (shared single source of truth).
-    precond = build_precond_Q(M, wet3D_global, v1D, ls, stop_time, MATRIX_PROCESSING)
-    LUMP = precond.LUMP
-    SPRAY = precond.SPRAY
-    Q_precond = precond.Q
-    precond = nothing
-    flush(stdout); flush(stderr)
-
-    # Free the raw transport matrix before factorization: the Jv's use the GPU forward
-    # model, not M, so the tens-of-GB sparse M on rank 0 is dead weight during the
-    # (memory-peak) factorization. LUMP/SPRAY/Q_precond are all we need from here on.
-    M = nothing
-    GC.gc()
-
-    ############################################################################
-    # Preconditioner setup
-    ############################################################################
-
-    @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
-    flush(stdout); flush(stderr)
-
-    if LINEAR_SOLVER == "Pardiso"
-        error_msg = """
-            Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
-            Use MATRIX_PROCESSING=symdrop or symfill to enforce structural symmetry.
-        """
-        Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
-        matrix_type = Pardiso.REAL_SYM
-        @info "Using Pardiso REAL_SYM (mtype=1)"
-        @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
-    elseif LINEAR_SOLVER == "ParU"
-        @info "Using ParUFactorization (parallel sparse LU)"
-        @show linear_solver = ParUFactorization(; reuse_symbolic = true)
-    elseif LINEAR_SOLVER == "UMFPACK"
-        @info "Using UMFPACKFactorization (serial sparse LU)"
-        @show linear_solver = UMFPACKFactorization(; reuse_symbolic = true)
+# Offline-factor variant: same action P = S Q⁻¹ L − I, but Q⁻¹ is applied by a restored
+# MUMPS factor (JOB=8) held on rank 0's COMM_SELF instance. Only rank 0 ever calls these.
+if !@isdefined(MumpsPreconditioner)
+    struct MumpsPreconditioner
+        mumps
     end
+end
+Base.eltype(::MumpsPreconditioner) = Float64
+function LinearAlgebra.ldiv!(Pl::MumpsPreconditioner, x::AbstractVector)
+    b = LUMP * x
+    MUMPS.associate_rhs!(Pl.mumps, b)
+    MUMPS.mumps_solve!(Pl.mumps; rhs_changed = true)
+    x .= SPRAY * MUMPS.get_solution(Pl.mumps) .- x
+    return x
+end
+function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MumpsPreconditioner, x::AbstractVector)
+    b = LUMP * x
+    MUMPS.associate_rhs!(Pl.mumps, b)
+    MUMPS.mumps_solve!(Pl.mumps; rhs_changed = true)
+    y .= SPRAY * MUMPS.get_solution(Pl.mumps) .- x
+    return y
+end
 
-    # P = S Q⁻¹ L - I  (Bardin et al., 2014)
-    # When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
-    Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
-    Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
-    Pl = TMPreconditioner(Plprob)
+if rank == 0
+    if isempty(PRECOND_FACTOR)
+        ########################################################################
+        # In-job path: load M, build Q, factorize (default).
+        ########################################################################
+
+        M_file = joinpath(matrices_dir, TM_SOURCE, M_basename)
+        @info "[rank 0] Loading transport matrix from $M_file"
+        flush(stdout); flush(stderr)
+        M = load(M_file, "M")
+        @info "[rank 0] Loaded M: $(size(M, 1))×$(size(M, 2)), nnz=$(nnz(M))"
+        flush(stdout); flush(stderr)
+
+        @assert Nidx_global == size(M, 1) "Mismatch: global wet cells ($Nidx_global) ≠ matrix rows ($(size(M, 1)))"
+
+        # Build Q exactly as the offline factorizer does (shared single source of truth).
+        precond = build_precond_Q(M, wet3D_global, v1D, ls, stop_time, MATRIX_PROCESSING)
+        LUMP = precond.LUMP
+        SPRAY = precond.SPRAY
+        Q_precond = precond.Q
+        precond = nothing
+        flush(stdout); flush(stderr)
+
+        # Free the raw transport matrix before factorization: the Jv's use the GPU
+        # forward model, not M, so the tens-of-GB sparse M on rank 0 is dead weight
+        # during the (memory-peak) factorization.
+        M = nothing
+        GC.gc()
+
+        @info "Setting up preconditioner (LINEAR_SOLVER=$LINEAR_SOLVER)"
+        flush(stdout); flush(stderr)
+
+        if LINEAR_SOLVER == "Pardiso"
+            error_msg = """
+                Q_precond is not structurally symmetric (nnz=$(nnz(Q_precond))).
+                Use MATRIX_PROCESSING=symdrop or symfill to enforce structural symmetry.
+            """
+            Pardiso.isstructurallysymmetric(Q_precond) || error(error_msg)
+            matrix_type = Pardiso.REAL_SYM
+            @info "Using Pardiso REAL_SYM (mtype=1)"
+            @show linear_solver = MKLPardisoIterate(; nprocs, matrix_type)
+        elseif LINEAR_SOLVER == "ParU"
+            @info "Using ParUFactorization (parallel sparse LU)"
+            @show linear_solver = ParUFactorization(; reuse_symbolic = true)
+        elseif LINEAR_SOLVER == "UMFPACK"
+            @info "Using UMFPACKFactorization (serial sparse LU)"
+            @show linear_solver = UMFPACKFactorization(; reuse_symbolic = true)
+        end
+
+        # P = S Q⁻¹ L - I  (Bardin et al., 2014)
+        # When LUMP_AND_SPRAY=no, LUMP = SPRAY = I, so P = Q⁻¹ - I
+        Plprob = LinearProblem(Q_precond, ones(size(Q_precond, 1)))
+        Plprob = init(Plprob, linear_solver, rtol = 1.0e-12)
+        Pl = TMPreconditioner(Plprob)
+    else
+        ########################################################################
+        # Offline-reuse path: load LUMP/SPRAY + RESTORE the saved MUMPS factor.
+        # No M load, no factorization — just JOB=8 restore on a COMM_SELF instance.
+        ########################################################################
+
+        @info "[rank 0] PRECOND_FACTOR mode: loading offline factor from $PRECOND_FACTOR"
+        flush(stdout); flush(stderr)
+        LUMP = load(joinpath(PRECOND_FACTOR, "LUMP.jld2"), "LUMP")
+        SPRAY = load(joinpath(PRECOND_FACTOR, "SPRAY.jld2"), "SPRAY")
+        @assert size(LUMP, 2) == Nidx_global "LUMP fine dim ($(size(LUMP, 2))) ≠ global wet cells ($Nidx_global)"
+
+        # 1-rank MUMPS on rank 0 only (COMM_SELF): matches the single-rank-saved factor
+        # and stays off NK's GPU-partition COMM_WORLD, so it can't collide with the
+        # workers' Φ! loop.
+        comm_self = MPI.Comm_c2f(MPI.COMM_SELF)
+        mumps = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric, 1, comm_self)
+        MUMPS.set_save_dir!(mumps, joinpath(PRECOND_FACTOR, "factor_MUMPS"))
+        MUMPS.set_save_prefix!(mumps, "offlinefactor")
+        MUMPS.set_job!(mumps, MUMPS.RESTORE_DATA)
+        MUMPS.invoke_mumps!(mumps)
+        @info "[rank 0] MUMPS factor restored (COMM_SELF, 1-rank); using MumpsPreconditioner"
+        Pl = MumpsPreconditioner(mumps)
+    end
 
     Pr = I
     precs = Returns((Pl, Pr))

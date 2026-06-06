@@ -1,10 +1,14 @@
 # Offline preconditioner factorization
 
-**Status (2026-06):** Phase 1 **complete** — the save→load→reuse toy is proven on OM2-1
-`LUMP_AND_SPRAY=2x2` for all three solvers and **MUMPS-direct is the chosen production solver**
-(see §3–§4). The shared `build_precond_Q` refactor (§2c) and the `M`-free cheap win (§6) are
-done. **Remaining:** Phase 2 — scale to OM2-01 on megamem + wire `PRECOND_FACTOR` into NK (§5);
-plus an optional Pardiso-OOC probe (§7).
+**Status (2026-06):**
+- **Phase 1 (OM2-1 toy) — ✅ complete & committed.** save→load→reuse proven for all three solvers;
+  **MUMPS-direct chosen** as the production solver (§3–§4). `build_precond_Q` refactor (§2c) and the
+  `M`-free cheap win (§6) done.
+- **Phase 2 (scale to OM2-01) — 🚧 in progress** (§5). Done: the `TMofflinefact` driver step now
+  sweeps `LAS_VALUES × OFFLINE_SOLVERS` with auto queue sizing (hugemem / megamem), and the gate is
+  now **residual-based** (`‖Qu−b‖/‖b‖`) so it scales. Pending: submit the OM2-01 MUMPS sweep; wire
+  the NK `PRECOND_FACTOR` reuse mode (incl. the NK-MPI × MUMPS-MPI question, §5b).
+- Optional: Pardiso-OOC probe (§7).
 
 **Goal:** factorize the NK lump-and-spray preconditioner matrix **Q offline on a big-memory
 CPU queue, save the factors to disk, then have the GPU NK job load + reuse them** — so the NK
@@ -163,26 +167,58 @@ GPU node.
 
 **Method (what the toy does, per solver):** build Q via §2a; **factorize** (record time +
 `Sys.maxrss`); **save** the factor to `matrices_dir/<tag>/offline_bench/factor_<solver>.{jld2|dir}`;
-in a **fresh Julia process** **load** the factor + `LUMP`/`SPRAY` and **apply** `Q u = LUMP*x`,
-comparing to an in-process `lu(Q)\b` reference (gate `rel-err < 1e-8`). Per-run rows are written as
-TSVs beside the factor; PBS `resources_used.mem` is the authoritative peak.
+in a **fresh Julia process** **load** the factor + `LUMP`/`SPRAY` and **apply** `Q u = LUMP*x`.
+Per-run rows are written as TSVs beside the factor; PBS `resources_used.mem` is the authoritative
+peak. (The `rel-err` column above is vs an in-process `lu(Q)\b` reference — fine at OM2-1 scale;
+for Phase 2 the gate is now **residual-based** `‖Q u − b‖/‖b‖ < 1e-8`, since a reference LU of a
+40M-row OM2-01 system would itself OOM. See §5.)
 
 Code: `src/benchmark_offline_factor.jl` (+ `scripts/benchmarks/benchmark_offline_factor.sh`,
 driver step `TMofflinefact`); shared Q build + UMFPACK helpers in `src/shared_utils/matrix.jl`.
 
 ---
 
-## 5. Phase 2 — scale to OM2-01 (remaining; toy succeeded → cleared to start)
+## 5. Phase 2 — scale to OM2-01 (🚧 in progress)
 
-1. **Offline factorize on megamem (3 TB)** for the coarsenings impossible on the GPU node:
-   `3x3` first, then `3x2`/`2x3`/`2x2` (better preconditioners → fewer GMRES iters). Use
-   **MUMPS-direct** (the Phase-1 winner, JOB=7/8). Save factor next to `LUMP/SPRAY/Mc` in `TM/<MC>/<tag>/`.
-2. **Estimate NK-node fit:** `factor size (loaded) + LUMP + SPRAY + GPU-worker host footprint`
-   must stay under 1024 GiB. The GPU workers' host footprint was ~150–340 GB in the 4×4 run; the
-   loaded factor (no fill-in peak) should be far smaller than the 879 GiB *factorization* peak.
-3. **Wire into the pipeline:** new driver step (e.g. `TMprecfact`, megamem CPU) that produces the
-   factor; `solve_periodic_NK.jl` gains a `PRECOND_FACTOR=<path>` mode that loads the factor +
-   LUMP/SPRAY instead of factorizing. Keep the existing in-job factorization as the default.
+### 5a. Offline benchmark sweep on OM2-01 (the same `benchmark_offline_factor.jl`)
+
+Run the proven cycle on the **real OM2-01 matrix** (default config, 39 GB `M.jld2`) with **MUMPS**
+across `LAS_VALUES = 4x4 4x3 3x4 3x3 2x3 3x2 2x2` to measure factorize time / peak RAM / factor-on-disk
+/ reuse RAM for each coarsening — i.e. confirm which coarsenings are now reachable offline.
+
+- **Driver:** `OFFLINE_SOLVERS=MUMPS LAS_VALUES="4x4 4x3 3x4 3x3 2x3 3x2 2x2" PARENT_MODEL=ACCESS-OM2-01
+  JOB_CHAIN=TMofflinefact bash scripts/driver.sh` — one job per (solver, LAS).
+- **Auto queue sizing** (in the `TMofflinefact` step): `di*dj ≥ 9` (4x4/4x3/3x4/3x3) → **hugemem
+  1470 GB**; `di*dj ≤ 6` (2x3/3x2/2x2, the finest = most unknowns) → **megamem 2900 GB**, 48 CPU,
+  6 h walltime. Override with `OFFLINE_QUEUE / OFFLINE_MEM / OFFLINE_NCPUS / WALLTIME_OFFLINEFACT`.
+- **Residual gate** (scales): the factor phase no longer computes a reference `lu(Q)` (it would OOM
+  at 40M+ rows); the reuse phase loads saved `Q` and checks `‖Q u − b‖/‖b‖ < 1e-8`.
+- **Status:** wired + dry-run verified; **not yet submitted.**
+
+### 5b. NK reuse — `PRECOND_FACTOR` mode (the open MPI question)
+
+`solve_periodic_NK.jl` gains a `PRECOND_FACTOR=<offline_bench dir>` mode: instead of building Q +
+factorizing, it loads `LUMP`/`SPRAY` and **restores the MUMPS factor** (JOB=8), with a
+`MumpsPreconditioner` whose `ldiv!` does `b=LUMP*x; mumps_solve!; x=SPRAY*u−x`. Keep in-job
+factorization as the default.
+
+> **Open question (MPI × MPI):** NK already uses MPI to partition GPU work across ranks, and MUMPS
+> also uses MPI. The OM2-1 **default is `PARTITION=1x1` → 1 rank**, and the offline factor was saved
+> single-rank, so JOB=8 restore on 1 rank should match — that is the first test. **Caveat:** MUMPS
+> calls are collective over `COMM_WORLD`; in a multi-rank NK the preconditioner lives only on rank 0,
+> so naively calling MUMPS there would deadlock the other ranks, **and** restore requires the same
+> rank count as save. Multi-rank NK reuse therefore needs more thought (sub-communicator or
+> rank-0-only MUMPS comm); out of scope for the first 1-rank test.
+
+- **First test:** submit a default **OM2-1** NK solve with `PRECOND_FACTOR` pointing at the existing
+  `…/Q2x2/offline_bench` (2x2 MUMPS factor already on disk) and check the pipeline runs/converges.
+- **Status:** not yet implemented.
+
+### 5c. NK-node fit estimate (for the real OM2-01 runs)
+
+`loaded factor + LUMP + SPRAY + GPU-worker host footprint` must stay under 1024 GiB. The GPU
+workers' host footprint was ~150–340 GB in the 4×4 run; the loaded factor (no fill-in peak) should
+be far smaller than the 879 GiB *factorization* peak — the 5a sweep gives the actual numbers.
 
 ---
 
