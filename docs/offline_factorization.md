@@ -1,4 +1,10 @@
-# Offline preconditioner factorization — hand-off plan
+# Offline preconditioner factorization
+
+**Status (2026-06):** Phase 1 **complete** — the save→load→reuse toy is proven on OM2-1
+`LUMP_AND_SPRAY=2x2` for all three solvers and **MUMPS-direct is the chosen production solver**
+(see §3–§4). The shared `build_precond_Q` refactor (§2c) and the `M`-free cheap win (§6) are
+done. **Remaining:** Phase 2 — scale to OM2-01 on megamem + wire `PRECOND_FACTOR` into NK (§5);
+plus an optional Pardiso-OOC probe (§7).
 
 **Goal:** factorize the NK lump-and-spray preconditioner matrix **Q offline on a big-memory
 CPU queue, save the factors to disk, then have the GPU NK job load + reuse them** — so the NK
@@ -108,11 +114,11 @@ saved factor; `LUMP`/`SPRAY` are loaded from `matrices_dir/<tag>/`.
 For a saved factor to be a valid preconditioner, **Q must be built bit-for-bit identically to
 what `solve_periodic_NK.jl` builds**: same `M`, same `(di,dj,dk)`, same `MATRIX_PROCESSING`, and
 the **same `stop_time`**. NK uses `stop_time = n_months * prescribed_Δt` (`src/setup_model.jl:433`,
-= 1 yr for `N_MONTHS=12`), which the benchmark approximates as `year`. **Recommended refactor:**
-extract the Q-construction (NK lines 173-197) into one shared helper (e.g. in
-`shared_utils/matrix.jl`) called by **both** `solve_periodic_NK.jl` and the offline factorizer, so
-they can never drift. The `stop_time` scalar is uniform on the nonzeros (cosmetic for *cost*) but
-it changes the *numeric* factor, so it must match.
+= 1 yr for `N_MONTHS=12`), which the benchmark approximates as `year`. **DONE** — this is
+implemented as `build_precond_Q` in `shared_utils/matrix.jl`, called by `solve_periodic_NK.jl`,
+`benchmark_precond_solve.jl`, and `benchmark_offline_factor.jl`, so they can never drift. The
+`stop_time` scalar is uniform on the nonzeros (cosmetic for *cost*) but it changes the *numeric*
+factor, so it must match.
 
 ---
 
@@ -136,7 +142,7 @@ expose the flags needed to dump/reload factors. Options, with what's known vs. t
 | **ParU** (`ParU_jll`) | ❓ | Parallel. In-memory C handle — serialization likely unsupported; not pursued. |
 | **Pardiso (MKL)** | ❌ portable disk dump; ✅ **OOC** | The `pt` handle is in-process pointers, not portable. MKL Pardiso has **out-of-core mode (`IPARM[60]`)** that streams the factor to disk during factorization. OOC ≠ offline reuse: it leaves the factor *on disk* → disk-bound per-apply (bad for the apply-heavy NK preconditioner). Kept only as a cheap probe ("does 3×3 even fit in-job?"). |
 
-## 3b. Phase 1 results — toy proven (OM2-1, `LUMP_AND_SPRAY=2x2`)
+## 4. Phase 1 — toy proven (OM2-1, `LUMP_AND_SPRAY=2x2`)  ✅ DONE
 
 The save→load→reuse cycle works for **all three** solvers. Q built by the shared
 `build_precond_Q` helper (710156×710156 coarse, nnz 4.8M). Each phase a separate
@@ -155,46 +161,22 @@ production solver.** Reuse RAM ≈ factor-on-disk size (≪ factorization peak),
 the core premise: reload the small factor into RAM, never pay the fill-in peak on the
 GPU node.
 
+**Method (what the toy does, per solver):** build Q via §2a; **factorize** (record time +
+`Sys.maxrss`); **save** the factor to `matrices_dir/<tag>/offline_bench/factor_<solver>.{jld2|dir}`;
+in a **fresh Julia process** **load** the factor + `LUMP`/`SPRAY` and **apply** `Q u = LUMP*x`,
+comparing to an in-process `lu(Q)\b` reference (gate `rel-err < 1e-8`). Per-run rows are written as
+TSVs beside the factor; PBS `resources_used.mem` is the authoritative peak.
+
 Code: `src/benchmark_offline_factor.jl` (+ `scripts/benchmarks/benchmark_offline_factor.sh`,
 driver step `TMofflinefact`); shared Q build + UMFPACK helpers in `src/shared_utils/matrix.jl`.
 
 ---
 
-## 4. Phase 1 — OM2-1 toy (`LUMP_AND_SPRAY=2x2`)
-
-OM2-1 (1°) is tiny: M is ~10⁵–10⁶ wet cells, factorizes in seconds and fits express/normal — fast
-iteration on the save/load mechanics. Matrices already exist on disk, e.g.
-`outputs/ACCESS-OM2-1/1deg_jra55_iaf_omip2_cycle6/1968-1977/TM/<MC>/const/M.jld2` (pick the
-default OM2-1 config that `env_defaults.sh` resolves; LUMP/Mc are already present for several
-configs there).
-
-**Write a script** `src/benchmark_offline_factor.jl` (model it on `src/benchmark_precond_solve.jl`)
-that, for each solver in `{UMFPACK, ParU, MUMPS?}`:
-
-1. Build Q via §2a (`LUMP_AND_SPRAY=2x2`).
-2. **Factorize** — record time + `Sys.maxrss`.
-3. **Save** the factor to `matrices_dir/<tag>/factor_<solver>.{jld2|native}` — record file size + save time.
-4. In a **fresh Julia process**, **load** the factor + `LUMP`/`SPRAY` — record load time + RAM.
-5. **Apply**: solve `Q u = b` for a test `b = LUMP*randn(Nidx)`; compute the full preconditioner
-   action `SPRAY*u − x` and compare to an in-process reference solve. **Assert** relative error
-   `< 1e-8` (this is the correctness gate).
-6. Record solve time.
-
-**Deliverable — solver comparison table:**
-
-| solver | factorize time | factorize peak RAM | factor file size | load time | solve time | reuse correct? |
-|---|---|---|---|---|---|---|
-
-Run via a small PBS wrapper (`scripts/benchmarks/benchmark_offline_factor.sh`, normal/express,
-CPU). No driver step needed yet for the toy.
-
----
-
-## 5. Phase 2 — scale to OM2-01 (only if the toy works)
+## 5. Phase 2 — scale to OM2-01 (remaining; toy succeeded → cleared to start)
 
 1. **Offline factorize on megamem (3 TB)** for the coarsenings impossible on the GPU node:
-   `3x3` first, then `3x2`/`2x3`/`2x2` (better preconditioners → fewer GMRES iters). Use the
-   winning solver from Phase 1. Save factor next to `LUMP/SPRAY/Mc` in `TM/<MC>/<tag>/`.
+   `3x3` first, then `3x2`/`2x3`/`2x2` (better preconditioners → fewer GMRES iters). Use
+   **MUMPS-direct** (the Phase-1 winner, JOB=7/8). Save factor next to `LUMP/SPRAY/Mc` in `TM/<MC>/<tag>/`.
 2. **Estimate NK-node fit:** `factor size (loaded) + LUMP + SPRAY + GPU-worker host footprint`
    must stay under 1024 GiB. The GPU workers' host footprint was ~150–340 GB in the 4×4 run; the
    loaded factor (no fill-in peak) should be far smaller than the 879 GiB *factorization* peak.
@@ -204,24 +186,26 @@ CPU). No driver step needed yet for the toy.
 
 ---
 
-## 6. Related cheap win (independent of offline reuse)
+## 6. Related cheap win (✅ DONE)
 
-In `solve_periodic_NK.jl`, **free `M` after Q is built** (`M = nothing; GC.gc()` before
+In `solve_periodic_NK.jl`, **`M` is freed after Q is built** (`M = nothing; GC.gc()` before
 factorization). The Jv's use the GPU forward model, not `M`, so the ~tens-of-GB sparse `M` on
 rank 0 is dead weight during factorization. This alone lowers the NK-node peak and might let
-3×4/4×3 run comfortably even without offline factors. Worth doing regardless.
+3×4/4×3 run comfortably even without offline factors. Implemented alongside the `build_precond_Q`
+refactor.
 
 ---
 
-## 7. Open questions for the implementing agent
+## 7. Questions — resolved (+ one remaining probe)
 
-- Is `MUMPSFactorization` available in our pinned `LinearSolve`? If not, cost of bumping +
-  adding `MUMPS_jll`.
-- Does Pardiso **OOC** (`IPARM[60]`, via `Pardiso.jl` directly) reduce the 3×3 peak enough to fit
-  the GPU node **without** offline reuse? (Could make this whole effort unnecessary — check early.)
-- Confirm the UMFPACK factor-reconstruction apply formula against an in-process `F\b` (the toy's
-  correctness gate).
-- Does `ParU_jll`/any ParU Julia wrapper expose a factor export, or is it in-memory only?
+- **`MUMPSFactorization` in pinned LinearSolve?** Resolved: it can't save/restore (in-process
+  only, just an `ooc` flag). We drive `MUMPS.jl` **directly** (JOB=7/8); added `MUMPS` +
+  `MUMPS_jll` + `MPI` to the project (`MPI.Init()` runtime comes from `env_defaults.sh`).
+- **UMFPACK apply formula vs in-process `F\b`?** Resolved: confirmed (rel-err 1.5e-15, see §4).
+- **ParU factor export?** Not pursued — MUMPS-direct chosen.
+- **(REMAINING — optional probe) Pardiso OOC (`IPARM[60]`)** — does it cut the 3×3 peak enough to
+  fit the GPU node *in-job*, sidestepping offline reuse? Lower priority now that MUMPS offline
+  reuse works well; and OOC leaves the factor on disk → disk-bound applies (see §3).
 
 ## 8. Conventions to follow
 
