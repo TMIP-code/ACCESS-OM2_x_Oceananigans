@@ -4,10 +4,11 @@
 - **Phase 1 (OM2-1 toy) — ✅ complete & committed.** save→load→reuse proven for all three solvers;
   **MUMPS-direct chosen** as the production solver (§3–§4). `build_precond_Q` refactor (§2c) and the
   `M`-free cheap win (§6) done.
-- **Phase 2 (scale to OM2-01) — 🚧 in progress** (§5). Done: the `TMofflinefact` driver step now
-  sweeps `LAS_VALUES × OFFLINE_SOLVERS` with auto queue sizing (hugemem / megamem), and the gate is
-  now **residual-based** (`‖Qu−b‖/‖b‖`) so it scales. Pending: submit the OM2-01 MUMPS sweep; wire
-  the NK `PRECOND_FACTOR` reuse mode (incl. the NK-MPI × MUMPS-MPI question, §5b).
+- **Phase 2 (scale to OM2-01) — 🚧 in progress** (§5).
+  - **§5b NK reuse — ✅ DONE & VERIFIED.** `PRECOND_FACTOR` mode restores the offline MUMPS factor
+    on a rank-0 `COMM_SELF` instance; verified end-to-end on OM2-1 with a **2-rank (1x2)** NK solve
+    that converged (`retcode=Success`) — the NK-MPI × MUMPS-MPI question is resolved.
+  - **§5a OM2-01 sweep — wired, residual-gated, auto queue-sized; pending submit.**
 - Optional: Pardiso-OOC probe (§7).
 
 **Goal:** factorize the NK lump-and-spray preconditioner matrix **Q offline on a big-memory
@@ -195,24 +196,32 @@ across `LAS_VALUES = 4x4 4x3 3x4 3x3 2x3 3x2 2x2` to measure factorize time / pe
   at 40M+ rows); the reuse phase loads saved `Q` and checks `‖Q u − b‖/‖b‖ < 1e-8`.
 - **Status:** wired + dry-run verified; **not yet submitted.**
 
-### 5b. NK reuse — `PRECOND_FACTOR` mode (the open MPI question)
+### 5b. NK reuse — `PRECOND_FACTOR` mode  ✅ DONE & VERIFIED (incl. multi-rank)
 
-`solve_periodic_NK.jl` gains a `PRECOND_FACTOR=<offline_bench dir>` mode: instead of building Q +
-factorizing, it loads `LUMP`/`SPRAY` and **restores the MUMPS factor** (JOB=8), with a
-`MumpsPreconditioner` whose `ldiv!` does `b=LUMP*x; mumps_solve!; x=SPRAY*u−x`. Keep in-job
-factorization as the default.
+`solve_periodic_NK.jl` has a `PRECOND_FACTOR=<offline_bench dir>` mode: instead of building Q +
+factorizing, rank 0 loads `LUMP`/`SPRAY` and **restores the MUMPS factor** (JOB=8), with a
+(fieldless) `MumpsPreconditioner` whose `ldiv!` does `b=LUMP*x; mumps_solve!; x=SPRAY*u−x`. The
+in-job factorization stays the default (no `PRECOND_FACTOR`). Pass it through the driver NK step.
 
-> **Open question (MPI × MPI):** NK already uses MPI to partition GPU work across ranks, and MUMPS
-> also uses MPI. The OM2-1 **default is `PARTITION=1x1` → 1 rank**, and the offline factor was saved
-> single-rank, so JOB=8 restore on 1 rank should match — that is the first test. **Caveat:** MUMPS
-> calls are collective over `COMM_WORLD`; in a multi-rank NK the preconditioner lives only on rank 0,
-> so naively calling MUMPS there would deadlock the other ranks, **and** restore requires the same
-> rank count as save. Multi-rank NK reuse therefore needs more thought (sub-communicator or
-> rank-0-only MUMPS comm); out of scope for the first 1-rank test.
+> **MPI × MPI — RESOLVED.** NK uses MPI to partition GPU work across ranks; MUMPS also uses MPI.
+> The fix: build the MUMPS instance on a **1-rank `MPI.COMM_SELF` communicator on rank 0**
+> (`MPI.API.MPI_Comm_c2f(MPI.COMM_SELF.val)`), *not* `COMM_WORLD`. This (a) matches the
+> single-rank-saved factor regardless of NK's rank count, and (b) keeps MUMPS's collective calls on
+> rank 0 alone, so they never deadlock the other ranks sitting in the Φ! worker loop. The
+> preconditioner already runs rank-0-only in NK (same as Pardiso/ParU), so this fits cleanly.
 
-- **First test:** submit a default **OM2-1** NK solve with `PRECOND_FACTOR` pointing at the existing
-  `…/Q2x2/offline_bench` (2x2 MUMPS factor already on disk) and check the pipeline runs/converges.
-- **Status:** not yet implemented.
+**Verified end-to-end** on OM2-1, **`PARTITION=1x2` (2 ranks / 2 V100s)**, `LUMP_AND_SPRAY=2x2`,
+reusing the offline MUMPS 2x2 factor (job `170184120`):
+
+- factor restored over `COMM_SELF`; Newton-GMRES **converged, `retcode = Success`** in 6 Newton
+  iterations (68 Φ-calls, 62 jvp-calls); rank 1's worker loop exited cleanly (no deadlock).
+- mean periodic steady age 789.97 yr; age saved to `…/1x2/NK_Q2x2/age_Pardiso_Q2x2.jld2`; exit 0.
+
+Gotchas fixed along the way: (i) distributed NK needs **pre-partitioned per-rank velocity files** —
+run the `partition` step for the target `PARTITION` first (`u/v/w_from_total_transport_monthly_rank*`);
+(ii) MPI.jl 0.20 uses `MPI.API.MPI_Comm_c2f(comm.val)` (no `MPI.Comm_c2f`); (iii) `MumpsPreconditioner`
+must be **fieldless** (hold the `Mumps` in a module global) or NonlinearSolve's trace printer
+recurses into the raw `Mumps` and trips on its uninitialized fields.
 
 ### 5c. NK-node fit estimate (for the real OM2-01 runs)
 
