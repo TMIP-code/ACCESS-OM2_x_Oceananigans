@@ -256,7 +256,7 @@ if rank == 0
         # 1-rank MUMPS on rank 0 only (COMM_SELF): matches the single-rank-saved factor
         # and stays off NK's GPU-partition COMM_WORLD, so it can't collide with the
         # workers' Φ! loop.
-        comm_self = MPI.Comm_c2f(MPI.COMM_SELF)
+        comm_self = MPI.API.MPI_Comm_c2f(MPI.COMM_SELF)
         mumps = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric, 1, comm_self)
         MUMPS.set_save_dir!(mumps, joinpath(PRECOND_FACTOR, "factor_MUMPS"))
         MUMPS.set_save_prefix!(mumps, "offlinefactor")
