@@ -166,24 +166,26 @@ end
 
 # Offline-factor variant: same action P = S Q⁻¹ L − I, but Q⁻¹ is applied by a restored
 # MUMPS factor (JOB=8) held on rank 0's COMM_SELF instance. Only rank 0 ever calls these.
+#
+# Fieldless on purpose: the restored Mumps lives in the module global MUMPS_PRECOND (set
+# on rank 0 below), like ldiv! already reads global LUMP/SPRAY. A field holding the raw
+# Mumps would make NonlinearSolve's trace printer (clean_sprint_struct) recurse into the
+# Mumps struct and hit its uninitialized fields (UndefRefError); a fieldless struct is
+# printed as a leaf.
 if !@isdefined(MumpsPreconditioner)
-    struct MumpsPreconditioner
-        mumps
-    end
+    struct MumpsPreconditioner end
 end
 Base.eltype(::MumpsPreconditioner) = Float64
-function LinearAlgebra.ldiv!(Pl::MumpsPreconditioner, x::AbstractVector)
-    b = LUMP * x
-    MUMPS.associate_rhs!(Pl.mumps, b)
-    MUMPS.mumps_solve!(Pl.mumps; rhs_changed = true)
-    x .= SPRAY * MUMPS.get_solution(Pl.mumps) .- x
+function LinearAlgebra.ldiv!(::MumpsPreconditioner, x::AbstractVector)
+    MUMPS.associate_rhs!(MUMPS_PRECOND, LUMP * x)
+    MUMPS.mumps_solve!(MUMPS_PRECOND; rhs_changed = true)
+    x .= SPRAY * MUMPS.get_solution(MUMPS_PRECOND) .- x
     return x
 end
-function LinearAlgebra.ldiv!(y::AbstractVector, Pl::MumpsPreconditioner, x::AbstractVector)
-    b = LUMP * x
-    MUMPS.associate_rhs!(Pl.mumps, b)
-    MUMPS.mumps_solve!(Pl.mumps; rhs_changed = true)
-    y .= SPRAY * MUMPS.get_solution(Pl.mumps) .- x
+function LinearAlgebra.ldiv!(y::AbstractVector, ::MumpsPreconditioner, x::AbstractVector)
+    MUMPS.associate_rhs!(MUMPS_PRECOND, LUMP * x)
+    MUMPS.mumps_solve!(MUMPS_PRECOND; rhs_changed = true)
+    y .= SPRAY * MUMPS.get_solution(MUMPS_PRECOND) .- x
     return y
 end
 
@@ -257,13 +259,13 @@ if rank == 0
         # and stays off NK's GPU-partition COMM_WORLD, so it can't collide with the
         # workers' Φ! loop.
         comm_self = MPI.API.MPI_Comm_c2f(MPI.COMM_SELF.val)
-        mumps = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric, 1, comm_self)
-        MUMPS.set_save_dir!(mumps, joinpath(PRECOND_FACTOR, "factor_MUMPS"))
-        MUMPS.set_save_prefix!(mumps, "offlinefactor")
-        MUMPS.set_job!(mumps, MUMPS.RESTORE_DATA)
-        MUMPS.invoke_mumps!(mumps)
+        MUMPS_PRECOND = MUMPS.Mumps{Float64}(MUMPS.mumps_unsymmetric, 1, comm_self)
+        MUMPS.set_save_dir!(MUMPS_PRECOND, joinpath(PRECOND_FACTOR, "factor_MUMPS"))
+        MUMPS.set_save_prefix!(MUMPS_PRECOND, "offlinefactor")
+        MUMPS.set_job!(MUMPS_PRECOND, MUMPS.RESTORE_DATA)
+        MUMPS.invoke_mumps!(MUMPS_PRECOND)
         @info "[rank 0] MUMPS factor restored (COMM_SELF, 1-rank); using MumpsPreconditioner"
-        Pl = MumpsPreconditioner(mumps)
+        Pl = MumpsPreconditioner()
     end
 
     Pr = I
