@@ -145,6 +145,7 @@ RE_KH = re.compile(r"_kH([0-9eE.+-]+)")
 RE_KVML = re.compile(r"_kVML([0-9eE.+-]+)")
 RE_KVBG = re.compile(r"_kVBG([0-9eE.+-]+)")
 RE_DT = re.compile(r"_DTx(\d+)")
+RE_AS = re.compile(r"_(centered2|weno3|weno5|upwind1)_")
 
 
 # Older OM2-025 (and OM2-1) runs did not encode diffusivities in the filename;
@@ -163,8 +164,10 @@ def config_tag(path):
     kvml = RE_KVML.search(b)
     kvbg = RE_KVBG.search(b)
     dt = RE_DT.search(b)
+    asch = RE_AS.search(b)
     diff_in_name = bool(kh or kvml or kvbg)
     return {
+        "AS": asch.group(1) if asch else "?",
         "kH": kh.group(1) if kh else DEFAULT_DIFF["kH"],
         "kVML": kvml.group(1) if kvml else DEFAULT_DIFF["kVML"],
         "kVBG": kvbg.group(1) if kvbg else DEFAULT_DIFF["kVBG"],
@@ -175,7 +178,7 @@ def config_tag(path):
 
 
 def cfg_str(cfg):
-    s = f"kH{cfg['kH']} kVML{cfg['kVML']} kVBG{cfg['kVBG']}"
+    s = f"{cfg['AS']} kH{cfg['kH']} kVML{cfg['kVML']} kVBG{cfg['kVBG']}"
     if cfg["diff_default"]:
         s += "(default,untagged)"
     s += f" DTx{cfg['DTx']}"
