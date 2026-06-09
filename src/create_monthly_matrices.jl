@@ -78,8 +78,13 @@ flush(stdout); flush(stderr)
 # Per-month Jacobians (reusing const machinery) + running average
 ################################################################################
 
+# Saving the 12 per-month matrices is handy for inspection at low resolution, but
+# at OM2-01 each is ~39 GB (468 GB total), so allow skipping via env. The running
+# average is always kept; only the per-month files are gated.
+save_intermediate = lowercase(get(ENV, "SAVE_INTERMEDIATE_MATRICES", "yes")) == "yes"
 monthly_matrices_dir = joinpath(matrices_dir, "monthly")
-mkpath(monthly_matrices_dir)
+save_intermediate && mkpath(monthly_matrices_dir)
+save_intermediate || @info "SAVE_INTERMEDIATE_MATRICES=no — keeping only the averaged matrix, not the 12 per-month files"
 
 nzval_avg = zeros(Float64, nnz(jac_buffer))
 
@@ -115,9 +120,11 @@ for m in 1:n_months
     # Accumulate into the average (all months share the one sparsity pattern)
     nzval_avg .+= jac_buffer.nzval
 
-    outfile = joinpath(monthly_matrices_dir, "M_month_$(mlabel).jld2")
-    jldsave(outfile; M = jac_buffer, month = m)
-    @info "  Saved $outfile"
+    if save_intermediate
+        outfile = joinpath(monthly_matrices_dir, "M_month_$(mlabel).jld2")
+        jldsave(outfile; M = jac_buffer, month = m)
+        @info "  Saved $outfile"
+    end
     flush(stdout); flush(stderr)
 end
 

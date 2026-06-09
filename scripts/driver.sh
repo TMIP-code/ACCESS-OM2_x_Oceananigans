@@ -217,6 +217,7 @@ COMMON_VARS+=",LOAD_BALANCE=${LOAD_BALANCE}"
 COMMON_VARS+=",ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP}"
 COMMON_VARS+=",TRAF=${TRAF}"
 COMMON_VARS+=",TRAF_TM_SOURCE=${TRAF_TM_SOURCE}"
+COMMON_VARS+=",SAVE_INTERMEDIATE_MATRICES=${SAVE_INTERMEDIATE_MATRICES}"
 COMMON_VARS+=",OMEGA=${OMEGA}"
 COMMON_VARS+=",MATRIX_PROCESSING=${MATRIX_PROCESSING}"
 COMMON_VARS+=",MPI_BINDING=${MPI_BINDING}"
@@ -436,9 +437,16 @@ if has_step TMbuild; then
         scripts/preprocessing/build_TMconst.sh "${tmbuild_flags[@]}")
 fi
 
-has_step TMsnapshot && \
+# TMsnapshot builds the averaged matrix. At OM2-01 this is a hugemem/megamem,
+# ~24h job (12 Jacobians), so allow queue/mem/ncpus overrides like TMbuild.
+if has_step TMsnapshot; then
+    tmsnap_flags=(--deps "${RUN1YR_JOB:-}")
+    [ -n "${TMSNAP_QUEUE:-}" ] && tmsnap_flags+=(--queue "${TMSNAP_QUEUE}")
+    [ -n "${TMSNAP_NCPUS:-}" ] && tmsnap_flags+=(--ncpus "${TMSNAP_NCPUS}")
+    [ -n "${TMSNAP_MEM:-}" ]   && tmsnap_flags+=(--mem "${TMSNAP_MEM}")
     TMSNAP_JOB=$(submit_job TMsnapshot "$WALLTIME_TM_SNAPSHOT" \
-        scripts/preprocessing/build_TMavg.sh --deps "${RUN1YR_JOB:-}")
+        scripts/preprocessing/build_TMavg.sh "${tmsnap_flags[@]}")
+fi
 
 # ============================================================
 # 4. Transport matrix age solving (filtered by TM_SOURCE)

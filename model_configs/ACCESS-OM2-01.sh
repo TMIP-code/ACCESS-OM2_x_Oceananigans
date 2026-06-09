@@ -79,7 +79,9 @@ WALLTIME_NK=48:00:00
 # OM2-01 TMbuild dominates by sparsity detection (3h 12m at 351M wet cells;
 # job 169134142). Extrapolated total ≈5.5 h; budget 10 h for margin.
 WALLTIME_TM_BUILD=10:00:00
-WALLTIME_TM_SNAPSHOT=08:00:00
+# Overridable: the monthly TMavg build (create_monthly_matrices.jl) does 12
+# Jacobians serially at OM2-01 (~11 h), so allow a larger budget via env.
+WALLTIME_TM_SNAPSHOT=${WALLTIME_TM_SNAPSHOT:-08:00:00}
 WALLTIME_TM_SOLVE=04:00:00
 # TMbuild at OM2-01 ran OOM at the default 192 GB (job 169132266 used 186 GB
 # before SIGKILL). Push to hugemem max usable: 48 CPU / 1470 GB (PBS rejects
