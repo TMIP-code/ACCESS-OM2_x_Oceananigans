@@ -33,7 +33,7 @@ function parse_config_env()
     TS = require_env("TIMESTEPPER")
     VS ∈ ("cgridtransports", "totaltransport") || error("VELOCITY_SOURCE must be cgridtransports or totaltransport (got: $VS)")
     WF ∈ ("wdiagnosed", "wprescribed") || error("W_FORMULATION must be wdiagnosed or wprescribed (got: $WF)")
-    AS ∈ ("centered2", "weno3", "weno5") || error("ADVECTION_SCHEME must be centered2, weno3, or weno5 (got: $AS)")
+    AS ∈ ("centered2", "weno3", "weno5", "upwind1") || error("ADVECTION_SCHEME must be centered2, weno3, weno5, or upwind1 (got: $AS)")
     TS ∈ ("AB2", "SRK2", "SRK3", "SRK4", "SRK5") || error("TIMESTEPPER must be AB2, SRK2, SRK3, SRK4, or SRK5 (got: $TS)")
     return (; VELOCITY_SOURCE = VS, W_FORMULATION = WF, ADVECTION_SCHEME = AS, TIMESTEPPER = TS)
 end
@@ -181,6 +181,7 @@ function advection_from_scheme(s::AbstractString)
     return s == "centered2" ? Centered(order = 2) :
         s == "weno3" ? WENO(order = 3) :
         s == "weno5" ? WENO(order = 5) :
+        s == "upwind1" ? UpwindBiased(order = 1) :
         error("Unknown ADVECTION_SCHEME: $s")
 end
 
