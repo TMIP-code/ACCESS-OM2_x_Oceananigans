@@ -45,6 +45,9 @@ using JLD2
 using Printf
 
 include("../src/shared_functions.jl")
+# plot_age_diagnostics (in analysis_and_plotting.jl) calls gridmetrics_from_grid,
+# which lives in plotting_functions.jl — include it like plot_periodic_1year_age.jl does.
+include(joinpath(@__DIR__, "..", "src", "shared_utils", "plotting_functions.jl"))
 
 ################################################################################
 # Configuration
