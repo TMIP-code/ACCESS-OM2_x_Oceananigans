@@ -605,8 +605,23 @@ function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
         return Float64.(age)
 
     elseif spec.type == :NK
-        nk_file = joinpath(outputdir, "periodic", spec.model_config, "NK", "age_$(spec.solver_tag).jld2")
-        isfile(nk_file) || error("NK file not found: $nk_file")
+        # The NK solution layout has evolved: legacy was periodic/{MC}/NK/, current
+        # is periodic/{MC}/[{gpu_tag}/]NK_{Qtag}/ (gpu_tag present for distributed
+        # runs, e.g. 1x2). Search recursively under periodic/{MC} for the exact
+        # age_{solver_tag}.jld2 so we find it regardless of layout.
+        fname = "age_$(spec.solver_tag).jld2"
+        root = joinpath(outputdir, "periodic", spec.model_config)
+        nk_file = ""
+        if isdir(root)
+            for (d, _, files) in walkdir(root)
+                if fname in files
+                    nk_file = joinpath(d, fname)
+                    break
+                end
+            end
+        end
+        isempty(nk_file) && (nk_file = joinpath(root, "NK", fname))  # legacy fallback for error msg
+        isfile(nk_file) || error("NK file not found under $root (looked for $fname)")
         @info "Loading NK age: $nk_file"
         age = Float64.(load(nk_file, "age"))
         @assert size(age) == (Nx, Ny, Nz) "NK age size $(size(age)) ≠ expected ($Nx, $Ny, $Nz)"
