@@ -592,9 +592,15 @@ fi
 COMBINE_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
 if has_step combine1yr && [[ "$PARTITION" != "1x1" ]]; then
+    # OM2-01 stitches ~300 GB across 25 snapshots — far beyond the express/47GB/30min
+    # default — so allow queue/mem/ncpus overrides (walltime via WALLTIME_COMBINE1YR).
+    combine1yr_flags=(--deps "${RUNNK:-${RUNNK_CONST:-${NK_DEP:-}}}" --vars "${COMBINE_VARS}")
+    [ -n "${COMBINE1YR_QUEUE:-}" ] && combine1yr_flags+=(--queue "${COMBINE1YR_QUEUE}")
+    [ -n "${COMBINE1YR_NCPUS:-}" ] && combine1yr_flags+=(--ncpus "${COMBINE1YR_NCPUS}")
+    [ -n "${COMBINE1YR_MEM:-}" ]   && combine1yr_flags+=(--mem "${COMBINE1YR_MEM}")
     COMBINE1YR=$(submit_job combine1yr "${WALLTIME_COMBINE1YR:-00:30:00}" \
         scripts/postprocessing/combine_1year.sh \
-        --deps "${RUNNK:-${RUNNK_CONST:-${NK_DEP:-}}}" --vars "${COMBINE_VARS}")
+        "${combine1yr_flags[@]}")
     COMBINE1YR_CONST="$COMBINE1YR"; COMBINE1YR_AVG="$COMBINE1YR"
 fi
 
