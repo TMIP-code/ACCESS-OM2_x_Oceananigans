@@ -647,7 +647,7 @@ if has_step plotNK; then
     [ -n "${PLOT_NK_MEM:-}" ] && plotNK_overrides+=(--mem "$PLOT_NK_MEM")
     submit_job plotNK "$WALLTIME_PLOT_NK" \
         scripts/plotting/plot_1year_from_periodic_sol.sh \
-        --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" "${plotNK_overrides[@]}" \
+        --deps "${COMBINE1YR_CONST:-${COMBINE1YR_AVG:-${RUNNK_CONST:-${RUNNK_AVG:-${NK_CONST:-${NK_AVG:-}}}}}}" "${plotNK_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY}" > /dev/null
 fi
 
@@ -662,7 +662,7 @@ if has_step plotventilation; then
     [ -n "${PLOT_VENT_MEM:-}" ] && plotvent_overrides+=(--mem "$PLOT_VENT_MEM")
     submit_job plotventilation "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
         scripts/plotting/plot_ventilation.sh \
-        --deps "${VENT_CONST:-${NK_CONST:-}}" "${plotvent_overrides[@]}" \
+        --deps "${VENT_CONST:-${VENT_AVG:-${NK_CONST:-${NK_AVG:-}}}}" "${plotvent_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 
@@ -670,7 +670,7 @@ fi
 if has_step ventseasonal; then
     submit_job ventseasonal "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
         scripts/plotting/plot_ventilation_seasonal.sh \
-        --deps "${VENT_CONST:-${NK_CONST:-}}" \
+        --deps "${VENT_CONST:-${VENT_AVG:-${NK_CONST:-${NK_AVG:-}}}}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 
