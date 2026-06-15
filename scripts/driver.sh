@@ -269,6 +269,8 @@ TMBUILD_JOB="${TMBUILD_JOB:-}" TMSNAP_JOB="${TMSNAP_JOB:-}"
 TMSOLVE_CONST_CPU="" TMSOLVE_CONST_GPU="" TMSOLVE_AVG_CPU="" TMSOLVE_AVG_GPU=""
 NK_CONST="${NK_CONST:-}" NK_AVG="${NK_AVG:-}" RUNNK_CONST="${RUNNK_CONST:-}" RUNNK_AVG="${RUNNK_AVG:-}" VENT_CONST="${VENT_CONST:-}" VENT_AVG="${VENT_AVG:-}"
 COMBINE1YR_CONST="${COMBINE1YR_CONST:-}" COMBINE1YR_AVG="${COMBINE1YR_AVG:-}"
+# Canonical single-job vars (run1yr/combine/ventilation run once; _CONST/_AVG above are kept as aliases)
+NK_DEP="${NK_DEP:-}" RUNNK="${RUNNK:-}" COMBINE1YR="${COMBINE1YR:-}" VENT="${VENT:-}"
 
 # ============================================================
 # 1. Preprocessing
@@ -566,16 +568,19 @@ fi
 
 RUNNK_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
+# The converged periodic solution G(x)=0 is independent of the NK preconditioner
+# (TM_SOURCE only changes GMRES cost, not the fixed point), and run1yrNK /
+# combine1yr / ventilation all read TM_SOURCE-agnostic files. So run each ONCE
+# regardless of TM_SOURCE, depending on whichever NK solve(s) ran (both, if both).
+# The legacy _CONST/_AVG names are kept as aliases to the single job ID so every
+# downstream dependency (plots, ventmovie, cross-res) resolves unchanged.
 if has_step run1yrNK; then
-    run_const && \
-        RUNNK_CONST=$(submit_job run1yrNK_c "$WALLTIME_RUN_1YEAR" \
-            scripts/standard_runs/run_1year_from_periodic_sol.sh \
-            --gpu --deps "${NK_CONST:-}" --vars "$RUNNK_VARS")
-
-    run_avg && \
-        RUNNK_AVG=$(submit_job run1yrNK_a "$WALLTIME_RUN_1YEAR" \
-            scripts/standard_runs/run_1year_from_periodic_sol.sh \
-            --gpu --deps "${NK_AVG:-}" --vars "$RUNNK_VARS")
+    NK_DEP="${NK_CONST:-}"
+    [ -n "${NK_AVG:-}" ] && NK_DEP="${NK_DEP:+${NK_DEP}:}${NK_AVG}"
+    RUNNK=$(submit_job run1yrNK "$WALLTIME_RUN_1YEAR" \
+        scripts/standard_runs/run_1year_from_periodic_sol.sh \
+        --gpu --deps "$NK_DEP" --vars "$RUNNK_VARS")
+    RUNNK_CONST="$RUNNK"; RUNNK_AVG="$RUNNK"
 fi
 
 # ============================================================
@@ -587,15 +592,10 @@ fi
 COMBINE_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
 if has_step combine1yr && [[ "$PARTITION" != "1x1" ]]; then
-    run_const && \
-        COMBINE1YR_CONST=$(submit_job combine1yr_c "${WALLTIME_COMBINE1YR:-00:30:00}" \
-            scripts/postprocessing/combine_1year.sh \
-            --deps "${RUNNK_CONST:-${NK_CONST:-}}" --vars "TM_SOURCE=const,${COMBINE_VARS}")
-
-    run_avg && \
-        COMBINE1YR_AVG=$(submit_job combine1yr_a "${WALLTIME_COMBINE1YR:-00:30:00}" \
-            scripts/postprocessing/combine_1year.sh \
-            --deps "${RUNNK_AVG:-${NK_AVG:-}}" --vars "TM_SOURCE=avg,${COMBINE_VARS}")
+    COMBINE1YR=$(submit_job combine1yr "${WALLTIME_COMBINE1YR:-00:30:00}" \
+        scripts/postprocessing/combine_1year.sh \
+        --deps "${RUNNK:-${RUNNK_CONST:-${NK_DEP:-}}}" --vars "${COMBINE_VARS}")
+    COMBINE1YR_CONST="$COMBINE1YR"; COMBINE1YR_AVG="$COMBINE1YR"
 fi
 
 # ============================================================
@@ -605,15 +605,10 @@ fi
 VENT_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
 if has_step ventilation; then
-    run_const && \
-        VENT_CONST=$(submit_job ventilation_c "${WALLTIME_VENTILATION:-00:30:00}" \
-            scripts/solvers/compute_ventilation.sh \
-            --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" --vars "TM_SOURCE=const,${VENT_VARS}")
-
-    run_avg && \
-        VENT_AVG=$(submit_job ventilation_a "${WALLTIME_VENTILATION:-00:30:00}" \
-            scripts/solvers/compute_ventilation.sh \
-            --deps "${COMBINE1YR_AVG:-${RUNNK_AVG:-${NK_AVG:-}}}" --vars "TM_SOURCE=avg,${VENT_VARS}")
+    VENT=$(submit_job ventilation "${WALLTIME_VENTILATION:-00:30:00}" \
+        scripts/solvers/compute_ventilation.sh \
+        --deps "${COMBINE1YR:-${COMBINE1YR_CONST:-${RUNNK:-${RUNNK_CONST:-}}}}" --vars "${VENT_VARS}")
+    VENT_CONST="$VENT"; VENT_AVG="$VENT"
 fi
 
 # ============================================================
