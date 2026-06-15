@@ -611,9 +611,15 @@ fi
 VENT_VARS="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
 
 if has_step ventilation; then
+    # OM2-01 loads the full-domain 25-snapshot age FTS — the express/24GB/30min
+    # default is far too small — so allow queue/mem/ncpus overrides.
+    vent_flags=(--deps "${COMBINE1YR:-${COMBINE1YR_CONST:-${RUNNK:-${RUNNK_CONST:-}}}}" --vars "${VENT_VARS}")
+    [ -n "${VENT_QUEUE:-}" ] && vent_flags+=(--queue "${VENT_QUEUE}")
+    [ -n "${VENT_NCPUS:-}" ] && vent_flags+=(--ncpus "${VENT_NCPUS}")
+    [ -n "${VENT_MEM:-}" ]   && vent_flags+=(--mem "${VENT_MEM}")
     VENT=$(submit_job ventilation "${WALLTIME_VENTILATION:-00:30:00}" \
         scripts/solvers/compute_ventilation.sh \
-        --deps "${COMBINE1YR:-${COMBINE1YR_CONST:-${RUNNK:-${RUNNK_CONST:-}}}}" --vars "${VENT_VARS}")
+        "${vent_flags[@]}")
     VENT_CONST="$VENT"; VENT_AVG="$VENT"
 fi
 
@@ -644,6 +650,7 @@ fi
 
 if has_step plotNK; then
     plotNK_overrides=()
+    [ -n "${PLOT_NK_QUEUE:-}" ] && plotNK_overrides+=(--queue "$PLOT_NK_QUEUE")
     [ -n "${PLOT_NK_NCPUS:-}" ] && plotNK_overrides+=(--ncpus "$PLOT_NK_NCPUS")
     [ -n "${PLOT_NK_MEM:-}" ] && plotNK_overrides+=(--mem "$PLOT_NK_MEM")
     submit_job plotNK "$WALLTIME_PLOT_NK" \
@@ -659,6 +666,7 @@ has_step plotNKtrace && \
 
 if has_step plotventilation; then
     plotvent_overrides=()
+    [ -n "${PLOT_VENT_QUEUE:-}" ] && plotvent_overrides+=(--queue "$PLOT_VENT_QUEUE")
     [ -n "${PLOT_VENT_NCPUS:-}" ] && plotvent_overrides+=(--ncpus "$PLOT_VENT_NCPUS")
     [ -n "${PLOT_VENT_MEM:-}" ] && plotvent_overrides+=(--mem "$PLOT_VENT_MEM")
     submit_job plotventilation "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \

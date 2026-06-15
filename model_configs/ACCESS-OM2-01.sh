@@ -93,4 +93,5 @@ TMBUILD_MEM=1470GB
 
 # --- Plotting ---
 WALLTIME_PLOT=00:30:00
-WALLTIME_PLOT_NK=02:00:00
+# Overridable: plotNK at OM2-01 renders full-res figures from the 25-snapshot FTS.
+WALLTIME_PLOT_NK=${WALLTIME_PLOT_NK:-02:00:00}
