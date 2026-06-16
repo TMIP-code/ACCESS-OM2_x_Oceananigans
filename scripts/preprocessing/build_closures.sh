@@ -15,6 +15,12 @@ set -euo pipefail
 
 repo_root=/home/561/bp3051/Projects/TMIP/ACCESS-OM2_x_Oceananigans
 cd $repo_root
+# Closure preprocessing runs serially (a single Julia process); partitioned runs
+# are set up later by the `partition` step. Pin PARTITION=1x1 BEFORE sourcing
+# env_defaults so this job doesn't inherit the model's run-time partition (e.g.
+# OM2-025's 1x2) and have select_architecture.jl try to build a multi-rank
+# Distributed architecture under one MPI rank (ArgumentError, 2 ranks vs 1).
+export PARTITION=1x1
 source scripts/env_defaults.sh
 
 job_id="${PBS_JOBID:-interactive}"
