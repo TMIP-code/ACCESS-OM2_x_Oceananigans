@@ -65,7 +65,7 @@ unset _v
 # Cross-model defaults below are for vars that don't differ per resolution.
 W_FORMULATION=${W_FORMULATION:-wprescribed}             # wdiagnosed | wprescribed
 PRESCRIBED_W_SOURCE=${PRESCRIBED_W_SOURCE:-parent}      # diagnosed | parent (only when W_FORMULATION=wprescribed)
-ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5 | upwind1
+ADVECTION_SCHEME=${ADVECTION_SCHEME:-centered2}         # centered2 | weno3 | weno5 | upwind1 | upwind3
 TIMESTEPPER=${TIMESTEPPER:-AB2}                         # AB2 | SRK2 | SRK3 | SRK4 | SRK5
 PLOT_TS=${PLOT_TS:-no}                                  # yes | no — opt-in T/S surface animations in plot_standardrun_age.jl
 TRACE_SOLVER_HISTORY=${TRACE_SOLVER_HISTORY:-yes}       # yes | no — save Newton iterates xₙ as newton_iterate_NN.jld2 (use INITIAL_AGE=latest to restart)
@@ -77,8 +77,8 @@ INITIAL_AGE=${INITIAL_AGE:-0}                           # 0 | TMage | latest | <
 TM_SOURCE=${TM_SOURCE:-const}                           # const | avg
 SAVE_INTERMEDIATE_MATRICES=${SAVE_INTERMEDIATE_MATRICES:-yes}  # avg build: also save the 12 per-month matrices (set no at OM2-01 — 12x39GB)
 TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
-TM_ADVECTION_SCHEME=${TM_ADVECTION_SCHEME:-}           # convenience: derive TM_MODEL_CONFIG from MODEL_CONFIG with only the advection field swapped (e.g. weno5 G! + centered2 preconditioner). Ignored when TM_MODEL_CONFIG is set explicitly.
-case "$TM_ADVECTION_SCHEME" in ""|centered2|weno3|weno5) ;; *) echo "ERROR: TM_ADVECTION_SCHEME must be centered2, weno3, or weno5 (got: $TM_ADVECTION_SCHEME)" >&2; exit 1 ;; esac
+TM_ADVECTION_SCHEME=${TM_ADVECTION_SCHEME:-}           # convenience: derive TM_MODEL_CONFIG from MODEL_CONFIG with only the advection field swapped (e.g. upwind3 G! + upwind1 preconditioner). Ignored when TM_MODEL_CONFIG is set explicitly.
+case "$TM_ADVECTION_SCHEME" in ""|centered2|weno3|weno5|upwind1|upwind3) ;; *) echo "ERROR: TM_ADVECTION_SCHEME must be centered2, weno3, weno5, upwind1, or upwind3 (got: $TM_ADVECTION_SCHEME)" >&2; exit 1 ;; esac
 GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}                   # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV

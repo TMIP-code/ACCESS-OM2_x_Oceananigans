@@ -145,7 +145,7 @@ RE_KH = re.compile(r"_kH([0-9eE.+-]+)")
 RE_KVML = re.compile(r"_kVML([0-9eE.+-]+)")
 RE_KVBG = re.compile(r"_kVBG([0-9eE.+-]+)")
 RE_DT = re.compile(r"_DTx(\d+)")
-RE_AS = re.compile(r"_(centered2|weno3|weno5|upwind1)_")
+RE_AS = re.compile(r"_(centered2|weno3|weno5|upwind1|upwind3)_")
 
 
 # Older OM2-025 (and OM2-1) runs did not encode diffusivities in the filename;

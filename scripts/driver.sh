@@ -550,6 +550,14 @@ if has_step NK; then
     # file is not needed at submit time.
     NK_CONST_DEPS="${TMBUILD_JOB:-}"
     NK_AVG_DEPS="${TMSNAP_JOB:-}"
+    # NK's forward map (Φ!) loads the velocity FieldTimeSeries from disk, so when
+    # the velocity preprocessing is rebuilt in this same chain (e.g. a GRID_HZ
+    # bump for upwind3/weno5), NK must wait for it. VEL_DEP is empty in the normal
+    # case where velocities already exist on disk, leaving the deps unchanged.
+    if [ -n "${VEL_DEP:-}" ]; then
+        NK_CONST_DEPS="${NK_CONST_DEPS:+${NK_CONST_DEPS}:}${VEL_DEP}"
+        NK_AVG_DEPS="${NK_AVG_DEPS:+${NK_AVG_DEPS}:}${VEL_DEP}"
+    fi
 
     run_const && \
         NK_CONST=$(submit_job NK_c "$WALLTIME_NK" \
