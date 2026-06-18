@@ -311,6 +311,15 @@ for (file_prefix, field_name) in fts_fields
 
     flush(stdout); flush(stderr)
     MPI.Barrier(MPI.COMM_WORLD)
+
+    # The loop is sequential — u, v, w are never needed resident together — but
+    # Julia's lazy GC would let the previous component's global FTS (~one
+    # 12-snapshot field per rank) linger while the next one allocates, stacking
+    # the per-rank peak across iterations. Drop the references and collect so the
+    # per-rank footprint stays ~one component instead of all of them.
+    cpu_fts = nothing
+    serial_parent = nothing
+    GC.gc()
 end
 
 ################################################################################
