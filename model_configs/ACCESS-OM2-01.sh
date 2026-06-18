@@ -58,11 +58,14 @@ CLO_NCPUS=16
 CLO_MEM=512GB
 CLO_QUEUE=hugemem
 PARTITION_WALLTIME=02:00:00
-# Partition build: peak ~370GB/rank observed for 1x4 (1.47TB total) and ~256GB/rank
-# for 1x8 (2.05TB). 350GB/rank covers all sizes with headroom; megamem queue
-# (3TB max) needed for 1x8 (2.8TB).
+# Partition build holds the FULL global velocity FieldTimeSeries (12 monthly
+# snapshots × u/v/w) on EVERY rank — each rank reads the global field then slices
+# its own piece — so memory ≈ RANKS × (12 × global-field-with-halos) + GC overhead,
+# NOT one ~6GB field. Peak ~370GB/rank observed for 1x4 at Hz=2 (1.47TB total) and
+# ~256GB/rank for 1x8 (2.05TB). Hz=4 adds ~5% (larger z-halo). 400GB/rank covers
+# Hz=4 1x4 (1.6TB) with headroom; megamem queue (3TB max) needed for 1x8 (~2.9TB).
 PARTITION_QUEUE=megamem
-PARTITION_MEM_PER_RANK=350
+PARTITION_MEM_PER_RANK=400
 
 # --- Standard runs ---
 WALLTIME_RUN_1YEAR=${WALLTIME_RUN_1YEAR:-04:00:00}
