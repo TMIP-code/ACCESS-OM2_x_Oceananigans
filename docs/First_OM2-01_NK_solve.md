@@ -47,6 +47,7 @@ final/min `vol_rms_drift` in years.
 | OM2-1 | 300 | **upwind1** | const | [12, 19, 11] | **42** | 6.2e-8 |
 | OM2-1 | 300 | **upwind1** | avg | [10, 15, 8] | **33** | 6.4e-8 |
 | OM2-1 | 300 | **upwind3** | upwind1 avg | [18, 26, 0] | **44** | 1.6e-6 |
+| OM2-1 | 300 | **upwind3** | centered2 const | [23, 38, 20] | 81 | **8.3e-8** |
 | OM2-025 | 75 | centered2 | const | [60, 123, 100] | ~283 | ~1e-7 |
 | OM2-025 | 75 | **upwind1** | const | [13, 21, 13] | **47** | 2.5e-8 |
 | OM2-025 | 75 | **upwind1** | avg | [11, 15, 10] | **36** | 2.5e-8 |
@@ -76,13 +77,17 @@ advection field of the MODEL_CONFIG so NK points at the already-built upwind1 TM
 no matrix rebuild). It **converges at both resolutions** with the same
 `[a, ~1.4a, 0, …]` shape, at ~1.3–1.5× the matched-`upwind1` JVP cost (OM2-1 44 vs
 33; OM2-025 55 vs 36) — the stiffer, less-diffusive `upwind3` Jacobian needs a bit
-more GMRES work than the upwind1 preconditioner ideally conditions. The trade-off
-is a higher residual floor (`min drift ~1e-6` vs `~1e-8`): because the `upwind1` TM
-is an *approximate* (different-scheme) Jacobian for the `upwind3` operator, Newton
-stalls once the residual reaches that mismatch floor rather than driving to machine
-tolerance. Still a clean `ReturnCode.Success` — good enough for a steady-state age
-field, and far cheaper than building a dedicated `upwind3` TM. (`upwind3` needs
-grid z-halo ≥ 3, so the grid/velocities are rebuilt at `GRID_HZ=4`; a 1°-scale
+more GMRES work than the upwind1 preconditioner ideally conditions. The `~1e-6`
+final drift on those two rows is **not** a preconditioner-imposed floor: it is
+simply where the inexact-Newton loop *terminated* (the upwind1-avg solve crossed
+its convergence test after 2 productive Newton iterations at `~1e-6`). Swapping the
+preconditioner to the `centered2 const` TM for the *same* `upwind3` forward map
+(`TM_ADVECTION_SCHEME=centered2`) drives the residual to **8.3e-8** — a third
+productive Newton iteration `[23, 38, 20]` — but at ~2× the JVPs (81 vs 44). So the
+preconditioner choice trades JVP cost against how tight a residual the Newton loop
+reaches before stopping; all variants return a clean `ReturnCode.Success`, and all
+are far cheaper than building a dedicated `upwind3` TM. (`upwind3` needs grid
+z-halo ≥ 3, so the grid/velocities are rebuilt at `GRID_HZ=4`; a 1°-scale
 caveat-free rebuild, harmless to the other schemes.)
 
 > Note on diffusivity: separately, *reducing* OM2-025's diffusivity from the
