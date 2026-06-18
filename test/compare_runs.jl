@@ -195,10 +195,16 @@ else
     ref_levels = levels
 end
 
+# NOTE: plot_age_diagnostics expects age in SECONDS — it divides by `year`
+# internally (colorbar/levels are in years). Pass the seconds-valued fields
+# (age_*_sec, diff·year, reldiff·year), NOT the per-year `age_a`/`age_b`/`diff`
+# used for the stats above, or the plotted values get divided by `year` twice and
+# render as ~0 everywhere.
+
 # Reference age: A
 @info "Plotting reference age: $tag_a ($type_a)"
 plot_age_diagnostics(
-    age_a, grid, wet3D, vol_3D, plot_output_dir,
+    age_a_sec, grid, wet3D, vol_3D, plot_output_dir,
     "age_$(tag_a)";
     colorrange = ref_colorrange, levels = ref_levels,
     title_prefix = "age ($type_a) $tag_a",
@@ -207,7 +213,7 @@ plot_age_diagnostics(
 # Reference age: B
 @info "Plotting reference age: $tag_b ($type_b)"
 plot_age_diagnostics(
-    age_b, grid, wet3D, vol_3D, plot_output_dir,
+    age_b_sec, grid, wet3D, vol_3D, plot_output_dir,
     "age_$(tag_b)";
     colorrange = ref_colorrange, levels = ref_levels,
     title_prefix = "age ($type_b) $tag_b",
@@ -221,7 +227,7 @@ diff_scale = mean_abs_diff > 0 ? 3 * mean_abs_diff : 1.0e-10
 diff_range = (-diff_scale, diff_scale)
 diff_levels = range(diff_range[1], diff_range[2]; length = n_levels)
 plot_age_diagnostics(
-    diff, grid, wet3D, vol_3D, plot_output_dir,
+    diff .* year, grid, wet3D, vol_3D, plot_output_dir,
     "diff_$(tag_b)_minus_$(tag_a)";
     colorrange = diff_range, levels = diff_levels,
     colormap = cgrad(:balance, n_levels - 1, categorical = true),
@@ -237,7 +243,7 @@ if !isempty(wet_reldiff)
     reldiff_range = (-reldiff_scale, reldiff_scale)
     reldiff_levels = range(reldiff_range[1], reldiff_range[2]; length = n_levels)
     plot_age_diagnostics(
-        reldiff, grid, wet3D, vol_3D, plot_output_dir,
+        reldiff .* year, grid, wet3D, vol_3D, plot_output_dir,
         "reldiff_$(tag_b)_minus_$(tag_a)";
         colorrange = reldiff_range, levels = reldiff_levels,
         colormap = cgrad(:balance, n_levels - 1, categorical = true),
