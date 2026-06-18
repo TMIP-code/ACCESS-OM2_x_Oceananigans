@@ -187,7 +187,7 @@ type_b = String(spec_b.type)
 
 # Reference age colorrange: fixed for NK, adaptive for serial
 if spec_a.type == :NK
-    ref_levels = 1:100:1600
+    ref_levels = 0:100:2000
     ref_colorrange = (first(ref_levels), last(ref_levels))
 else
     (; colorrange, levels) = adaptive_colorrange(age_a, wet3D; n_levels)
@@ -252,6 +252,18 @@ if !isempty(wet_reldiff)
         title_prefix = "Δage/age: $tag_b − $tag_a",
     )
 end
+
+# Combined 3×3 basin zonal-average panel: rows A / B / (B − A), columns
+# Atlantic / Pacific / Indian. Pass the seconds-valued fields (the plotter
+# converts to years internally).
+scheme_of(mc) = (m = match(r"_(centered2|weno3|weno5|upwind1|upwind3)_", mc); m === nothing ? mc : String(m.captures[1]))
+@info "Plotting combined 3×3 basin zonal-average panel (A / B / B−A × basins)"
+plot_compare_basin_zonal_3x3(
+    age_a_sec, age_b_sec, grid, wet3D, vol_3D, plot_output_dir, COMPARE_LABEL;
+    age_colorrange = ref_colorrange, age_levels = ref_levels,
+    row_labels = ("A: $(scheme_of(tag_a))", "B: $(scheme_of(tag_b))", "B − A"),
+    title = COMPARE_LABEL,
+)
 
 flush(stdout); flush(stderr)
 @info "compare_runs.jl complete — plots in $plot_output_dir"

@@ -400,6 +400,143 @@ function plot_basin_zonal_panel(
 end
 
 
+"""
+    plot_compare_basin_zonal_3x3(age_a_3D, age_b_3D, grid, wet3D, vol_3D, output_dir, label;
+        age_colorrange=(0,2000), age_levels=0:100:2000, row_labels=("A","B","B − A"), title=label)
+
+3×3 figure of basin volume-weighted zonal-average age: rows = field A, field B,
+and the difference B − A; columns = Atlantic / Pacific / Indian. Rows A and B
+share the age colormap/levels (one colorbar spanning them); the difference row
+uses a symmetric diverging map with its own colorbar. Column widths are made
+proportional to each basin's wet-cell latitude extent (as in
+`plot_basin_zonal_panel`). `age_a_3D`/`age_b_3D` are in SECONDS — converted to
+years internally. Saves `{label}_zonal_avg_3x3.png`.
+"""
+function plot_compare_basin_zonal_3x3(
+        age_a_3D, age_b_3D, grid, wet3D, vol_3D, output_dir, label;
+        age_colorrange = (0, 2000),
+        age_levels = 0:100:2000,
+        age_colormap = cgrad(:viridis, length(age_levels) - 1, categorical = true),
+        diff_colormap = :balance,
+        diff_quantile = 0.99,
+        row_labels = ("A", "B", "B − A"),
+        colorbar_label = "Age (years)",
+        diff_colorbar_label = "Δage (years)",
+        title = label,
+        lat_pad = 5,
+        n_diff_levels = 11,
+    )
+    mkpath(output_dir)
+
+    year = 365.25 * 86400  # seconds
+
+    A = copy(age_a_3D); A[.!wet3D] .= NaN; A ./= year
+    B = copy(age_b_3D); B[.!wet3D] .= NaN; B ./= year
+
+    ug = grid isa ImmersedBoundaryGrid ? grid.underlying_grid : grid
+    Nx′, Ny′, Nz′ = size(wet3D)
+    lat = Array(ug.φᶜᶜᵃ[1:Nx′, 1:Ny′])
+    z = znodes(grid, Center(), Center(), Center())
+    depth_vals = -z  # positive downward
+    lat_repr = dropdims(mean(lat; dims = 1); dims = 1)
+
+    basins = compute_ocean_basin_masks(grid, wet3D)
+    basin_configs = [
+        ("Atlantic", basins.ATL),
+        ("Pacific", basins.PAC),
+        ("Indian", basins.IND),
+    ]
+
+    za_A = [zonalaverage(A, vol_3D, m) for (_, m) in basin_configs]
+    za_B = [zonalaverage(B, vol_3D, m) for (_, m) in basin_configs]
+    za_D = [b .- a for (a, b) in zip(za_A, za_B)]
+    rows_za = (za_A, za_B, za_D)
+
+    # Symmetric diff colorrange from the (robust) spread of the zonal-average
+    # differences — zonal averages are far smoother than point values, so reuse
+    # of the full-field scale would wash the difference row out.
+    allD = isempty(za_D) ? Float64[] : reduce(vcat, [filter(isfinite, vec(d)) for d in za_D])
+    dscale = isempty(allD) ? 1.0 : quantile(abs.(allD), diff_quantile)
+    dscale = dscale > 0 ? dscale : 1.0
+    diff_levels = range(-dscale, dscale; length = n_diff_levels)
+    diff_cmap = cgrad(diff_colormap, n_diff_levels - 1, categorical = true)
+
+    # Wet-cell latitude range per basin (shared across rows — same masks).
+    function wetlatrange(za, pad)
+        haswet = [any(!isnan, view(za, j, :)) for j in eachindex(lat_repr)]
+        wetidx = findall(haswet)
+        isempty(wetidx) && return (-90.0, 90.0)
+        return (
+            max(-90.0, lat_repr[first(wetidx)] - pad),
+            min(90.0, lat_repr[last(wetidx)] + pad),
+        )
+    end
+    xlims = [wetlatrange(za, lat_pad) for za in za_A]
+
+    maxdepth_round = ceil(maximum(depth_vals) / 1000) * 1000
+    lat_tickvals = -90:30:90
+    lat_ticks = (collect(lat_tickvals), latticklabel.(lat_tickvals))
+
+    fig = Figure(; size = (1300, 1150))
+    gc = fig[1, 1] = GridLayout()
+
+    axs = Axis[]
+    local cf_age = nothing
+    local cf_diff = nothing
+    for row in 1:3
+        is_diff = row == 3
+        for (col, ((basin_name, _), xl)) in enumerate(zip(basin_configs, xlims))
+            ax = Axis(
+                gc[row, col];
+                backgroundcolor = :lightgray,
+                xgridvisible = false, ygridvisible = false,
+                xticksmirrored = true, yticksmirrored = true,
+                xticks = lat_ticks,
+                yreversed = true,
+                limits = (xl[1], xl[2], 0, maxdepth_round),
+                ylabel = col == 1 ? "Depth (m)" : "",
+                title = row == 1 ? basin_name : "",
+            )
+            cf = contourf!(
+                ax, lat_repr, depth_vals, rows_za[row][col];
+                levels = is_diff ? diff_levels : age_levels,
+                colormap = is_diff ? diff_cmap : age_colormap,
+                nan_color = :lightgray, extendhigh = :auto, extendlow = :auto,
+            )
+            translate!(cf, 0, 0, -100)
+            is_diff ? (cf_diff = cf) : (cf_age = cf)
+            # Latitude decorations only on the bottom row, depth only on col 1.
+            row < 3 && hidexdecorations!(ax; ticklabels = true, label = true, ticks = false, grid = false)
+            col > 1 && hideydecorations!(ax; ticklabels = true, label = true, ticks = false, grid = false)
+            push!(axs, ax)
+        end
+    end
+    linkyaxes!(axs...)
+
+    # Row labels in the left margin (column 0).
+    for (row, rl) in enumerate(row_labels)
+        Label(gc[row, 0], rl; rotation = pi / 2, fontsize = 15, font = :bold, tellheight = false)
+    end
+
+    # Size each column proportional to its wet-cell latitude range.
+    for (col, xl) in enumerate(xlims)
+        colsize!(gc, col, Auto(xl[2] - xl[1]))
+    end
+
+    # Two colorbars (column 4): age shared by rows 1–2, diff for row 3.
+    Colorbar(gc[1:2, 4], cf_age; label = colorbar_label)
+    Colorbar(gc[3, 4], cf_diff; label = diff_colorbar_label)
+
+    Label(gc[0, 1:3], title; fontsize = 17, font = :bold, tellwidth = false)
+
+    outputfile = joinpath(output_dir, "$(label)_zonal_avg_3x3.png")
+    @info "Saving $outputfile"
+    save(outputfile, fig)
+    flush(stdout); flush(stderr)
+    return outputfile
+end
+
+
 ################################################################################
 # Age animation helpers (zonal averages + depth slices)
 #
