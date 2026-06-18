@@ -46,9 +46,11 @@ final/min `vol_rms_drift` in years.
 | OM2-1 | 300 | centered2 | const | [17, 28, 17] | ~62 | ~1e-7 |
 | OM2-1 | 300 | **upwind1** | const | [12, 19, 11] | **42** | 6.2e-8 |
 | OM2-1 | 300 | **upwind1** | avg | [10, 15, 8] | **33** | 6.4e-8 |
+| OM2-1 | 300 | **upwind3** | upwind1 avg | [18, 26, 0] | **44** | 1.6e-6 |
 | OM2-025 | 75 | centered2 | const | [60, 123, 100] | ~283 | ~1e-7 |
 | OM2-025 | 75 | **upwind1** | const | [13, 21, 13] | **47** | 2.5e-8 |
 | OM2-025 | 75 | **upwind1** | avg | [11, 15, 10] | **36** | 2.5e-8 |
+| OM2-025 | 75 | **upwind3** | upwind1 avg | [23, 32, 0] | **55** | 1.2e-6 |
 | OM2-01 | 30 | centered2 | const | never completed Newton iter 1 in 48 h | — | did not converge |
 | OM2-01 | 30 | **upwind1** | avg | [13, 20, 9] then restart [13] | **~55** | **3.0e-9 ✓** |
 
@@ -65,6 +67,23 @@ Two robust patterns:
 The averaged-matrix preconditioner ("avg") consistently beats the constant one
 at every resolution (e.g. OM2-1 33 vs 42; OM2-025 36 vs 47) — it is a better
 match to the seasonally-varying forward operator.
+
+The **`upwind3` rows decouple the schemes**: the forward map `Φ!`/`G!` runs
+`UpwindBiased(order=3)` (the less-diffusive physics we actually want to simulate),
+while NK reuses the existing **`upwind1` averaged-matrix** as the preconditioner
+(`ADVECTION_SCHEME=upwind3` + `TM_ADVECTION_SCHEME=upwind1`, which swaps only the
+advection field of the MODEL_CONFIG so NK points at the already-built upwind1 TM —
+no matrix rebuild). It **converges at both resolutions** with the same
+`[a, ~1.4a, 0, …]` shape, at ~1.3–1.5× the matched-`upwind1` JVP cost (OM2-1 44 vs
+33; OM2-025 55 vs 36) — the stiffer, less-diffusive `upwind3` Jacobian needs a bit
+more GMRES work than the upwind1 preconditioner ideally conditions. The trade-off
+is a higher residual floor (`min drift ~1e-6` vs `~1e-8`): because the `upwind1` TM
+is an *approximate* (different-scheme) Jacobian for the `upwind3` operator, Newton
+stalls once the residual reaches that mismatch floor rather than driving to machine
+tolerance. Still a clean `ReturnCode.Success` — good enough for a steady-state age
+field, and far cheaper than building a dedicated `upwind3` TM. (`upwind3` needs
+grid z-halo ≥ 3, so the grid/velocities are rebuilt at `GRID_HZ=4`; a 1°-scale
+caveat-free rebuild, harmless to the other schemes.)
 
 > Note on diffusivity: separately, *reducing* OM2-025's diffusivity from the
 > OM2-1-matched values (κH300) to κH75 had ~2.5×'d the `centered2` JVP cost
