@@ -37,6 +37,7 @@ using Oceananigans.Units: day, days, second, seconds
 year = years = 365.25days
 
 using CairoMakie
+using GeoMakie  # add_coastlines! (in plotting_functions.jl) calls GeoMakie.coastlines()
 using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian
 const OCEANS = oceanpolygons()
 using Statistics
