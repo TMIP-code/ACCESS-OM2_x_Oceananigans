@@ -418,13 +418,12 @@ function plot_compare_basin_zonal_3x3(
         age_levels = 0:100:2000,
         age_colormap = cgrad(:viridis, length(age_levels) - 1, categorical = true),
         diff_colormap = :balance,
-        diff_quantile = 0.99,
+        diff_pos = 100:100:1000,  # positive diff contour levels (years); 0 excluded
         row_labels = ("A", "B", "B − A"),
         colorbar_label = "Age (years)",
         diff_colorbar_label = "Δage (years)",
         title = label,
         lat_pad = 5,
-        n_diff_pos = 5,
     )
     mkpath(output_dir)
 
@@ -452,19 +451,15 @@ function plot_compare_basin_zonal_3x3(
     za_D = [b .- a for (a, b) in zip(za_A, za_B)]
     rows_za = (za_A, za_B, za_D)
 
-    # Symmetric diff colorrange from the (robust) spread of the zonal-average
-    # differences — zonal averages are far smoother than point values, so reuse
-    # of the full-field scale would wash the difference row out.
-    allD = isempty(za_D) ? Float64[] : reduce(vcat, [filter(isfinite, vec(d)) for d in za_D])
-    dscale = isempty(allD) ? 1.0 : quantile(abs.(allD), diff_quantile)
-    dscale = dscale > 0 ? dscale : 1.0
-    # Symmetric diff levels EXCLUDING zero, so the central band [-diff_pos[1],
-    # +diff_pos[1]] straddles 0 as a single bin. That makes the bin count odd, and
-    # `withwhitecenter` whitens exactly that centre band (near-zero diffs → white).
+    # Fixed symmetric diff levels EXCLUDING zero (default ±1000 yr by 100), so the
+    # central band [-diff_pos[1], +diff_pos[1]] straddles 0 as a single bin. That
+    # makes the bin count odd, and `withwhitecenter` whitens exactly that centre
+    # band (near-zero diffs → white). Fixed levels keep the diff row comparable
+    # across runs; values outside the range are caught by extendhigh/extendlow.
     # Bin the diverging scheme to n_diff_bins colours FIRST so the centre whitens
     # cleanly (cf. plot_cross_resolution_basin_zonal.jl).
-    diff_pos = collect(range(dscale / n_diff_pos, dscale; length = n_diff_pos))
-    diff_levels = [-reverse(diff_pos); diff_pos]
+    dpos = collect(float.(diff_pos))
+    diff_levels = [-reverse(dpos); dpos]
     n_diff_bins = length(diff_levels) - 1
     balance_binned = Makie.ColorSchemes.ColorScheme(
         [cgrad(diff_colormap, n_diff_bins, categorical = true)[i] for i in 1:n_diff_bins]
