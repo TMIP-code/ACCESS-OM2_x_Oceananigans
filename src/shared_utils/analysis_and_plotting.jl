@@ -424,7 +424,7 @@ function plot_compare_basin_zonal_3x3(
         diff_colorbar_label = "Δage (years)",
         title = label,
         lat_pad = 5,
-        n_diff_levels = 11,
+        n_diff_pos = 5,
     )
     mkpath(output_dir)
 
@@ -458,8 +458,18 @@ function plot_compare_basin_zonal_3x3(
     allD = isempty(za_D) ? Float64[] : reduce(vcat, [filter(isfinite, vec(d)) for d in za_D])
     dscale = isempty(allD) ? 1.0 : quantile(abs.(allD), diff_quantile)
     dscale = dscale > 0 ? dscale : 1.0
-    diff_levels = range(-dscale, dscale; length = n_diff_levels)
-    diff_cmap = cgrad(diff_colormap, n_diff_levels - 1, categorical = true)
+    # Symmetric diff levels EXCLUDING zero, so the central band [-diff_pos[1],
+    # +diff_pos[1]] straddles 0 as a single bin. That makes the bin count odd, and
+    # `withwhitecenter` whitens exactly that centre band (near-zero diffs → white).
+    # Bin the diverging scheme to n_diff_bins colours FIRST so the centre whitens
+    # cleanly (cf. plot_cross_resolution_basin_zonal.jl).
+    diff_pos = collect(range(dscale / n_diff_pos, dscale; length = n_diff_pos))
+    diff_levels = [-reverse(diff_pos); diff_pos]
+    n_diff_bins = length(diff_levels) - 1
+    balance_binned = Makie.ColorSchemes.ColorScheme(
+        [cgrad(diff_colormap, n_diff_bins, categorical = true)[i] for i in 1:n_diff_bins]
+    )
+    diff_cmap = cgrad(withwhitecenter(balance_binned), n_diff_bins; categorical = true)
 
     # Wet-cell latitude range per basin (shared across rows — same masks).
     function wetlatrange(za, pad)
