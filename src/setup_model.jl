@@ -16,7 +16,9 @@ Environment variables:
   W_FORMULATION    – wdiagnosed | wprescribed  (default: wdiagnosed)
   ADVECTION_SCHEME – centered2 | weno3 | weno5  (default: centered2)
   TIMESTEPPER      – AB2 | SRK2 | SRK3 | SRK4 | SRK5  (default: AB2)
-  GM_REDI          – no | diff | adv  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
+  GM_REDI          – no | diff | adv | redi  (default: no)  — enable GM-Redi isopycnal diffusion with prescribed T/S
+                     (redi = Redi isopycnal diffusion only, κ_skew=0: pair with VELOCITY_SOURCE=totaltransport,
+                      which already carries the GM bolus transport, to avoid double-counting GM eddy advection)
   MONTHLY_KAPPAV   – yes | no  (default: yes) — use monthly time-varying κV derived from the 2D
                                                 monthly MLD FTS each iteration via update_κV_from_mld!
   IMPLICIT_KAPPAV  – yes | no  (default: yes) — when "no", drop the implicit vertical-diffusion closure
@@ -64,8 +66,23 @@ include("shared_functions.jl")
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI_STR = lowercase(require_env("GM_REDI"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
-GM_REDI = GM_REDI_STR in ("diff", "adv")
-GM_ADVECTIVE = GM_REDI_STR == "adv"
+GM_REDI_STR in ("no", "diff", "adv", "redi") ||
+    error("GM_REDI must be one of no | diff | adv | redi (got: $GM_REDI_STR)")
+GM_REDI = GM_REDI_STR in ("diff", "adv", "redi")   # any isopycnal (Redi) closure enabled
+GM_ADVECTIVE = GM_REDI_STR == "adv"                # GM skew as explicit bolus velocity
+GM_REDI_ONLY = GM_REDI_STR == "redi"               # Redi diffusion only (κ_skew=0)
+# Guard against double-counting the GM bolus transport: totaltransport already
+# bakes the parent-model GM eddy advection into the velocity field, so adding an
+# online GM skew term (κ_skew≠0, i.e. GM_REDI=diff|adv) would advect by the bolus
+# twice. Pair totaltransport with GM_REDI=redi (Redi diffusion only) instead.
+if VELOCITY_SOURCE == "totaltransport" && GM_REDI_STR in ("diff", "adv")
+    error(
+        "Double-counting GM: VELOCITY_SOURCE=totaltransport already includes the " *
+            "GM bolus transport, but GM_REDI=$GM_REDI_STR adds online GM eddy advection " *
+            "(κ_skew≠0). Use GM_REDI=redi (Redi diffusion only) with totaltransport, " *
+            "or pair GM_REDI=diff|adv with VELOCITY_SOURCE=cgridtransports.",
+    )
+end
 MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
 IMPLICIT_KAPPAV_STR = lowercase(require_env("IMPLICIT_KAPPAV"))
 IMPLICIT_KAPPAV_STR ∈ ("yes", "no") || error("IMPLICIT_KAPPAV must be yes or no (got: $IMPLICIT_KAPPAV_STR)")
@@ -323,7 +340,15 @@ if GM_REDI
     gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
     # AdvectiveFormulation requires scalar κ_skew (Oceananigans limitation);
     # this is fine since T/S have tracer_advection=nothing and are prescribed each step.
-    gm_κ_skew = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, age = κH)
+    # GM_REDI_ONLY zeroes κ_skew → pure Redi isopycnal diffusion, no online GM eddy
+    # advection (the bolus transport is expected to come from VELOCITY_SOURCE=totaltransport).
+    gm_κ_skew = if GM_ADVECTIVE
+        κH
+    elseif GM_REDI_ONLY
+        (; T = 0.0, S = 0.0, age = 0.0)
+    else
+        (; T = 0.0, S = 0.0, age = κH)
+    end
     gm_κ_symmetric = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, age = κH)
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
         skew_flux_formulation = gm_formulation,
@@ -331,7 +356,8 @@ if GM_REDI
         κ_symmetric = gm_κ_symmetric,
     )
     closure = IMPLICIT_KAPPAV ? (implicit_vertical_diffusion, gm_redi) : (gm_redi,)
-    @info "Closures: $(IMPLICIT_KAPPAV ? "vertical + " : "")GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
+    _redi_desc = GM_REDI_ONLY ? "Redi-only (κ_skew=0)" : "GM-Redi ($gm_formulation)"
+    @info "Closures: $(IMPLICIT_KAPPAV ? "vertical + " : "")$_redi_desc — no horizontal scalar diffusion"
 else
     implicit_vertical_diffusion = VerticalScalarDiffusivity(
         VerticallyImplicitTimeDiscretization();

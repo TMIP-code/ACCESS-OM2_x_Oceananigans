@@ -79,7 +79,7 @@ SAVE_INTERMEDIATE_MATRICES=${SAVE_INTERMEDIATE_MATRICES:-yes}  # avg build: also
 TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}                    # override MODEL_CONFIG used to locate NK's preconditioner TM (empty = use MODEL_CONFIG)
 TM_ADVECTION_SCHEME=${TM_ADVECTION_SCHEME:-}           # convenience: derive TM_MODEL_CONFIG from MODEL_CONFIG with only the advection field swapped (e.g. upwind3 G! + upwind1 preconditioner). Ignored when TM_MODEL_CONFIG is set explicitly.
 case "$TM_ADVECTION_SCHEME" in ""|centered2|weno3|weno5|upwind1|upwind3) ;; *) echo "ERROR: TM_ADVECTION_SCHEME must be centered2, weno3, weno5, upwind1, or upwind3 (got: $TM_ADVECTION_SCHEME)" >&2; exit 1 ;; esac
-GM_REDI=${GM_REDI:-no}                                  # no | diff | adv (legacy: yes = diff)
+GM_REDI=${GM_REDI:-no}                                  # no | diff | adv | redi (legacy: yes = diff); redi = Redi-only (κ_skew=0), pair with totaltransport
 MONTHLY_KAPPAV=${MONTHLY_KAPPAV:-yes}                   # yes | no — derive 3D κV on the fly from 2D monthly MLD (tags MODEL_CONFIG with _mkappaV); default yes
 IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no", drop implicit vertical-diffusion closure (Probe B); tags MODEL_CONFIG with _noKV
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
@@ -147,6 +147,7 @@ MODEL_CONFIG="${MODEL_CONFIG}_kH${KAPPA_H}_kVML${KAPPA_V_ML}_kVBG${KAPPA_V_BG}"
 case "$GM_REDI" in
     diff|yes)  MODEL_CONFIG="${MODEL_CONFIG}_GMREDI" ;;
     adv)       MODEL_CONFIG="${MODEL_CONFIG}_GMREDIadv" ;;
+    redi)      MODEL_CONFIG="${MODEL_CONFIG}_REDIonly" ;;
 esac
 if [ "$MONTHLY_KAPPAV" = "yes" ]; then
     MODEL_CONFIG="${MODEL_CONFIG}_mkappaV"
