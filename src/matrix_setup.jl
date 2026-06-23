@@ -74,8 +74,22 @@ include("shared_functions.jl")
 (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
 GM_REDI_STR = lowercase(require_env("GM_REDI"))
 GM_REDI_STR == "yes" && (GM_REDI_STR = "diff")  # backward compat
-GM_REDI = GM_REDI_STR in ("diff", "adv")
-GM_ADVECTIVE = GM_REDI_STR == "adv"
+GM_REDI_STR in ("no", "diff", "adv", "redi") ||
+    error("GM_REDI must be one of no | diff | adv | redi (got: $GM_REDI_STR)")
+GM_REDI = GM_REDI_STR in ("diff", "adv", "redi")   # any isopycnal (Redi) closure enabled
+GM_ADVECTIVE = GM_REDI_STR == "adv"                # GM skew as explicit bolus velocity
+GM_REDI_ONLY = GM_REDI_STR == "redi"               # Redi diffusion only (κ_skew=0)
+# Guard against double-counting the GM bolus transport (mirrors setup_model.jl):
+# totaltransport already carries the parent-model GM eddy advection, so an online
+# GM skew term (κ_skew≠0, i.e. GM_REDI=diff|adv) would advect by the bolus twice.
+if VELOCITY_SOURCE == "totaltransport" && GM_REDI_STR in ("diff", "adv")
+    error(
+        "Double-counting GM: VELOCITY_SOURCE=totaltransport already includes the " *
+            "GM bolus transport, but GM_REDI=$GM_REDI_STR adds online GM eddy advection " *
+            "(κ_skew≠0). Use GM_REDI=redi (Redi diffusion only) with totaltransport, " *
+            "or pair GM_REDI=diff|adv with VELOCITY_SOURCE=cgridtransports.",
+    )
+end
 MONTHLY_KAPPAV = lowercase(require_env("MONTHLY_KAPPAV")) == "yes"
 TRAF_OPTION_A = lowercase(require_env("TRAF")) == "yes" &&
     require_env("TRAF_TM_SOURCE") == "M_traf"
@@ -229,7 +243,15 @@ if GM_REDI
     gm_formulation = GM_ADVECTIVE ? AdvectiveFormulation() : DiffusiveFormulation()
     # AdvectiveFormulation requires scalar κ_skew (Oceananigans limitation);
     # this is fine since T/S have tracer_advection=nothing and are prescribed.
-    gm_κ_skew = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, ADc = κH)
+    # GM_REDI_ONLY zeroes κ_skew → pure Redi isopycnal diffusion, no online GM eddy
+    # advection (the bolus transport comes from VELOCITY_SOURCE=totaltransport).
+    gm_κ_skew = if GM_ADVECTIVE
+        κH
+    elseif GM_REDI_ONLY
+        (; T = 0.0, S = 0.0, ADc = 0.0)
+    else
+        (; T = 0.0, S = 0.0, ADc = κH)
+    end
     gm_κ_symmetric = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, ADc = κH)
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
         skew_flux_formulation = gm_formulation,
@@ -237,7 +259,7 @@ if GM_REDI
         κ_symmetric = gm_κ_symmetric,
     )
     explicit_closure = (explicit_vertical_diffusion, gm_redi)
-    @info "Closures: vertical + GM-Redi ($gm_formulation) — no horizontal scalar diffusion"
+    @info "Closures: vertical + $(GM_REDI_ONLY ? "Redi-only (κ_skew=0)" : "GM-Redi ($gm_formulation)") — no horizontal scalar diffusion"
 else
     explicit_vertical_diffusion = VerticalScalarDiffusivity(ExplicitTimeDiscretization(); κ = κVField)
     horizontal_diffusion = HorizontalScalarDiffusivity(κ = κH)
