@@ -257,10 +257,15 @@ end
 # Atlantic / Pacific / Indian. Pass the seconds-valued fields (the plotter
 # converts to years internally).
 scheme_of(mc) = (m = match(r"_(centered2|weno3|weno5|upwind1|upwind3)_", mc); m === nothing ? mc : String(m.captures[1]))
+# Adaptive diff contour levels for the B−A row: the fixed ±1000 yr default blanks
+# out short transient (e.g. 1-year) comparisons where |Δage| ≪ 1 yr. Reuse the same
+# diff_scale (3·mean|Δage|) the standalone diff plots use → 10 symmetric levels.
+diff_pos_levels = diff_scale > 0 ? collect(range(diff_scale / 10, diff_scale; length = 10)) : (100:100:1000)
 @info "Plotting combined 3×3 basin zonal-average panel (A / B / B−A × basins)"
 plot_compare_basin_zonal_3x3(
     age_a_sec, age_b_sec, grid, wet3D, vol_3D, plot_output_dir, COMPARE_LABEL;
     age_colorrange = ref_colorrange, age_levels = ref_levels,
+    diff_pos = diff_pos_levels,
     row_labels = ("A: $(scheme_of(tag_a))", "B: $(scheme_of(tag_b))", "B − A"),
     title = COMPARE_LABEL,
 )
