@@ -253,7 +253,15 @@ if GM_REDI
         (; T = 0.0, S = 0.0, ADc = κH)
     end
     gm_κ_symmetric = GM_ADVECTIVE ? κH : (; T = 0.0, S = 0.0, ADc = κH)
+    # ExplicitTimeDiscretization is REQUIRED here: IsopycnalSkewSymmetricDiffusivity
+    # defaults to VerticallyImplicitTimeDiscretization, under which the vertical
+    # (K33) component of the Redi flux is dropped from the EXPLICIT tendency
+    # (`explicit_κ_∂z_c` returns zero) and handled by the implicit tridiagonal solver
+    # instead. The TM is built from the explicit tendency, so with the default the
+    # vertical isopycnal-diffusion term is silently missing from M — same reason the
+    # vertical scalar diffusion above is forced explicit.
     gm_redi = IsopycnalSkewSymmetricDiffusivity(
+        ExplicitTimeDiscretization();
         skew_flux_formulation = gm_formulation,
         κ_skew = gm_κ_skew,
         κ_symmetric = gm_κ_symmetric,
