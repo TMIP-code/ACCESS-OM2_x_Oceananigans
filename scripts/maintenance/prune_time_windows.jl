@@ -13,6 +13,9 @@ const KEEP_TIME_WINDOWS = [
     "1999-2008",
     "1972",
     "2003",
+    # Li et al. (2023) OM2-01 meltwater experiments (qian_wth{m,}p): real-year
+    # last decade (labelled 2149-2159 via CALENDAR_YEAR_OFFSET=-109).
+    "2040-2050",
 ]
 
 const SEARCH_ROOTS = ["outputs", "logs/julia", "logs/python", "preprocessed_inputs", "archive"]
