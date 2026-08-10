@@ -1,0 +1,334 @@
+# Plan — Equilibrium ventilation of the Li et al. (2023) meltwater experiments
+
+Apply the periodic Newton-Krylov (NK) age framework to the two ACCESS-OM2-01
+(0.1°) "Qian" perturbation experiments (§3.4 of
+[docs/DWF_candidates.md](docs/DWF_candidates.md)) to isolate the **meltwater**
+contribution to deep-ocean ventilation. Compute, for each experiment:
+**(1) equilibrated ideal age** (forward NK), **(2) time to re-emergence**
+(adjoint age via TRAF), and **(3)** the `wthmp − wthp` differences that isolate
+meltwater.
+
+| tag | experiment | forcing perturbation |
+|-----|------------|----------------------|
+| **wthmp** | `01deg_jra55v13_ryf9091_qian_wthmp` | Wind + Thermal + **Meltwater** (full projected AABW decline) |
+| **wthp**  | `01deg_jra55v13_ryf9091_qian_wthp`  | Wind + Thermal only (no meltwater) |
+
+Meltwater effect = **`wthmp − wthp`**. The RYF control `01deg_jra55v13_ryf9091`
+is *not* required for this comparison (optional extension only).
+
+Reference: Li et al. (2023), *Nature*, doi:10.1038/s41586-023-05762-w — code:
+<https://github.com/QianLi-Ocean/Antarctic_MWdriven_Abyssal_Circulation_Change>.
+
+This plan builds directly on the **proven OM2-01 forward recipe** in
+[docs/OM2-01_upwind3_NK_solve.md](docs/OM2-01_upwind3_NK_solve.md) (converged at
+0.1°, `vol_rms_drift = 3.4e-9`) and the TRAF machinery in
+[docs/TRAF_simulations.md](docs/TRAF_simulations.md).
+
+---
+
+## 1. Data situation — verified (2026-08-10)
+
+Both experiments are **already fully wired into the pipeline** — no new
+data-location plumbing:
+
+- In the ACCESS-NRI intake catalog (`intake.cat.access_nri`), keyed by the exact
+  experiment names → `periodicaverage.py` loads them by `EXPERIMENT`, unchanged.
+- Already registered in [`ACCESS-OM2_configs.yaml`](ACCESS-OM2_configs.yaml)
+  (lines 9–10) → `create_grid.jl` finds the grid/bathymetry inputs.
+- All required vars present at monthly (`1mon`): `tx_trans, ty_trans, temp, salt,
+  mld, area_t`, and **`sea_level`** (not `eta_t`). The `sea_level → eta_t`
+  fallback already exists ([periodicaverage.py:262-272](src/periodicaverage.py));
+  acceptable (no inverse-barometer correction) for age/transport work.
+- Raw output under `/g/data/cj50/access-om2/raw-output/access-om2-01/…` (the
+  "separate directories", reached transparently via the catalog).
+- Grid/bathymetry identical across all RYF-9091 0.1° experiments (forcing-only
+  perturbations) → build the grid once and symlink (§3.1).
+
+### 1.1 The calendar offset — the one thing to cater for
+
+The model output is labelled with a shifted calendar. Li et al.'s own
+`Figures/Figure_3.ipynb` defines:
+
+```python
+ny   = 1991 - 2100      # = -109   (real = labelled + ny)
+YEAR = [2041, 2050]     # real years analysed
+#   .sel(year=slice(YEAR[0]-ny, YEAR[1]-ny))  → labelled 2150–2159
+```
+
+Offset = **−109 yr** (real = labelled − 109). Verified: **every** required
+variable in both experiments shares identical labelling (no per-variable glitch —
+`tx_trans` is *not* mis-formatted):
+
+| experiment | labelled | **real** |
+|------------|----------|----------|
+| wthp  | 2100–2159 | **1991–2050** |
+| wthmp | 2110–2159 | **2001–2050** |
+
+**Analysis window (decided): the last decade, real 2040–2050 = labelled
+2149–2159.** Both experiments cover it, so a single window gives a fair,
+identically-timed comparison (≈ Li et al. Fig. 3's real 2041–2050).
+
+`periodicaverage.py` slices raw catalog time with
+`.sel(time=slice(year_start_str, year_end_str))`
+([periodicaverage.py:213](src/periodicaverage.py)) against the **labelled**
+calendar — the *only* place raw years are used (everything downstream reads
+calendar-free climatology files).
+
+**→ Task A (enabling):** add an optional `CALENDAR_YEAR_OFFSET` env var
+(default `0`, matching Li's `ny`; set `-109` here) so `TIME_WINDOW` is given in
+**real** years but the slice targets the labelled calendar:
+
+```python
+NY = int(os.environ.get("CALENDAR_YEAR_OFFSET", "0"))   # -109 for Qian
+sel_start = f"{int(year_start_str) - NY:04d}"           # real - ny = labelled
+sel_end   = f"{int(year_end_str)   - NY:04d}"
+datadask_sel = datadask.sel(time=slice(sel_start, sel_end))
+```
+
+Thread it through [env_defaults.sh](scripts/env_defaults.sh) +
+[driver.sh](scripts/driver.sh) `COMMON_VARS` (qsub `-v`). Then
+`TIME_WINDOW=2040-2050 CALENDAR_YEAR_OFFSET=-109` selects labelled 2149–2159 and
+lands outputs under a **real-year** path (`.../2040-2050/…`) so all directories
+and plots carry correct science labels. (Zero-code fallback: use
+`TIME_WINDOW=2149-2159` labelled and relabel plots — rejected, mislabels the
+tree.)
+
+---
+
+## 2. Shared configuration
+
+Nothing in the grid/velocity/matrix/solver code is experiment-specific: it is all
+parameterized by `EXPERIMENT` + `TIME_WINDOW` + `PARENT_MODEL=ACCESS-OM2-01`. The
+per-model defaults (`cgridtransports`, `PARTITION=1x4`, `Q4x4`, κH30,
+`gpuhopper`, megamem partition, 48 h NK, `TIMESTEP_MULT=1`) come from
+[model_configs/ACCESS-OM2-01.sh](model_configs/ACCESS-OM2-01.sh).
+
+**The proven OM2-01 forward recipe** (decoupled forward map / preconditioner):
+
+- **Forward map** `ADVECTION_SCHEME=upwind3` — less numerical diffusion.
+- **Preconditioner** `TM_ADVECTION_SCHEME=upwind1` + `TM_SOURCE=avg` — reuses the
+  already-built `upwind1` **averaged** transport matrix (its implicit diffusion
+  conditions the Jacobian well). Only `avg` exists at OM2-01; there is no `const`.
+- **`GRID_HZ=4`** — `UpwindBiased(order=3)` needs grid z-halo ≥ 3; the default
+  `GRID_HZ=2` fails at model build. Rebuild grid → vel → clo → partition at
+  `GRID_HZ=4` (harmless larger halo; also serves WENO5).
+- `W_FORMULATION=wprescribed` + `PRESCRIBED_W_SOURCE=parent` (model default) → no
+  `diagnose_w` step (forward map reads the parent `w`).
+
+Common env block used below:
+
+```bash
+PARENT_MODEL=ACCESS-OM2-01
+TIME_WINDOW=2040-2050
+CALENDAR_YEAR_OFFSET=-109
+GRID_HZ=4
+ADVECTION_SCHEME=upwind3
+TM_ADVECTION_SCHEME=upwind1
+TM_SOURCE=avg
+```
+
+---
+
+## 3. Forward ideal age — per experiment
+
+For `EXPERIMENT ∈ {…_qian_wthp, …_qian_wthmp}`. The distributed chain is
+`grid → vel → clo → partition → NK`; the `upwind1` avg matrix (preconditioner)
+must exist before NK.
+
+### 3.1 Preprocess + grid + velocities (once per experiment; grid shared)
+
+```bash
+# Python preprocessing (monthly climatology + yearly mean of the analysis decade)
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 CALENDAR_YEAR_OFFSET=-109 \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=prep bash scripts/driver.sh
+
+# Grid + velocities + closures at GRID_HZ=4 (serial; grid built once)
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 CALENDAR_YEAR_OFFSET=-109 GRID_HZ=4 \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=grid-vel-clo bash scripts/driver.sh
+```
+
+**Grid reuse.** The two Qian experiments (and the control) share an identical
+ocean grid. Build `grid.jld2` for `wthp`, then for `wthmp` either symlink it and
+pre-set `GRID_JOB` to skip the grid step (see [CLAUDE.md](CLAUDE.md) § driver.sh
+chaining), or just rebuild it (safe, one grid job). Verify the two configs point
+at the same bathymetry/vgrid before symlinking.
+
+### 3.2 Build the `upwind1` averaged matrix (preconditioner) — the expensive step
+
+Run **once per experiment** for this window (≈39 GB, megamem; this is the costly
+part, not the NK):
+
+```bash
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 \
+ADVECTION_SCHEME=upwind1 TM_SOURCE=avg LUMP_AND_SPRAY=4x4 \
+TMSNAP_QUEUE=megamem TMSNAP_MEM=2990GB TMSNAP_NCPUS=48 \
+WALLTIME_TM_SNAPSHOT=24:00:00 SAVE_INTERMEDIATE_MATRICES=no \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=TMsnapshot bash scripts/driver.sh
+```
+
+Produces `…/TM/cgridtransports_wparent_upwind1_AB2_kH30_…_LBS/avg/M.jld2`.
+
+### 3.3 Partition + NK (forward age)
+
+```bash
+# partition (megamem) then NK. GRID_HZ=4 forces the partition redo.
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 \
+ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=partition-NK bash scripts/driver.sh
+```
+
+**Multi-restart.** Each 48 h GPU job advances ≈1 Newton iteration (`upwind3` ≈2×
+the JVPs of `upwind1`), so a full solve spans several restarts.
+`TRACE_SOLVER_HISTORY=yes` (default) saves `newton_iterate_NN.jld2`; resume with
+`INITIAL_AGE=latest`:
+
+```bash
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 \
+ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
+INITIAL_AGE=latest \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=NK bash scripts/driver.sh
+```
+
+Restart protocol (from the OM2-01 doc): **walltime kill** → resubmit with
+`INITIAL_AGE=latest`; **SIGBUS** (intermittent gpuhopper node fault, no new
+iterate) → the same command re-resolves `latest` to the last good iterate and
+usually lands on a healthy node. Converged output:
+`…/periodic/cgridtransports_wparent_upwind3_AB2_kH30_…_LBS/1x4/NK_Q4x4/age_Pardiso_Q4x4.jld2`.
+
+### 3.4 Post-NK diagnostics + plots
+
+```bash
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 \
+ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
+PLOT_NK_QUEUE=hugemem PLOT_NK_MEM=512GB PLOT_NK_NCPUS=18 WALLTIME_PLOT_NK=12:00:00 \
+PARENT_MODEL=ACCESS-OM2-01 \
+JOB_CHAIN=run1yrNK-combine1yr-ventilation-plotNK-plotventilation \
+bash scripts/driver.sh
+```
+
+- **Omit `plotNKtrace`** — it references a nonexistent script and, under `set -e`,
+  aborts the chain.
+- `plotNK` is heavy at 0.1° (full-res figures + animations from the 25-snapshot
+  FTS): hugemem, ≥512 GB, long walltime; animations may not finish in one job.
+
+Then repeat all of §3 with `EXPERIMENT=…_qian_wthmp`.
+
+---
+
+## 4. Time to re-emergence (adjoint age via TRAF) — per experiment
+
+TRAF (`TRAF=yes`) reverses every monthly FTS in time and sign-flips `u, v` (and
+the prescribed parent `w`) to integrate the adjoint flow; the adjoint matrix is
+synthesized algebraically as `invVMtV = V⁻¹ Mᵀ V` from the forward `M`. At the
+model level this is **compatible with OM2-01's `wprescribed`+`parent` recipe**
+([setup_model.jl:97](src/setup_model.jl) supports TRAF + prescribed *parent* w).
+
+### 4.1 The only work needed: generalize two hardcoded `const` paths (Task B)
+
+The adjoint matrix is `invVMtV = V⁻¹ Mᵀ V`, constructed on the fly from **any**
+forward `M` — exactly as in the `const` case. There is no mathematical obstacle
+at OM2-01: hand the synthesis the `upwind1` **avg** matrix and it works
+identically. The current code just *assumes* `const` because that is all
+OM2-1/025 ever had, in two places:
+
+- [create_matrix.jl:50](src/create_matrix.jl) hardcodes the subdir in the forward-M
+  read path: `TM/{fwd_mc}/const/M.jld2`.
+- [solve_periodic_NK.jl:86](src/solve_periodic_NK.jl) has a guard that rejects
+  `TM_SOURCE=avg` under TRAF ("first cut" limitation).
+
+**→ Task B: point both at the avg matrix.** Numerics-free plumbing so TRAF
+mirrors the exact forward recipe (`upwind3` forward, `upwind1`-avg
+preconditioner):
+
+1. `solve_periodic_NK.jl`: allow `TM_SOURCE=avg` under TRAF (relax the `== const`
+   guard; read `invVMtV.jld2` from the `avg/` dir).
+2. `create_matrix.jl` (invVMtV branch): (a) read the forward `M` from
+   `TM/{fwd_mc}/avg/M.jld2` when `TM_SOURCE=avg`; (b) apply the same
+   advection-token swap the run uses (`TM_ADVECTION_SCHEME=upwind1`) when locating
+   `fwd_mc`, so it reads the **upwind1** avg matrix while the forward map runs
+   `upwind3`; (c) write `invVMtV.jld2` into the matching `avg/` `_traf` dir.
+
+That is the whole change — the same `V⁻¹ Mᵀ V` construction as `const`, just
+reading the avg file. (A no-swap shortcut exists — run the TRAF forward map itself
+with `ADVECTION_SCHEME=upwind1` so `fwd_mc` already points at the upwind1 matrix —
+but that makes the adjoint age more diffusive than the `upwind3` forward age and
+mixes diffusion levels in the forward×adjoint ventilation diagnostic, so prefer
+the swap in 2b.)
+
+### 4.2 TRAF run (after Task B)
+
+Depends on the forward `upwind1` avg matrix from §3.2 (same file, read-only).
+Per experiment:
+
+```bash
+# Synthesize the adjoint matrix (fast, algebraic) + solve adjoint NK.
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 TRAF=yes TRAF_TM_SOURCE=invVMtV \
+ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
+INITIAL_AGE=TMage \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=TMsnapshot-NK bash scripts/driver.sh
+# (TMsnapshot short-circuits to the invVMtV synthesis under TRAF+invVMtV;
+#  restart NK with INITIAL_AGE=latest on walltime/SIGBUS as in §3.3)
+```
+
+Outputs land under the `_traf`-suffixed `MODEL_CONFIG`
+(`…_upwind3_AB2_…_LBS_traf`); adjoint age carries the `age_traf_…` filename infix
+and "TRAF age (time to re-emergence)" plot titles.
+
+**TRAF stability risk (real).** At OM2-025 the adjoint solve blew up in the
+tripolar fold region for one forcing window until `Δt` was reduced
+(SRK3-M=9 / AB2-M=3 tamed it — see
+[docs/TRAF_simulations.md](docs/TRAF_simulations.md) §3f). OM2-01 TRAF is
+untested; if the forward map diverges near `j≈Ny` (max age → 1e40+), drop
+`TIMESTEP_MULT` for the adjoint run (e.g. try the model default first, then
+halve) before deeper investigation.
+
+Post-NK diagnostics/plots: same chain as §3.4 with `TRAF=yes` added. The
+forward × adjoint pair then gives the surface-ventilation diagnostic 𝒱ꜜ
+(`compute_ventilation` / `ventilation` step).
+
+---
+
+## 5. Meltwater-difference plots (`wthmp − wthp`)
+
+Per-experiment single fields come from the existing `plotNK` / `plotventilation`
+steps. The **new** deliverable is the same-resolution, same-decade difference:
+
+- **Ideal age**: `age(wthmp) − age(wthp)` — depth slices + basin zonal means.
+- **Time to re-emergence**: `age_traf(wthmp) − age_traf(wthp)`.
+- **Surface ventilation**: `𝒱ꜜ(wthmp) − 𝒱ꜜ(wthp)`.
+
+Both experiments are on the **identical** OM2-01 grid → a straight cell-by-cell
+difference (no regridding). **→ Task D:** write `plot_qian_meltwater_diff.jl`
+reusing `compare_NK_ages.jl` (two-solution age comparison) and the diff panels in
+`plot_cross_resolution_*` / `plot_ventilation_omega_compare.jl`, dropping their
+cross-resolution regrid. Diverging colormap centered on zero.
+
+---
+
+## 6. Task list
+
+- [ ] **A.** Add `CALENDAR_YEAR_OFFSET` (default 0; `-109` here) to
+  `periodicaverage.py` slicing; thread through `env_defaults.sh` + `driver.sh`.
+- [ ] **A′.** Add `2040-2050` to `prune_time_windows.jl` allowlist; pre-fetch
+  OceanBasins polygons on a login node.
+- [ ] **B.** Enable TRAF avg-matrix path (`solve_periodic_NK.jl` +
+  `create_matrix.jl`) — see §4.1.
+- [ ] **C.** Per experiment: `prep → grid(once)+vel+clo` at `GRID_HZ=4`; sanity-
+  check climatologies (Southern Ocean mld / T / S look like a perturbed RYF state).
+- [ ] **D.** `plot_qian_meltwater_diff.jl` for the three `wthmp − wthp` panels.
+- [ ] **E.** Per experiment: build `upwind1` avg matrix (§3.2, expensive).
+- [ ] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
+  upwind1-avg), multi-restart to convergence (§3.3).
+- [ ] **G.** Per experiment: TRAF NK adjoint age / time to re-emergence (§4.2).
+- [ ] **H.** Per experiment: `run1yrNK → combine1yr → ventilation → plotNK →
+  plotventilation` (forward and TRAF); then the `wthmp − wthp` difference figures.
+
+Order of first light: A → C → E → F (forward age, both experiments) validates the
+whole chain at 0.1° before committing to B → G (adjoint) and the differences.
