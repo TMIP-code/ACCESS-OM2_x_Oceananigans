@@ -261,20 +261,34 @@ but that makes the adjoint age more diffusive than the `upwind3` forward age and
 mixes diffusion levels in the forward×adjoint ventilation diagnostic, so prefer
 the swap in 2b.)
 
-### 4.2 TRAF run (after Task B)
+### 4.2 TRAF run (Task B is now implemented — commit 70d97b2)
 
-Depends on the forward `upwind1` avg matrix from §3.2 (same file, read-only).
+Depends on the forward `upwind1` avg matrix from §3.2 (same file, read-only). The
+**`TMbuild`** step runs `create_matrix.jl`'s `invVMtV` short-circuit: it loads the
+forward `upwind1` avg `M`, algebraically synthesizes `V⁻¹ Mᵀ V`, and writes
+`invVMtV.jld2` under the swapped `_traf` config where NK reads it (fast, no
+autodiff). Then NK solves the adjoint. **No matrix-age solve / `TMage` warm-start**
+— start from `0` and restart from `latest`, exactly like the forward recipe (the
+`solve_matrix_age*.jl` warm-start reads `model_config`, not the swapped
+`TM_MODEL_CONFIG`, so it cannot locate the invVMtV; and the forward OM2-01 solve
+converged from zeros anyway).
+
 Per experiment:
 
 ```bash
-# Synthesize the adjoint matrix (fast, algebraic) + solve adjoint NK.
+# TMbuild synthesizes the adjoint matrix (algebraic) + NK solves the adjoint age.
 EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
 TIME_WINDOW=2040-2050 GRID_HZ=4 TRAF=yes TRAF_TM_SOURCE=invVMtV \
 ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
-INITIAL_AGE=TMage \
-PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=TMsnapshot-NK bash scripts/driver.sh
-# (TMsnapshot short-circuits to the invVMtV synthesis under TRAF+invVMtV;
-#  restart NK with INITIAL_AGE=latest on walltime/SIGBUS as in §3.3)
+INITIAL_AGE=0 \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=TMbuild-NK bash scripts/driver.sh
+
+# restart NK from the latest Newton iterate on walltime/SIGBUS (as in §3.3):
+EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
+TIME_WINDOW=2040-2050 GRID_HZ=4 TRAF=yes TRAF_TM_SOURCE=invVMtV \
+ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg \
+INITIAL_AGE=latest \
+PARENT_MODEL=ACCESS-OM2-01 JOB_CHAIN=NK bash scripts/driver.sh
 ```
 
 Outputs land under the `_traf`-suffixed `MODEL_CONFIG`
@@ -314,12 +328,15 @@ cross-resolution regrid. Diverging colormap centered on zero.
 
 ## 6. Task list
 
-- [ ] **A.** Add `CALENDAR_YEAR_OFFSET` (default 0; `-109` here) to
+- [x] **A.** Add `CALENDAR_YEAR_OFFSET` (default 0; `-109` here) to
   `periodicaverage.py` slicing; thread through `env_defaults.sh` + `driver.sh`.
+  *(done — commit 1320c4a)*
 - [ ] **A′.** Add `2040-2050` to `prune_time_windows.jl` allowlist; pre-fetch
   OceanBasins polygons on a login node.
-- [ ] **B.** Enable TRAF avg-matrix path (`solve_periodic_NK.jl` +
-  `create_matrix.jl`) — see §4.1.
+- [x] **B.** Enable TRAF avg-matrix path (`solve_periodic_NK.jl` +
+  `create_matrix.jl` + `driver.sh` TMbuild vars) — see §4.1. *(done — commit
+  70d97b2; `solve_matrix_age*.jl` intentionally left const-only, no `TMage`
+  warm-start for OM2-01 TRAF.)*
 - [ ] **C.** Per experiment: `prep → grid(once)+vel+clo` at `GRID_HZ=4`; sanity-
   check climatologies (Southern Ocean mld / T / S look like a perturbed RYF state).
 - [ ] **D.** `plot_qian_meltwater_diff.jl` for the three `wthmp − wthp` panels.
