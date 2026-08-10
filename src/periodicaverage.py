@@ -48,15 +48,26 @@ BUILD_TOTAL_TRANSPORT = VELOCITY_SOURCE == "totaltransport"
 
 DHT_CHECK = os.environ.get("DHT_CHECK", "no").lower() in ("yes", "true", "1")
 
-# Parse TIME_WINDOW into start/end year strings for xarray slicing
+# Parse TIME_WINDOW into start/end year strings. TIME_WINDOW is always given in
+# REAL (calendar) years and also names the output directory tree.
 if "-" in TIME_WINDOW:
     year_start_str, year_end_str = TIME_WINDOW.split("-", 1)
 else:
     year_start_str = year_end_str = TIME_WINDOW
 
+# CALENDAR_YEAR_OFFSET (Li et al.'s `ny`, default 0): some experiments label the
+# model calendar with a fixed offset from real years (real = labelled + ny). The
+# Qian/Li-et-al ACCESS-OM2-01 runs use ny = 1991 - 2100 = -109. The raw catalog
+# time axis is on the LABELLED calendar, so slice at (real - ny) = labelled while
+# keeping TIME_WINDOW (real) for the output paths.
+CALENDAR_YEAR_OFFSET = int(os.environ.get("CALENDAR_YEAR_OFFSET", "0"))
+sel_start_str = f"{int(year_start_str) - CALENDAR_YEAR_OFFSET:04d}"
+sel_end_str = f"{int(year_end_str) - CALENDAR_YEAR_OFFSET:04d}"
+
 print(f"PARENT_MODEL        = {PARENT_MODEL}")
 print(f"EXPERIMENT          = {EXPERIMENT}")
-print(f"TIME_WINDOW         = {TIME_WINDOW} (slice {year_start_str}:{year_end_str})")
+print(f"TIME_WINDOW         = {TIME_WINDOW} (real years {year_start_str}:{year_end_str})")
+print(f"CALENDAR_YEAR_OFFSET= {CALENDAR_YEAR_OFFSET} (labelled-calendar slice {sel_start_str}:{sel_end_str})")
 print(f"VELOCITY_SOURCE     = {VELOCITY_SOURCE} (BUILD_TOTAL_TRANSPORT={BUILD_TOTAL_TRANSPORT})")
 print(f"DHT_CHECK           = {DHT_CHECK}")
 
@@ -208,9 +219,10 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         print(f"Done: {varname}")
         return
 
-    # Select time window
-    print(f"Slicing for time window {year_start_str}:{year_end_str}")
-    datadask_sel = datadask.sel(time=slice(year_start_str, year_end_str))
+    # Select time window (slice on the labelled calendar; see CALENDAR_YEAR_OFFSET)
+    print(f"Slicing for real years {year_start_str}:{year_end_str} "
+          f"(labelled-calendar slice {sel_start_str}:{sel_end_str})")
+    datadask_sel = datadask.sel(time=slice(sel_start_str, sel_end_str))
     da = datadask_sel[varname]
     print(f"\n{varname} (sliced): {da}")
 

@@ -17,6 +17,13 @@ if [ -z "${EXPERIMENT:-}" ]; then
 fi
 TIME_WINDOW=${TIME_WINDOW:-1968-1977}
 
+# Calendar-year offset (Li et al.'s `ny`, default 0): real = labelled + offset.
+# TIME_WINDOW is always given in REAL years; periodicaverage.py slices the raw
+# catalog time axis at (real - offset) = labelled. The Qian/Li-et-al OM2-01 runs
+# (01deg_jra55v13_ryf9091_qian_wth{m,}p) use CALENDAR_YEAR_OFFSET=-109
+# (ny = 1991 - 2100). Only periodicaverage.py reads it; harmless elsewhere.
+CALENDAR_YEAR_OFFSET=${CALENDAR_YEAR_OFFSET:-0}
+
 # MLD time window (decoupled from TIME_WINDOW). When unset/empty, MLD inputs
 # come from TIME_WINDOW and outputs/logs land in the production tree. When
 # explicitly set, MLD inputs come from MLD_TIME_WINDOW and outputs/logs are
@@ -37,7 +44,7 @@ OUTPUT_TAG="$LOG_TW_TAG"
 # Julia's load_project_config uses haskey(ENV, "MLD_TIME_WINDOW") as the
 # "explicit" signal. Only export MLD_TIME_WINDOW when explicitly set, so the
 # default code path doesn't masquerade as explicit and reroute to test/.
-export EXPERIMENT TIME_WINDOW MLD_EXPLICIT LOG_TW_TAG OUTPUT_TAG
+export EXPERIMENT TIME_WINDOW CALENDAR_YEAR_OFFSET MLD_EXPLICIT LOG_TW_TAG OUTPUT_TAG
 [ "$MLD_EXPLICIT" = "yes" ] && export MLD_TIME_WINDOW
 
 # Source model-specific config FIRST so it can establish per-model defaults
