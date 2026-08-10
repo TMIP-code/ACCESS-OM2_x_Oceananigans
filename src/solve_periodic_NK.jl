@@ -83,10 +83,10 @@ TM_SOURCE = require_env("TM_SOURCE")
 TRAF = lowercase(require_env("TRAF")) == "yes"
 TRAF_TM_SOURCE = require_env("TRAF_TM_SOURCE")
 if TRAF
-    TM_SOURCE == "const" || error(
-        "TRAF=yes is only supported with TM_SOURCE=const in the first cut (got TM_SOURCE=$TM_SOURCE). " *
-            "Snapshot/avg-matrix support for TRAF is a follow-up.",
-    )
+    # TM_SOURCE is const (OM2-1/025) or avg (OM2-01, whose only matrix is the
+    # upwind1 averaged one, reused as an upwind3-forward preconditioner). Both are
+    # already validated above; V⁻¹ Mᵀ V is matrix-source agnostic, and the matrix
+    # path (matrices_dir/TM_SOURCE/M_basename) generalises to either subdir.
     TRAF_TM_SOURCE in ("invVMtV", "M_traf") ||
         error("TRAF_TM_SOURCE must be invVMtV or M_traf (got: $TRAF_TM_SOURCE)")
 end

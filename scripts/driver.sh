@@ -433,6 +433,11 @@ if has_step TMbuild; then
     [ -n "${UPSTREAM_TMBUILD_JOB:-}" ] && \
         TMBUILD_DEPS="${UPSTREAM_TMBUILD_JOB}${TMBUILD_DEPS:+:}${TMBUILD_DEPS}"
     tmbuild_flags=(--deps "$TMBUILD_DEPS")
+    # create_matrix.jl's TRAF invVMtV synthesis needs TM_SOURCE (const|avg subdir)
+    # and TM_MODEL_CONFIG (the advection-swapped, _traf-suffixed config that both
+    # locates the forward M and names the invVMtV output, matching where NK reads
+    # it). Harmless for a non-TRAF build (create_matrix.jl ignores them there).
+    tmbuild_flags+=(--vars "TM_SOURCE=${TM_SOURCE},TM_MODEL_CONFIG=${TM_MODEL_CONFIG:-}")
     [ -n "${TMBUILD_QUEUE:-}" ] && tmbuild_flags+=(--queue "${TMBUILD_QUEUE}")
     [ -n "${TMBUILD_NCPUS:-}" ] && tmbuild_flags+=(--ncpus "${TMBUILD_NCPUS}")
     [ -n "${TMBUILD_MEM:-}" ]   && tmbuild_flags+=(--mem "${TMBUILD_MEM}")

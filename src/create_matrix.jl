@@ -40,18 +40,33 @@ if TRAF && TRAF_TM_SOURCE == "invVMtV"
     using JLD2, SparseArrays, LinearAlgebra
 
     (; parentmodel, experiment_dir, outputdir) = load_project_config()
-    (; VELOCITY_SOURCE, W_FORMULATION, ADVECTION_SCHEME, TIMESTEPPER) = parse_config_env()
-    traf_mc = require_env("MODEL_CONFIG")
-    fwd_mc = replace(traf_mc, r"_traf$" => "")
-    fwd_mc == traf_mc && error(
-        "TRAF=yes but MODEL_CONFIG has no _traf suffix: $traf_mc. " *
+
+    # Base config for locating the forward M. Prefer TM_MODEL_CONFIG (the
+    # advection-token-swapped config, e.g. an upwind1 preconditioner for an
+    # upwind3 forward map) with the same empty-string fallback the NK solver uses
+    # (solve_periodic_NK.jl). Under TRAF it carries the _traf suffix.
+    tm_mc = let v = get(ENV, "TM_MODEL_CONFIG", "")
+        isempty(v) ? require_env("MODEL_CONFIG") : v
+    end
+    fwd_mc = replace(tm_mc, r"_traf$" => "")
+    fwd_mc == tm_mc && error(
+        "TRAF=yes but the TM model_config has no _traf suffix: $tm_mc. " *
             "Check that TRAF=yes is set in env_defaults.sh.",
     )
-    fwd_M_path = joinpath(outputdir, "TM", fwd_mc, "const", "M.jld2")
+
+    # Matrix subdir: TRAF now supports const (OM2-1/025) and avg (OM2-01, whose
+    # only matrix is the upwind1 averaged one). V⁻¹ Mᵀ V is matrix-source
+    # agnostic — read whatever forward M exists and transpose-scale it.
+    TM_SOURCE = require_env("TM_SOURCE")
+    (TM_SOURCE ∈ ("const", "avg")) ||
+        error("TM_SOURCE must be one of: const, avg (got: $TM_SOURCE)")
+
+    fwd_M_path = joinpath(outputdir, "TM", fwd_mc, TM_SOURCE, "M.jld2")
     @info "TRAF/invVMtV: loading forward M from $fwd_M_path"
     isfile(fwd_M_path) || error(
-        "Forward M not found at $fwd_M_path. Build it first with the same MODEL_CONFIG " *
-            "but TRAF=no (e.g. TRAF=no JOB_CHAIN=TMbuild bash scripts/driver.sh).",
+        "Forward M not found at $fwd_M_path. Build it first with the same TM " *
+            "model_config but TRAF=no (e.g. for OM2-01: ADVECTION_SCHEME=upwind1 " *
+            "TM_SOURCE=avg JOB_CHAIN=TMsnapshot bash scripts/driver.sh).",
     )
     M = load(fwd_M_path, "M")
 
@@ -65,7 +80,7 @@ if TRAF && TRAF_TM_SOURCE == "invVMtV"
     )
 
     invVMtV = sparse(Diagonal(v .^ -1)) * M' * sparse(Diagonal(v))
-    out_dir = joinpath(outputdir, "TM", traf_mc, "const")
+    out_dir = joinpath(outputdir, "TM", tm_mc, TM_SOURCE)
     mkpath(out_dir)
     out_path = joinpath(out_dir, "invVMtV.jld2")
     jldsave(out_path; M = invVMtV)
