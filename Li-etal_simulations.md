@@ -319,10 +319,18 @@ steps. The **new** deliverable is the same-resolution, same-decade difference:
 - **Surface ventilation**: `𝒱ꜜ(wthmp) − 𝒱ꜜ(wthp)`.
 
 Both experiments are on the **identical** OM2-01 grid → a straight cell-by-cell
-difference (no regridding). **→ Task D:** write `plot_qian_meltwater_diff.jl`
-reusing `compare_NK_ages.jl` (two-solution age comparison) and the diff panels in
-`plot_cross_resolution_*` / `plot_ventilation_omega_compare.jl`, dropping their
-cross-resolution regrid. Diverging colormap centered on zero.
+difference (no regridding). **Task D — done (commit pending):**
+[src/plot_Li_etal_meltwater_diff.jl](src/plot_Li_etal_meltwater_diff.jl) +
+[scripts/plotting/plot_Li_etal_meltwater_diff.sh](scripts/plotting/plot_Li_etal_meltwater_diff.sh).
+It loads each experiment's 1-year periodic age FTS (same tag/partition fallback
+as `compute_ventilation_diagnostic.jl`), volume-weighted-time-means both, and
+renders A|B|(B−A) depth-slice + basin-zonal + profile panels via the shared
+`plot_age_comparison_*` primitives (diff panel = B−A, so A=wthp, B=wthmp gives
+`wthmp − wthp` = the meltwater effect, on the `:balance` diverging map).
+Forward vs adjoint is selected by `MODEL_CONFIG` (add `TRAF=yes` for the `_traf`
+tree). **Untested** — it needs the NK/run1yrNK outputs to exist first. Ventilation
+(𝒱ꜜ) difference is not yet in the script (age/adjoint-age only); add it once the
+ventilation diagnostic outputs land.
 
 ---
 
@@ -331,15 +339,16 @@ cross-resolution regrid. Diverging colormap centered on zero.
 - [x] **A.** Add `CALENDAR_YEAR_OFFSET` (default 0; `-109` here) to
   `periodicaverage.py` slicing; thread through `env_defaults.sh` + `driver.sh`.
   *(done — commit 1320c4a)*
-- [ ] **A′.** Add `2040-2050` to `prune_time_windows.jl` allowlist; pre-fetch
-  OceanBasins polygons on a login node.
+- [x] **A′.** Add `2040-2050` to `prune_time_windows.jl` allowlist *(done —
+  commit 752f15d)*; pre-fetch OceanBasins polygons on a login node *(done)*.
 - [x] **B.** Enable TRAF avg-matrix path (`solve_periodic_NK.jl` +
   `create_matrix.jl` + `driver.sh` TMbuild vars) — see §4.1. *(done — commit
   70d97b2; `solve_matrix_age*.jl` intentionally left const-only, no `TMage`
   warm-start for OM2-01 TRAF.)*
 - [ ] **C.** Per experiment: `prep → grid(once)+vel+clo` at `GRID_HZ=4`; sanity-
   check climatologies (Southern Ocean mld / T / S look like a perturbed RYF state).
-- [ ] **D.** `plot_qian_meltwater_diff.jl` for the three `wthmp − wthp` panels.
+- [x] **D.** `plot_Li_etal_meltwater_diff.jl` (+ `.sh`) for the `wthmp − wthp`
+  age/adjoint-age panels *(done, untested pending outputs; ventilation-diff TODO)*.
 - [ ] **E.** Per experiment: build `upwind1` avg matrix (§3.2, expensive).
 - [ ] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
   upwind1-avg), multi-restart to convergence (§3.3).
