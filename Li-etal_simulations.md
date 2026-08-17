@@ -345,16 +345,54 @@ ventilation diagnostic outputs land.
   `create_matrix.jl` + `driver.sh` TMbuild vars) — see §4.1. *(done — commit
   70d97b2; `solve_matrix_age*.jl` intentionally left const-only, no `TMage`
   warm-start for OM2-01 TRAF.)*
-- [ ] **C.** Per experiment: `prep → grid(once)+vel+clo` at `GRID_HZ=4`; sanity-
-  check climatologies (Southern Ocean mld / T / S look like a perturbed RYF state).
+- [x] **C.** Per experiment: `prep → grid(once)+vel+clo` at `GRID_HZ=4` *(done —
+  both Exit 0; offset verified in-log, `slice 2149:2159` = real 2040–2050)*.
 - [x] **D.** `plot_Li_etal_meltwater_diff.jl` (+ `.sh`) for the `wthmp − wthp`
   age/adjoint-age panels *(done, untested pending outputs; ventilation-diff TODO)*.
-- [ ] **E.** Per experiment: build `upwind1` avg matrix (§3.2, expensive).
-- [ ] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
-  upwind1-avg), multi-restart to convergence (§3.3).
+- [x] **E.** Per experiment: build `upwind1` avg matrix *(done — both `avg/M.jld2`
+  41.9 GB, nnz 2 442 298 397)*.
+- [~] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
+  upwind1-avg), multi-restart to convergence (§3.3) *(submitted; running)*.
 - [ ] **G.** Per experiment: TRAF NK adjoint age / time to re-emergence (§4.2).
 - [ ] **H.** Per experiment: `run1yrNK → combine1yr → ventilation → plotNK →
   plotventilation` (forward and TRAF); then the `wthmp − wthp` difference figures.
 
 Order of first light: A → C → E → F (forward age, both experiments) validates the
 whole chain at 0.1° before committing to B → G (adjoint) and the differences.
+
+---
+
+## 7. Run tracking (job IDs)
+
+All at `PARENT_MODEL=ACCESS-OM2-01`, `TIME_WINDOW=2040-2050`, `GRID_HZ=4`.
+Forward MODEL_CONFIG = `cgridtransports_wparent_upwind3_AB2_kH30_kVML25e-3_kVBG75e-7_mkappaV_LBS`;
+preconditioner (upwind1 avg) MC = same with `_upwind3_`→`_upwind1_`.
+
+**wthp** — `01deg_jra55v13_ryf9091_qian_wthp` (baseline: wind+thermal, no meltwater)
+
+| Task | step | job | state | notes |
+|------|------|-----|-------|-------|
+| C | prep       | 176183470 | F ✓ | megamem 4h45; slice 2149:2159 = real 2040–2050 |
+| C | grid       | 176183472 | F ✓ | grid.jld2 1.6 GB |
+| C | vel        | 176183473 | F ✓ | 7 monthly + 6 yearly velocity files |
+| C | clo        | 176183474 | F ✓ | |
+| E | TMsnapshot | 176219246 | F ✓ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 |
+| F | partition  | 176466922 | R   | 1×4, 1600 GB |
+| F | NK_a       | 176466923 | H   | forward NK, `INITIAL_AGE=0` (afterok partition) |
+
+**wthmp** — `01deg_jra55v13_ryf9091_qian_wthmp` (wind+thermal+meltwater)
+
+| Task | step | job | state | notes |
+|------|------|-----|-------|-------|
+| C | prep       | 176184556 | F ✓ | megamem 4h47; slice 2149:2159 |
+| C | grid       | 176184558 | F ✓ | grid.jld2 1.6 GB (byte-identical to wthp) |
+| C | vel        | 176184560 | F ✓ | |
+| C | clo        | 176184562 | F ✓ | |
+| E | TMsnapshot | 176219247 | F ✓ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 |
+| F | partition  | 176466929 | R   | 1×4, 1600 GB |
+| F | NK_a       | 176466932 | H   | forward NK, `INITIAL_AGE=0` (afterok partition) |
+
+State: F ✓ = finished Exit 0, R = running, H = held on dep, — = not yet submitted.
+NK is multi-restart (`INITIAL_AGE=latest` each 48 h until `ReturnCode.Success`);
+record restart job IDs + final `vol_rms_drift` here as they complete. TRAF (G)
+and post-NK/diagnostics (H) rows to be added when submitted.
