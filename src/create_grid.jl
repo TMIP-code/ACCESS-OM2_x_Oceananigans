@@ -136,12 +136,49 @@ if check_parent_grid
     kbottom = round.(Union{Missing, Int}, Nz .- kmt .+ 1)
 
     @assert ht == -bottom
-    for idx in eachindex(kbottom)
-        local k = kbottom[idx]
+
+    # Vertical-level placement check: the deepest wet cell's bottom depth must
+    # fall in the z-layer [zeta[k], zeta[k+1]) implied by MOM's kmt. Instead of
+    # asserting on the first offender, tally ALL violating columns and report a
+    # few examples so we can tell benign face-boundary rounding (magnitude ≈ 0,
+    # i.e. bottom == zeta[k+1] failing the strict `<`) from a real vgrid /
+    # partial-cell-index discrepancy (large magnitude).
+    n_wet = count(!ismissing, kmt)
+    violations = NamedTuple[]
+    n_viol = 0
+    max_viol = 0.0
+    for idx in CartesianIndices(kbottom)
         ismissing(kmt[idx]) && continue
-        @assert zeta[k] ≤ bottom[idx] < zeta[k + 1]
+        k = kbottom[idx]
+        if !(zeta[k] ≤ bottom[idx] < zeta[k + 1])
+            n_viol += 1
+            # signed distance outside the interval (0 for exact-boundary case)
+            mag = max(zeta[k] - bottom[idx], bottom[idx] - zeta[k + 1], 0.0)
+            max_viol = max(max_viol, mag)
+            length(violations) < 20 && push!(
+                violations,
+                (;
+                    i = idx[1], j = idx[2], k, bottom = bottom[idx],
+                    kmt = kmt[idx], zk = zeta[k], zk1 = zeta[k + 1], mag,
+                ),
+            )
+        end
     end
-    @info "z coordinate/grid checks against parent grid output passed."
+
+    if n_viol == 0
+        @info "z coordinate/grid checks against parent grid output passed."
+    else
+        @warn "z-level placement check: $n_viol / $n_wet wet columns violate " *
+            "zeta[k] ≤ bottom < zeta[k+1] (max violation $(round(max_viol; digits = 4)) m). " *
+            "max_viol ≈ 0 ⇒ exact face-boundary (strict-<) rounding; large ⇒ real vgrid mismatch."
+        for v in first(violations, 10)
+            @info "  (i=$(v.i), j=$(v.j)) bottom=$(round(v.bottom; digits = 4)) kmt=$(v.kmt) " *
+                "k=$(v.k) zeta[k]=$(round(v.zk; digits = 4)) zeta[k+1]=$(round(v.zk1; digits = 4)) " *
+                "violation=$(round(v.mag; digits = 4)) m"
+        end
+        @info "z coordinate/grid checks against parent grid output: $n_viol violations reported above (grid NOT re-saved)."
+        error("z-level placement check failed for $n_viol columns — see report above.")
+    end
 else
     @info "Skipping z coordinate/grid checks against parent grid output " *
         "(set CHECK_AGAINST_PARENT_GRID_OUTPUT=yes to enable)."
