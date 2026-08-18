@@ -99,6 +99,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
     echo "    prep grid vel clo diagnose_w run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong"
     echo "    TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK ventilation plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM"
     echo "    plotgrid plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof"
+    echo "    probeCFL (read-only: advective CFL of the input velocities; CFL_TARGET, CFL_LOCATE)"
     echo ""
     echo "  Shortcuts:"
     echo "    preprocessing  = prep-grid-vel-clo-diagnose_w-partition"
@@ -118,7 +119,7 @@ if [ -z "${JOB_CHAIN:-}" ]; then
 fi
 
 # --- Topological step order (for deterministic output in range expansion) ---
-ALL_STEPS=(prep grid vel clo diagnose_w partition run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof compareNK)
+ALL_STEPS=(prep grid vel clo diagnose_w partition probeCFL run1yr run1yrfast run1yrncu allocbench allocprofile run10yr run100yr runlong TMbuild TMsnapshot TMsolve TMprecbench TMofflinefact NK run1yrNK combine1yr ventilation plotgrid plotMLD plotAgeLog plotKVML plotNK plotNKtrace plotventilation ventseasonal ventmovie plotTM plot1yr plot10yr plot100yr plotMOC plotcrossres plotcrosszonal plotcrossvent plotcrossventprof compareNK)
 
 # --- Dependency DAG (parsed from scripts/pipeline.mmd) ---
 declare -A DAG
@@ -726,6 +727,14 @@ has_step plotgrid && \
     submit_job plotgrid "$WALLTIME_PLOT" \
         scripts/plotting/plot_grid_metrics.sh \
         --deps "${GRID_JOB:-}" > /dev/null
+
+# probeCFL (no deps — read-only scan of the preprocessed grid + velocity FTS;
+# reports the advective CFL of the prescribed inputs across the TIMESTEP_MULT
+# ladder without running the model)
+has_step probeCFL && \
+    submit_job probeCFL "${WALLTIME_PROBE:-04:00:00}" \
+        scripts/debugging/probe_CFL.sh \
+        --vars "CFL_TARGET=${CFL_TARGET:-0.7},CFL_LOCATE=${CFL_LOCATE:-yes}" > /dev/null
 
 # plotMLD (no deps — reads preprocessed per-rank MLD partition files)
 has_step plotMLD && \
