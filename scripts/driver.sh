@@ -287,7 +287,8 @@ fi
 
 has_step grid && \
     GRID_JOB=$(submit_job grid "$WALLTIME_GRID" \
-        scripts/preprocessing/build_grid.sh)
+        scripts/preprocessing/build_grid.sh \
+        --vars "CHECK_AGAINST_PARENT_GRID_OUTPUT=${CHECK_AGAINST_PARENT_GRID_OUTPUT:-no}")
 
 # vel (depends on: grid + prep)
 if has_step vel; then
