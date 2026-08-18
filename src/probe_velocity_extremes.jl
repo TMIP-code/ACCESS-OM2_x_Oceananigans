@@ -77,14 +77,16 @@ for (name, file) in fields
     over = zeros(Int, length(thresholds))   # counts of |value| > threshold (all months)
 
     for t in 1:Nt
-        a = Float64.(Array(interior(fts[t])))
+        # Keep native precision (Float32) — a Float64 copy doubled memory (OOM).
+        a = Array(interior(fts[t]))
+        T = eltype(a)
         nnan = count(isnan, a)
         ninf = count(x -> isinf(x) && !isnan(x), a)
         tot_nan += nnan
         tot_inf += ninf
 
-        # abs with non-finite set to -Inf so findmax ignores them
-        absa = map(x -> isfinite(x) ? abs(x) : -Inf, a)
+        # abs with non-finite set to -Inf (typed) so findmax ignores them
+        absa = map(x -> isfinite(x) ? abs(x) : T(-Inf), a)
         mx, ci = findmax(absa)
         finite_any = mx > -Inf
         if finite_any
@@ -106,6 +108,9 @@ for (name, file) in fields
         else
             @info @sprintf("  month %2d: ALL non-finite  NaN=%d Inf=%d", t, nnan, ninf)
         end
+        a = nothing
+        absa = nothing
+        GC.gc()
         flush(stdout); flush(stderr)
     end
 
