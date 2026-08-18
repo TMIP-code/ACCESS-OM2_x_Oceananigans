@@ -144,25 +144,31 @@ if check_parent_grid
     # i.e. bottom == zeta[k+1] failing the strict `<`) from a real vgrid /
     # partial-cell-index discrepancy (large magnitude).
     n_wet = count(!ismissing, kmt)
-    violations = NamedTuple[]
-    n_viol = 0
-    max_viol = 0.0
-    for idx in CartesianIndices(kbottom)
-        ismissing(kmt[idx]) && continue
-        k = kbottom[idx]
-        if !(zeta[k] ≤ bottom[idx] < zeta[k + 1])
-            n_viol += 1
-            # signed distance outside the interval (0 for exact-boundary case)
-            mag = max(zeta[k] - bottom[idx], bottom[idx] - zeta[k + 1], 0.0)
-            max_viol = max(max_viol, mag)
-            length(violations) < 20 && push!(
-                violations,
-                (;
-                    i = idx[1], j = idx[2], k, bottom = bottom[idx],
-                    kmt = kmt[idx], zk = zeta[k], zk1 = zeta[k + 1], mag,
-                ),
-            )
+    # Wrap the tally in a `let` (hard scope) so the loop's counter reassignments
+    # don't hit Julia's top-level soft-scope rule (a bare top-level `for` would
+    # treat `n_viol += 1` as a new local → UndefVarError).
+    violations, n_viol, max_viol = let
+        viols = NamedTuple[]
+        nv = 0
+        mv = 0.0
+        for idx in CartesianIndices(kbottom)
+            ismissing(kmt[idx]) && continue
+            k = kbottom[idx]
+            if !(zeta[k] ≤ bottom[idx] < zeta[k + 1])
+                nv += 1
+                # signed distance outside the interval (0 for exact-boundary case)
+                mag = max(zeta[k] - bottom[idx], bottom[idx] - zeta[k + 1], 0.0)
+                mv = max(mv, mag)
+                length(viols) < 20 && push!(
+                    viols,
+                    (;
+                        i = idx[1], j = idx[2], k, bottom = bottom[idx],
+                        kmt = kmt[idx], zk = zeta[k], zk1 = zeta[k + 1], mag,
+                    ),
+                )
+            end
         end
+        (viols, nv, mv)
     end
 
     if n_viol == 0
