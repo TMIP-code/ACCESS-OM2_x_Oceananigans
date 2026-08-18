@@ -396,3 +396,28 @@ State: F ✓ = finished Exit 0, R = running, H = held on dep, — = not yet subm
 NK is multi-restart (`INITIAL_AGE=latest` each 48 h until `ReturnCode.Success`);
 record restart job IDs + final `vol_rms_drift` here as they complete. TRAF (G)
 and post-NK/diagnostics (H) rows to be added when submitted.
+
+### ⛔ BLOCKER (both forward NK jobs failed) — corrupt wthp transport climatology
+
+The first forward NK jobs (`176466923` wthp, `176466932` wthmp) **both NaN-blew-up
+in Φ! call #1** and then hung (distributed NaN desync) — qdel'd, no iterate saved.
+
+Root cause (fully diagnosed): `periodicaverage.py` manufactured **~1e308 (Oct) /
+NaN (Nov)** values in **wthp's** `ty_trans_monthly.nc` at ~28 deep equatorial cells
+(ref cell 0-based `xt847,yu1244,st59`), from clean raw MOM data (≤1e8). `v = ty/
+(ρ₀·AyCFC)` → `1e298` → age NaN. Grid, metrics, σ, and the B→C copy all cleared;
+**wthmp is clean** (identical grid+code). Full handoff plan:
+[docs/periodicaverage_corruption_bug.md](docs/periodicaverage_corruption_bug.md)
+(a separate agent owns the fix — do **not** sanitize downstream).
+
+**Recovery after the periodicaverage fix:** re-run `prep`+`vel` for wthp →
+**rebuild the `upwind1 avg` matrix** (Task E, built from the corrupt velocities) →
+re-submit forward NK. wthmp: re-verify velocities (probe), then it can proceed to
+NK independently.
+
+| investigation | job(s) | finding |
+|---|---|---|
+| grid parent-check (`CHECK_AGAINST_PARENT_GRID_OUTPUT`) | 176547316/17 → 176553800/08 | bathymetry matches parent; 390 987 "violations" all ≤0.2 mm Float32-on-face rounding (benign) |
+| velocity-extremes probe | 176557072/73 → 176560338/39 | wthp v/w ~1e298 @ (848,1246,16) mo10; **wthmp fully clean** |
+| face-area-metric probe | 176562522/23 | `AyCFC` normal (1.97e6) at the cell → not the metric |
+| v-blowup cross-check | 176563851 | raw ty_trans there = **1.566e308** → corruption is in the preprocessed climatology |
