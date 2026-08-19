@@ -20,8 +20,11 @@ from pathlib import Path
 
 os.environ["PYTHONWARNINGS"] = "ignore"
 
+import dask
+import distributed
 from dask.distributed import Client
 import intake
+import netCDF4
 import numpy as np
 import xarray as xr
 
@@ -164,6 +167,137 @@ def weighted_yearly_mean(ds):
     return (ds * weights).sum(dim="time")
 
 
+# ── Verified single-writer NetCDF output ────────────────────────────────────
+# NEVER let dask.distributed workers write the output file.
+#
+# netCDF4/HDF5 (without parallel HDF5) does not support several processes
+# holding the same file open for writing. `DataArray.to_netcdf()` on a
+# dask-backed array under a distributed cluster does exactly that: the store
+# tasks run on the workers, and each worker process re-opens the target file
+# and writes its own chunks. HDF5 detects this and refuses the second open
+# ("unable to lock file, errno = 11") — until file locking is disabled, at
+# which point the writes race silently: whole dask chunks never land (they
+# read back as _FillValue = NaN) and the occasional chunk is torn mid-write
+# (garbage ~1e308). See docs/periodicaverage_corruption_bug.md.
+#
+# Instead: compute on the cluster, write from THIS process only, one slab at a
+# time, and verify every slab twice —
+#   1. mathematically, before writing: a weighted mean whose weights sum to 1
+#      cannot exceed max|input|, and cannot be non-finite if the inputs are;
+#   2. by reading it back afterwards, which proves the bytes actually landed.
+# Any violation raises with the offending indices instead of silently
+# producing a corrupt file.
+
+def _verify_slab(name, label, out, in_absmax, in_nonfinite):
+    """Check a computed slab against invariants its inputs guarantee."""
+    n_bad = int(np.count_nonzero(~np.isfinite(out)))
+    if n_bad > in_nonfinite:
+        idx = np.argwhere(~np.isfinite(out))[:5].tolist()
+        raise ValueError(
+            f"{name}: {label} has {n_bad} non-finite values but its inputs had "
+            f"{in_nonfinite}. First offending indices within the slab: {idx}"
+        )
+    finite = np.isfinite(out)
+    if not finite.any():
+        return
+    bound = in_absmax * (1 + 1e-9) + 1e-30
+    absmax = float(np.abs(out[finite]).max())
+    if absmax > bound:
+        idx = np.argwhere(finite & (np.abs(out) > bound))[:5].tolist()
+        raise ValueError(
+            f"{name}: {label} max|.| = {absmax:.6e} exceeds max|input| = "
+            f"{in_absmax:.6e}; a weighted mean cannot do that. "
+            f"First offending indices within the slab: {idx}"
+        )
+
+
+def write_verified(out_da, path, name, source_for_slab, slab_dim=None):
+    """
+    Write `out_da` to `path` under variable `name`, computing on the dask
+    cluster but writing from this process only, verifying every slab.
+
+    `source_for_slab(slab_value)` returns the lazy input data that the slab is
+    derived from; its |max| and non-finite count are computed in the *same*
+    dask call as the slab, so the raw data is read only once.
+    """
+    path = str(path)
+    # Always start from scratch — never append to a stale or partial file.
+    if os.path.exists(path):
+        os.remove(path)
+
+    # Create the file skeleton (dims, coords, attrs) from this process.
+    with netCDF4.Dataset(path, "w", format="NETCDF4") as nc:
+        for dim, size in zip(out_da.dims, out_da.shape):
+            nc.createDimension(dim, size)
+        for cname, cvar in out_da.coords.items():
+            vals = np.asarray(cvar.values)
+            for dim, size in zip(cvar.dims, vals.shape):
+                if dim not in nc.dimensions:
+                    nc.createDimension(dim, size)
+            cv = nc.createVariable(
+                cname, vals.dtype, cvar.dims,
+                fill_value=np.nan if vals.dtype.kind == "f" else None,
+            )
+            cv.setncatts({k: v for k, v in cvar.attrs.items() if k != "_FillValue"})
+            cv[...] = vals
+        # Keep _FillValue = NaN so that any region that is never written stays
+        # loudly wrong rather than plausibly zero.
+        var = nc.createVariable(
+            name, out_da.dtype, out_da.dims,
+            fill_value=np.nan if out_da.dtype.kind == "f" else None,
+        )
+        var.setncatts({k: v for k, v in out_da.attrs.items() if k != "_FillValue"})
+        # Match what xarray would emit, so auxiliary coords (e.g.
+        # mean_days_in_month) are still recognised as coords on read-back.
+        aux = [c for c in out_da.coords if c not in out_da.dims]
+        if aux:
+            var.setncattr("coordinates", " ".join(aux))
+
+    slab_values = out_da[slab_dim].values if slab_dim else [None]
+    for i, slab_value in enumerate(slab_values):
+        if slab_dim:
+            out_lazy = out_da.isel({slab_dim: i})
+            label = f"{slab_dim}={slab_value}"
+        else:
+            out_lazy = out_da
+            label = "whole field"
+
+        src = source_for_slab(slab_value)
+        src_finite = np.isfinite(src)
+        # Computed together so the shared source chunks are read exactly once.
+        out_c, absmax_c, nbad_c = dask.compute(
+            out_lazy,
+            xr.where(src_finite, np.abs(src), 0.0).max(),
+            (~src_finite).sum(),
+        )
+        out = np.asarray(getattr(out_c, "values", out_c))
+        _verify_slab(name, label, out, float(absmax_c), int(nbad_c))
+
+        with netCDF4.Dataset(path, "a") as nc:
+            var = nc.variables[name]
+            var.set_auto_mask(False)
+            if slab_dim:
+                var[i, ...] = out
+            else:
+                var[...] = out
+
+        # Read back from disk to prove the write actually landed.
+        with netCDF4.Dataset(path, "r") as nc:
+            var = nc.variables[name]
+            var.set_auto_mask(False)
+            back = var[i, ...] if slab_dim else var[...]
+        if not np.array_equal(back, out, equal_nan=True):
+            differs = ~((back == out) | (np.isnan(back) & np.isnan(out)))
+            idx = np.argwhere(differs)[:5].tolist()
+            raise ValueError(
+                f"{name}: {label} read back different from what was written "
+                f"({int(differs.sum())} cells differ, first: {idx}). The output "
+                f"file is being written by more than one process, or the "
+                f"filesystem dropped the write."
+            )
+        print(f"  {label}: verified (max|.| = {float(absmax_c):.4e})")
+
+
 def process_variable(searched_cat, varname, chunks, frequency="1mon",
                      is_time_invariant=False, save_as=None):
     """
@@ -189,11 +323,17 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
         filepath = selectedcat.df.path.iloc[0]
         print(f"Opening static field directly: {filepath}")
         ds = xr.open_dataset(filepath, chunks=chunks)
-        da = ds[varname]
+        # `.load()` first: a numpy-backed array is written by xarray from THIS
+        # process (no dask store tasks, so no concurrent writers), which keeps
+        # the field's original encoding — area_t marks land with a finite
+        # _FillValue of 1e20, not NaN, and downstream readers expect that.
+        da = ds[varname].load()
         outfile = base_dir / f"{varname}.nc"
         print(f"Saving {varname} to: {outfile}")
-        da.to_netcdf(str(outfile), compute=True)
-        print(f"Done: {varname}")
+        da.to_netcdf(str(outfile))
+        n_bad = int(np.count_nonzero(~np.isfinite(da.values)))
+        print(f"Done: {varname} ({n_bad} non-finite; land sentinel is "
+              f"{da.encoding.get('_FillValue', 'NaN')})")
         return
 
     datadask = select_data(
@@ -204,21 +344,6 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
     )
     print(f"\ndatadask: {datadask}")
 
-    if is_time_invariant:
-        # Time-invariant field: open directly from catalog path, bypassing
-        # combine_by_coords which fails on static fields without dimension
-        # coordinates (xarray >= 2025.03).
-        selectedcat = searched_cat.search(variable=varname, frequency=frequency)
-        filepath = selectedcat.df.path.iloc[0]
-        print(f"Opening static field directly: {filepath}")
-        ds = xr.open_dataset(filepath, chunks=chunks)
-        da = ds[varname]
-        outfile = monthly_dir / f"{varname}.nc"
-        print(f"Saving {varname} to: {outfile}")
-        da.to_netcdf(str(outfile), compute=True)
-        print(f"Done: {varname}")
-        return
-
     # Select time window (slice on the labelled calendar; see CALENDAR_YEAR_OFFSET)
     print(f"Slicing for real years {year_start_str}:{year_end_str} "
           f"(labelled-calendar slice {sel_start_str}:{sel_end_str})")
@@ -226,19 +351,27 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
     da = datadask_sel[varname]
     print(f"\n{varname} (sliced): {da}")
 
-    # Monthly climatology → monthly/
+    # Monthly climatology → monthly/. Each month is written and verified
+    # against only the timesteps of that month, which is also what makes the
+    # per-slab bound check tight.
     monthly_file = monthly_dir / f"{save_name}_monthly.nc"
     print(f"Computing monthly climatology for {varname}")
     monthly = month_climatology(da)
+    monthly.attrs = dict(da.attrs)
     print(f"Saving monthly climatology to: {monthly_file}")
-    monthly.to_dataset(name=save_name).to_netcdf(str(monthly_file), compute=True)
+    write_verified(
+        monthly, monthly_file, save_name,
+        lambda m: da.isel(time=(da["time.month"] == m).values),
+        slab_dim="month",
+    )
 
     # Yearly (time-window) average → yearly/
     yearly_file = yearly_dir / f"{save_name}_yearly.nc"
     print(f"Computing yearly average for {varname}")
     yearly = weighted_yearly_mean(da)
+    yearly.attrs = dict(da.attrs)
     print(f"Saving yearly average to: {yearly_file}")
-    yearly.to_dataset(name=save_name).to_netcdf(str(yearly_file), compute=True)
+    write_verified(yearly, yearly_file, save_name, lambda _: da)
 
     print(f"Done: {varname}" + (f" (saved as {save_name})" if save_as else ""))
 
@@ -246,9 +379,24 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
 # ── Main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Record the environment: `conda/analysis3` is a rolling monthly release,
+    # so without this the only way to tell which libraries produced a given
+    # output is to fish site-packages paths out of incidental warnings.
+    print("\n── environment ─────────────────────────────────────────────")
+    print(f"  python       {sys.version.split()[0]}")
+    print(f"  conda env    {os.environ.get('CONDA_PREFIX', '(unset)')}")
+    for mod in (xr, dask, distributed, intake, netCDF4):
+        print(f"  {mod.__name__:12s} {getattr(mod, '__version__', '?')}")
+    print(f"  libnetcdf    {netCDF4.__netcdf4libversion__}")
+    print(f"  libhdf5      {netCDF4.__hdf5libversion__}")
+    print(f"  HDF5_USE_FILE_LOCKING={os.environ.get('HDF5_USE_FILE_LOCKING', '(unset)')}")
+    print("─" * 60)
+
     # Dask distributed client is required for parallel NetCDF I/O.
     # Without it, dask falls back to the threaded scheduler and netCDF4
-    # segfaults because it is not thread-safe.
+    # segfaults because it is not thread-safe. Workers READ the raw files
+    # (many concurrent readers are fine); they must never WRITE the outputs —
+    # see write_verified() above.
     n_workers = int(os.environ.get("PBS_NCPUS", os.cpu_count() or 48))
     client = Client(n_workers=n_workers, threads_per_worker=1)
     print(f"Dask client: {client}")

@@ -49,12 +49,24 @@ mkdir -p "$log_dir"
 echo "Loading conda/analysis3 module"
 module purge
 module use /g/data/xp65/public/modules
-module load conda/analysis3
+# Pinned: `conda/analysis3` is a rolling alias retargeted every month, so an
+# unpinned load silently changes xarray/dask/netCDF4 under the pipeline. Bump
+# deliberately, and re-run the audit (scripts/debugging/audit_preprocessed.sh)
+# after bumping.
+module load conda/analysis3-26.07
 
-# Disable HDF5 file locking — /home (NFS) breaks dask+netCDF4 writes with
-# "Unable to lock file" at any nontrivial output size. Safe for single-writer
-# workloads (we have exactly one process per output file).
-export HDF5_USE_FILE_LOCKING=FALSE
+# NOTE: HDF5 file locking must stay ENABLED.
+#
+# It was previously disabled here to work around "Unable to lock file
+# (errno = 11, Resource temporarily unavailable)" during prep. That error was
+# not an NFS problem — it was HDF5 correctly refusing a *second process*
+# opening the output for write, because to_netcdf() on a dask-backed array
+# under a distributed cluster makes every worker write the file. Disabling the
+# lock turned that hard failure into silent corruption: whole dask chunks went
+# missing from every 0.1° monthly output. periodicaverage.py now writes from a
+# single process (write_verified), so the lock is never contended — and if a
+# concurrent writer is ever reintroduced, it will fail loudly again instead of
+# producing a quietly wrong file. See docs/periodicaverage_corruption_bug.md.
 
 echo "Running periodicaverage.py"
 python3 src/periodicaverage.py &> "$log_dir/periodicaverage_${job_id}.log"
