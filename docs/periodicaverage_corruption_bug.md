@@ -146,7 +146,14 @@ one level per 19-level z-chunk is *complete* for detecting whole missing chunks;
    `{TW}/nc_archive_pre_writefix_20260819/` so the new output can be diffed
    against them. `…iaf_cycle4` / 1958-1987 is a non-default window and was
    deleted outright rather than re-run.
-3. Re-audit; then rebuild velocities and confirm with
+3. ~~Re-audit~~ — done, job `177185182` (2026-08-24, 6m39s, 1.77 SU):
+   **PASSED**, all 43 variables across the three regenerated sets finite and in
+   bounds, against 12 corrupt variables (25–38 M non-finite each) before. Spot
+   comparison against the archive at the reference cell: month 10
+   `1.566369e+308` → `5.710295e+04`, month 11 `NaN` → `-1.965319e+07`, and
+   `max|OLD − NEW| = 0` over all 2,154,284 cells the old file had left intact —
+   i.e. the fix touched only the corrupted cells.
+   Still to do: rebuild velocities and confirm with
    `scripts/debugging/probe_velocity_extremes.sh` (|u|,|v| ≲ a few m/s,
    |w| ≲ O(1e-2), 0 non-finite).
 4. Rebuild the `upwind1` averaged transport matrix
