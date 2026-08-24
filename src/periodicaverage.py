@@ -29,105 +29,124 @@ import numpy as np
 import xarray as xr
 
 
-# ── Configuration from environment ──────────────────────────────────────────
+# ── Configuration ───────────────────────────────────────────────────────────
+# Everything that reads the environment, prints, or creates directories lives
+# in `configure()`, called only under `if __name__ == "__main__"`. It must NOT
+# run at import time: dask spawns its workers by re-importing this file (as
+# `__mp_main__`), so anything at module scope executes once per worker — which
+# used to repeat the config banner 33 times in every log, and would have each
+# worker independently re-run the validation and its `sys.exit()` paths.
 
-PARENT_MODEL = os.environ.get("PARENT_MODEL", "ACCESS-OM2-1")
 DEFAULT_EXPERIMENTS = {
     "ACCESS-OM2-1": "1deg_jra55_iaf_omip2_cycle6",
     "ACCESS-OM2-025": "025deg_jra55_iaf_omip2_cycle6",
 }
-EXPERIMENT = os.environ.get("EXPERIMENT", DEFAULT_EXPERIMENTS.get(PARENT_MODEL, ""))
-if not EXPERIMENT:
-    print(f"ERROR: No default EXPERIMENT for {PARENT_MODEL}; set EXPERIMENT env var", file=sys.stderr)
-    sys.exit(1)
 
-TIME_WINDOW = os.environ.get("TIME_WINDOW", "1968-1977")
 
-VELOCITY_SOURCE = os.environ.get("VELOCITY_SOURCE", "cgridtransports")
-if VELOCITY_SOURCE not in ("cgridtransports", "totaltransport"):
-    print(f"ERROR: VELOCITY_SOURCE must be cgridtransports or totaltransport (got: {VELOCITY_SOURCE})", file=sys.stderr)
-    sys.exit(1)
-BUILD_TOTAL_TRANSPORT = VELOCITY_SOURCE == "totaltransport"
+def configure():
+    """Read config from the environment and set up output dirs. Main only."""
+    global PARENT_MODEL, EXPERIMENT, TIME_WINDOW, VELOCITY_SOURCE
+    global BUILD_TOTAL_TRANSPORT, DHT_CHECK, CALENDAR_YEAR_OFFSET
+    global year_start_str, year_end_str, sel_start_str, sel_end_str
+    global repo_root, base_dir, monthly_dir, yearly_dir
 
-DHT_CHECK = os.environ.get("DHT_CHECK", "no").lower() in ("yes", "true", "1")
+    PARENT_MODEL = os.environ.get("PARENT_MODEL", "ACCESS-OM2-1")
+    EXPERIMENT = os.environ.get("EXPERIMENT", DEFAULT_EXPERIMENTS.get(PARENT_MODEL, ""))
+    if not EXPERIMENT:
+        print(f"ERROR: No default EXPERIMENT for {PARENT_MODEL}; set EXPERIMENT env var", file=sys.stderr)
+        sys.exit(1)
 
-# Parse TIME_WINDOW into start/end year strings. TIME_WINDOW is always given in
-# REAL (calendar) years and also names the output directory tree.
-if "-" in TIME_WINDOW:
-    year_start_str, year_end_str = TIME_WINDOW.split("-", 1)
-else:
-    year_start_str = year_end_str = TIME_WINDOW
+    TIME_WINDOW = os.environ.get("TIME_WINDOW", "1968-1977")
 
-# CALENDAR_YEAR_OFFSET (Li et al.'s `ny`, default 0): some experiments label the
-# model calendar with a fixed offset from real years (real = labelled + ny). The
-# Qian/Li-et-al ACCESS-OM2-01 runs use ny = 1991 - 2100 = -109. The raw catalog
-# time axis is on the LABELLED calendar, so slice at (real - ny) = labelled while
-# keeping TIME_WINDOW (real) for the output paths.
-CALENDAR_YEAR_OFFSET = int(os.environ.get("CALENDAR_YEAR_OFFSET", "0"))
-sel_start_str = f"{int(year_start_str) - CALENDAR_YEAR_OFFSET:04d}"
-sel_end_str = f"{int(year_end_str) - CALENDAR_YEAR_OFFSET:04d}"
+    VELOCITY_SOURCE = os.environ.get("VELOCITY_SOURCE", "cgridtransports")
+    if VELOCITY_SOURCE not in ("cgridtransports", "totaltransport"):
+        print(f"ERROR: VELOCITY_SOURCE must be cgridtransports or totaltransport (got: {VELOCITY_SOURCE})", file=sys.stderr)
+        sys.exit(1)
+    BUILD_TOTAL_TRANSPORT = VELOCITY_SOURCE == "totaltransport"
 
-print(f"PARENT_MODEL        = {PARENT_MODEL}")
-print(f"EXPERIMENT          = {EXPERIMENT}")
-print(f"TIME_WINDOW         = {TIME_WINDOW} (real years {year_start_str}:{year_end_str})")
-print(f"CALENDAR_YEAR_OFFSET= {CALENDAR_YEAR_OFFSET} (labelled-calendar slice {sel_start_str}:{sel_end_str})")
-print(f"VELOCITY_SOURCE     = {VELOCITY_SOURCE} (BUILD_TOTAL_TRANSPORT={BUILD_TOTAL_TRANSPORT})")
-print(f"DHT_CHECK           = {DHT_CHECK}")
+    DHT_CHECK = os.environ.get("DHT_CHECK", "no").lower() in ("yes", "true", "1")
 
-# ── Output directories ─────────────────────────────────────────────────────
+    # Parse TIME_WINDOW into start/end year strings. TIME_WINDOW is always given
+    # in REAL (calendar) years and also names the output directory tree.
+    if "-" in TIME_WINDOW:
+        year_start_str, year_end_str = TIME_WINDOW.split("-", 1)
+    else:
+        year_start_str = year_end_str = TIME_WINDOW
 
-repo_root = Path(__file__).resolve().parent.parent
-base_dir = repo_root / "preprocessed_inputs" / PARENT_MODEL / EXPERIMENT / TIME_WINDOW
-monthly_dir = base_dir / "monthly"
-yearly_dir = base_dir / "yearly"
-makedirs(monthly_dir, exist_ok=True)
-makedirs(yearly_dir, exist_ok=True)
+    # CALENDAR_YEAR_OFFSET (Li et al.'s `ny`, default 0): some experiments label
+    # the model calendar with a fixed offset from real years (real = labelled +
+    # ny). The Qian/Li-et-al ACCESS-OM2-01 runs use ny = 1991 - 2100 = -109. The
+    # raw catalog time axis is on the LABELLED calendar, so slice at
+    # (real - ny) = labelled while keeping TIME_WINDOW (real) for output paths.
+    CALENDAR_YEAR_OFFSET = int(os.environ.get("CALENDAR_YEAR_OFFSET", "0"))
+    sel_start_str = f"{int(year_start_str) - CALENDAR_YEAR_OFFSET:04d}"
+    sel_end_str = f"{int(year_end_str) - CALENDAR_YEAR_OFFSET:04d}"
 
-print(f"Monthly output: {monthly_dir}")
-print(f"Yearly output:  {yearly_dir}")
+    print(f"PARENT_MODEL        = {PARENT_MODEL}")
+    print(f"EXPERIMENT          = {EXPERIMENT}")
+    print(f"TIME_WINDOW         = {TIME_WINDOW} (real years {year_start_str}:{year_end_str})")
+    print(f"CALENDAR_YEAR_OFFSET= {CALENDAR_YEAR_OFFSET} (labelled-calendar slice {sel_start_str}:{sel_end_str})")
+    print(f"VELOCITY_SOURCE     = {VELOCITY_SOURCE} (BUILD_TOTAL_TRANSPORT={BUILD_TOTAL_TRANSPORT})")
+    print(f"DHT_CHECK           = {DHT_CHECK}")
+
+    repo_root = Path(__file__).resolve().parent.parent
+    base_dir = repo_root / "preprocessed_inputs" / PARENT_MODEL / EXPERIMENT / TIME_WINDOW
+    monthly_dir = base_dir / "monthly"
+    yearly_dir = base_dir / "yearly"
+    makedirs(monthly_dir, exist_ok=True)
+    makedirs(yearly_dir, exist_ok=True)
+
+    print(f"Monthly output: {monthly_dir}")
+    print(f"Yearly output:  {yearly_dir}")
+
 
 # ── Resolution-dependent chunk sizes ───────────────────────────────────────
 # TODO: Chunk sizes could be auto-detected from the NetCDF files themselves
 # (e.g. via ds[var].encoding['chunksizes'] or netCDF4.Dataset(path).variables[var].chunking()).
 # For now, use hardcoded defaults that match the original per-model scripts.
 
-if PARENT_MODEL == "ACCESS-OM2-1":
-    # 1° grid: 360x300
-    CHUNKS_2D = {"xt_ocean": 360, "yt_ocean": 300}
-    CHUNKS_3D_T = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_TX = {"time": -1, "xu_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_TY = {"time": -1, "xt_ocean": 180, "yu_ocean": 150, "st_ocean": 25}
-    CHUNKS_TX_GM = CHUNKS_TX
-    CHUNKS_TY_GM = CHUNKS_TY
-    CHUNKS_MLD = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
-    CHUNKS_DHT = {"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25}
-    CHUNKS_ETA = {"time": -1, "xt_ocean": 360, "yt_ocean": 300}
-elif PARENT_MODEL == "ACCESS-OM2-025":
-    # 0.25° grid: 1440x1080
-    CHUNKS_2D = {"xt_ocean": 240, "yt_ocean": 216}
-    CHUNKS_3D_T = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_TX = {"time": -1, "xu_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_TY = {"time": -1, "xt_ocean": 120, "yu_ocean": 108, "st_ocean": 25}
-    CHUNKS_TX_GM = CHUNKS_TX
-    CHUNKS_TY_GM = CHUNKS_TY
-    CHUNKS_MLD = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
-    CHUNKS_DHT = {"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25}
-    CHUNKS_ETA = {"time": -1, "xt_ocean": 240, "yt_ocean": 216}
-elif PARENT_MODEL == "ACCESS-OM2-01":
-    # 0.1° grid: 3600x2700, st_ocean=75 — match native on-disk chunks:
-    # 2D: 720x540 ; 3D: 180x135x19 (as inspected via `ncdump -hs` on cycle4)
-    CHUNKS_2D = {"xt_ocean": 720, "yt_ocean": 540}
-    CHUNKS_3D_T = {"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
-    CHUNKS_TX = {"time": -1, "xu_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
-    CHUNKS_TY = {"time": -1, "xt_ocean": 180, "yu_ocean": 135, "st_ocean": 19}
-    CHUNKS_TX_GM = CHUNKS_TX
-    CHUNKS_TY_GM = CHUNKS_TY
-    CHUNKS_MLD = {"time": -1, "xt_ocean": 720, "yt_ocean": 540}
-    CHUNKS_DHT = {"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19}
-    CHUNKS_ETA = {"time": -1, "xt_ocean": 720, "yt_ocean": 540}
-else:
-    print(f"ERROR: Unknown PARENT_MODEL '{PARENT_MODEL}'; cannot determine chunk sizes", file=sys.stderr)
-    sys.exit(1)
+def chunk_sizes(parent_model):
+    """Per-model dask chunk dicts. Pure — no printing, no side effects."""
+    if parent_model == "ACCESS-OM2-1":
+        # 1° grid: 360x300
+        c = dict(
+            CHUNKS_2D={"xt_ocean": 360, "yt_ocean": 300},
+            CHUNKS_3D_T={"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25},
+            CHUNKS_TX={"time": -1, "xu_ocean": 180, "yt_ocean": 150, "st_ocean": 25},
+            CHUNKS_TY={"time": -1, "xt_ocean": 180, "yu_ocean": 150, "st_ocean": 25},
+            CHUNKS_MLD={"time": -1, "xt_ocean": 360, "yt_ocean": 300},
+            CHUNKS_DHT={"time": -1, "xt_ocean": 180, "yt_ocean": 150, "st_ocean": 25},
+            CHUNKS_ETA={"time": -1, "xt_ocean": 360, "yt_ocean": 300},
+        )
+    elif parent_model == "ACCESS-OM2-025":
+        # 0.25° grid: 1440x1080
+        c = dict(
+            CHUNKS_2D={"xt_ocean": 240, "yt_ocean": 216},
+            CHUNKS_3D_T={"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25},
+            CHUNKS_TX={"time": -1, "xu_ocean": 120, "yt_ocean": 108, "st_ocean": 25},
+            CHUNKS_TY={"time": -1, "xt_ocean": 120, "yu_ocean": 108, "st_ocean": 25},
+            CHUNKS_MLD={"time": -1, "xt_ocean": 240, "yt_ocean": 216},
+            CHUNKS_DHT={"time": -1, "xt_ocean": 120, "yt_ocean": 108, "st_ocean": 25},
+            CHUNKS_ETA={"time": -1, "xt_ocean": 240, "yt_ocean": 216},
+        )
+    elif parent_model == "ACCESS-OM2-01":
+        # 0.1° grid: 3600x2700, st_ocean=75 — match native on-disk chunks:
+        # 2D: 720x540 ; 3D: 180x135x19 (as inspected via `ncdump -hs` on cycle4)
+        c = dict(
+            CHUNKS_2D={"xt_ocean": 720, "yt_ocean": 540},
+            CHUNKS_3D_T={"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19},
+            CHUNKS_TX={"time": -1, "xu_ocean": 180, "yt_ocean": 135, "st_ocean": 19},
+            CHUNKS_TY={"time": -1, "xt_ocean": 180, "yu_ocean": 135, "st_ocean": 19},
+            CHUNKS_MLD={"time": -1, "xt_ocean": 720, "yt_ocean": 540},
+            CHUNKS_DHT={"time": -1, "xt_ocean": 180, "yt_ocean": 135, "st_ocean": 19},
+            CHUNKS_ETA={"time": -1, "xt_ocean": 720, "yt_ocean": 540},
+        )
+    else:
+        print(f"ERROR: Unknown PARENT_MODEL '{parent_model}'; cannot determine chunk sizes", file=sys.stderr)
+        sys.exit(1)
+    c["CHUNKS_TX_GM"] = c["CHUNKS_TX"]
+    c["CHUNKS_TY_GM"] = c["CHUNKS_TY"]
+    return c
 
 
 # ── Helper functions ────────────────────────────────────────────────────────
@@ -379,6 +398,18 @@ def process_variable(searched_cat, varname, chunks, frequency="1mon",
 # ── Main ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    configure()
+    _chunks = chunk_sizes(PARENT_MODEL)
+    CHUNKS_2D = _chunks["CHUNKS_2D"]
+    CHUNKS_3D_T = _chunks["CHUNKS_3D_T"]
+    CHUNKS_TX = _chunks["CHUNKS_TX"]
+    CHUNKS_TY = _chunks["CHUNKS_TY"]
+    CHUNKS_TX_GM = _chunks["CHUNKS_TX_GM"]
+    CHUNKS_TY_GM = _chunks["CHUNKS_TY_GM"]
+    CHUNKS_MLD = _chunks["CHUNKS_MLD"]
+    CHUNKS_DHT = _chunks["CHUNKS_DHT"]
+    CHUNKS_ETA = _chunks["CHUNKS_ETA"]
+
     # Record the environment: `conda/analysis3` is a rolling monthly release,
     # so without this the only way to tell which libraries produced a given
     # output is to fish site-packages paths out of incidental warnings.

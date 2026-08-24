@@ -12,11 +12,14 @@ the invariant is simply: **no non-finite values anywhere**, and no value beyond
 a generous physical bound.
 
 Usage:
-    python3 src/audit_preprocessed.py [ROOT] [--full]
+    python3 src/audit_preprocessed.py [ROOT] [--full] [--skip SUBSTR]
 
-    ROOT    directory to walk (default: preprocessed_inputs/)
-    --full  check every level (default samples one level per 19-level z-chunk,
-            which is already complete for detecting whole missing chunks)
+    ROOT          directory to walk (default: preprocessed_inputs/)
+    --full        check every level (default samples one level per 19-level
+                  z-chunk, which is already complete for detecting whole
+                  missing chunks)
+    --skip SUBSTR ignore files whose path contains SUBSTR, e.g.
+                  `--skip nc_archive` to leave known-bad archived copies out
 
 Exit status is 1 if any file is corrupt, so it can gate a re-run.
 """
@@ -106,11 +109,24 @@ def audit_variable(var, name, full=False):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    full = "--full" in sys.argv
+    argv = sys.argv[1:]
+    full = "--full" in argv
+    skip = None
+    if "--skip" in argv:
+        i = argv.index("--skip")
+        if i + 1 >= len(argv):
+            print("ERROR: --skip needs a SUBSTR argument", file=sys.stderr)
+            return 2
+        skip = argv[i + 1]
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
     root = Path(args[0]) if args else Path("preprocessed_inputs")
 
     files = sorted(root.rglob("*.nc"))
+    if skip:
+        n_before = len(files)
+        files = [f for f in files if skip not in str(f)]
+        print(f"Skipping {n_before - len(files)} file(s) matching '{skip}'")
     if not files:
         print(f"No .nc files under {root}")
         return 0

@@ -19,9 +19,10 @@
 # Submit over everything:
 #   qsub scripts/debugging/audit_preprocessed.sh
 #
-# Or scope it to one experiment / check every level:
+# Or scope it to one experiment / check every level / skip archived copies:
 #   AUDIT_ROOT=preprocessed_inputs/ACCESS-OM2-01 AUDIT_FULL=yes \
-#     qsub -v AUDIT_ROOT,AUDIT_FULL scripts/debugging/audit_preprocessed.sh
+#   AUDIT_SKIP=nc_archive \
+#     qsub -v AUDIT_ROOT,AUDIT_FULL,AUDIT_SKIP scripts/debugging/audit_preprocessed.sh
 
 set -euo pipefail
 
@@ -30,8 +31,10 @@ cd $repo_root
 
 AUDIT_ROOT=${AUDIT_ROOT:-preprocessed_inputs}
 AUDIT_FULL=${AUDIT_FULL:-no}
+AUDIT_SKIP=${AUDIT_SKIP:-}
 extra=""
 if [ "${AUDIT_FULL}" = "yes" ]; then extra="--full"; fi
+if [ -n "${AUDIT_SKIP}" ]; then extra="$extra --skip ${AUDIT_SKIP}"; fi
 
 module purge
 module use /g/data/xp65/public/modules
