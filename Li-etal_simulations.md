@@ -443,9 +443,11 @@ values occur only in partially-written chunks. Full write-up:
 | `periodicaverage.py` fix | ✅ `45baa77` (single-process write + per-slab verify + readback) |
 | re-run `prep` (wthp, wthmp) | ✅ `176678772`, `176679803` — 78/78 slab verifications each |
 | verify | ✅ audit `177185182` **PASSED**; ref cell `1.566e308` → `5.710295e+04`, and `max|OLD−NEW| = 0` over all 2 154 284 cells the old file left intact |
-| re-run `vel` → `clo` → `diagnose_w` → `partition` → probe | 🔄 in flight (see table below) |
-| **rebuild `upwind1 avg` matrix (Task E) — BOTH experiments** | ❌ not started; `176219246`/`176219247` were both built from corrupt velocities |
-| re-submit forward NK | ❌ not started |
+| re-run `vel` (both) | ✅ rebuilt Aug 24 from clean prep (full monthly FTS temp/salt/mld/eta/u/v/w) |
+| verify `vel` (velocity-extremes probe) | ✅ `177216192` (wthp) / `177216194` (wthmp) Exit 0 — physical maxima (u/v ≲ 2, w ≲ 0.02), **0 non-finite**; the 1e298 v/w are gone |
+| **rebuild `upwind1 avg` matrix (Task E) — BOTH** | 🔄 `177217170` (wthp) / `177217183` (wthmp), megamem ~11–24 h; overwrite the corrupt-input `176219246/247` |
+| partition (both) | 🔄 `177217315` (wthp) / `177217316` (wthmp) — per-rank vel files were gone |
+| re-submit forward NK | ⏳ held until the fresh avg matrix lands (submitting sooner reads the half-written/stale one) |
 
 The pre-fix `.nc` files are kept for comparison at
 `{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
