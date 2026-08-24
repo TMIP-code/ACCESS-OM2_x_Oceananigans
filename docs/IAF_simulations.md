@@ -42,7 +42,7 @@ The unified MODEL_CONFIG tag is `totaltransport_wdiagnosed_centered2_SRK3_mkappa
 | `INITIAL_AGE` | `TMage` | Warm-start NK from TM-derived age (requires TMsolve) |
 | `GM_REDI` | `no` | Default — no isopycnal diffusion |
 | `TBLOCKING` | `no` | Serial — no temporal blocking |
-| `GRID_HX/HY/HZ` | 7/7/2 | New defaults after lowering `GRID_HZ` 7→2 (commit 551a023) — Hz=2 matches what all existing 3D FTS already carry |
+| `GRID_HX/HY/HZ` | 7/7/2 | What these runs used: the default at the time (`GRID_HZ` lowered 7→2 in commit 551a023), and Hz=2 matches what their 3D FTS carry. **The default is now 7/7/4** (Hz ≥ 3 for `upwind3`, ≥ 4 for WENO5) — to reproduce these runs, set `GRID_HZ=2` explicitly, or rebuild grid→vel→clo→partition at 4 |
 | `LOAD_BALANCE` | `no` | Only meaningful for multi-rank |
 | `ACTIVE_CELLS_MAP` | `yes` | Default |
 | `TRACE_SOLVER_HISTORY` | `no` | Skip per-iteration trace files / plotNKtrace |

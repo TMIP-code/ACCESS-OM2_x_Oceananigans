@@ -90,7 +90,10 @@ println("Building Horizontal grid...")
 flush(stdout); flush(stderr)
 Hx = parse(Int, get(ENV, "GRID_HX", "7"))
 Hy = parse(Int, get(ENV, "GRID_HY", "7"))
-Hz = parse(Int, get(ENV, "GRID_HZ", "7"))
+# Keep in sync with scripts/env_defaults.sh: (7, 7, 4). Hz ≥ 3 is required by
+# UpwindBiased(order=3) (stencil buffer 2, +1 for the immersed boundary) and
+# ≥ 4 by WENO5, so 4 covers every scheme we use without a second grid rebuild.
+Hz = parse(Int, get(ENV, "GRID_HZ", "4"))
 @info "Grid halo size: ($Hx, $Hy, $Hz)"
 underlying_grid = tripolargrid_from_supergrid(
     arch;

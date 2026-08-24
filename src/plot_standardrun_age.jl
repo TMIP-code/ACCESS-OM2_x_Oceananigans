@@ -192,7 +192,7 @@ w_ts = FieldTimeSeries(w_file, "w"; grid, backend = InMemory(), time_indexing)
 η_ts = FieldTimeSeries(η_file, "η"; grid, backend = InMemory(), time_indexing)
 
 # Surface k-index: top level for 3D fields (with halos, offset by halo size)
-Hz = grid.Hz  # z-halo size (NOT grid.Hx — GRID_HZ defaults to 2 while GRID_HX=7)
+Hz = grid.Hz  # z-halo size (NOT grid.Hx — GRID_HZ defaults to 4 while GRID_HX=7)
 k_surface_ccc = Nz + Hz  # top Center level in parent array (with halos)
 k_surface_ccf = Nz + Hz + 1  # top Face level in parent array (w is at faces)
 
@@ -227,7 +227,7 @@ end
 # (e.g. preprocessed before GRID_H{X,Y,Z} changed) skips that one diagnostic
 # with a hint instead of aborting the whole plot. MLD has a (1454,1094)
 # halo-mismatch against the current grid's (1466,1106) on OM2-025; the κV
-# file also has Hz=2 baked in vs the current GRID_HZ=7 on OM2-1.
+# file also has Hz=2 baked in vs the current GRID_HZ=4 default on OM2-1.
 
 function _try_load_diag_fts(file, varname; grid, backend, time_indexing)
     try

@@ -92,7 +92,7 @@ IMPLICIT_KAPPAV=${IMPLICIT_KAPPAV:-yes}                 # yes | no — when "no"
 TBLOCKING=${TBLOCKING:-no}                              # no | integer K ≥ 2 (temporal blocking: K sub-steps per MPI exchange)
 GRID_HX=${GRID_HX:-7}                                   # grid halo in x (≥ K+1 when TBLOCKING=K)
 GRID_HY=${GRID_HY:-7}                                   # grid halo in y (≥ K+1 when TBLOCKING=K)
-GRID_HZ=${GRID_HZ:-2}                                   # grid halo in z (2 sufficient; larger is harmless)
+GRID_HZ=${GRID_HZ:-4}                                   # grid halo in z (≥3 for upwind3, ≥4 for WENO5)
 LOAD_BALANCE=${LOAD_BALANCE:-surface}                   # no | surface | cell | mix | minmax | yes(=surface; back-compat) — only valid when PARTITION_X=1. Auto-suppressed in MODEL_CONFIG when RANKS=1 (serial).
 ACTIVE_CELLS_MAP=${ACTIVE_CELLS_MAP:-yes}               # yes | no — when "no", build IBG with active_cells_map=false and tag output files with _noACM
 TRAF=${TRAF:-no}                                        # yes | no — Time-Reversed Adjoint Flow (adjoint age via reversed monthly FTS + sign-flipped u, v)

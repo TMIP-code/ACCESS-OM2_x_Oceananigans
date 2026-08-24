@@ -558,7 +558,7 @@ Source types:
   halos stripped automatically.
 - `:distributed` — last iteration stitched from rank files under
   `{outputdir}/standardrun/{model_config}/{partition}/age_{duration_tag}_rank{r}.jld2`.
-  Halos are stripped using `GRID_HX/GRID_HY/GRID_HZ` env vars (defaults 7/7/2).
+  Halos are stripped using `GRID_HX/GRID_HY/GRID_HZ` env vars (defaults 7/7/4).
 - `:NK` — periodic steady-state from `{outputdir}/periodic/{model_config}/NK/age_{solver_tag}.jld2`,
   already interior-sized.
 """
@@ -586,9 +586,10 @@ function load_final_age_interior(spec::NamedTuple, outputdir, Nx, Ny, Nz)
         pxy = split(spec.partition, 'x')
         length(pxy) == 2 || error("Bad partition tag '$(spec.partition)'; expected PxxPy like 1x2")
         px, py = parse(Int, pxy[1]), parse(Int, pxy[2])
+        # Keep in sync with scripts/env_defaults.sh: (7, 7, 4).
         Hx = parse(Int, get(ENV, "GRID_HX", "7"))
         Hy = parse(Int, get(ENV, "GRID_HY", "7"))
-        Hz = parse(Int, get(ENV, "GRID_HZ", "2"))
+        Hz = parse(Int, get(ENV, "GRID_HZ", "4"))
         # Discover last iteration from rank 0
         rank0_file = joinpath(run_dir, "age_$(spec.duration_tag)_rank0.jld2")
         isfile(rank0_file) || error("Rank 0 file not found: $rank0_file")
