@@ -68,7 +68,7 @@ Measured with `src/audit_preprocessed.py` over all 52 OM2-01 files:
 | OM2-01 `…qian_wthp` / 2040-2050 monthly `temp,salt,tx_trans,ty_trans` | 70 GB | **CORRUPT** |
 | OM2-01 `…qian_wthmp` / 2040-2050 monthly (same four) | 70 GB | **CORRUPT** |
 | OM2-01 `…iaf_cycle4` / 1968-1977 monthly (same four) | 70 GB | **CORRUPT** |
-| OM2-01 `…iaf_cycle4` / 1958-1987 monthly (same four) | 70 GB | **CORRUPT** |
+| OM2-01 `…iaf_cycle4` / 1958-1987 monthly (same four) | 70 GB | **CORRUPT** — deleted, not re-run (non-default window) |
 | OM2-01 monthly `eta_t`, `mld` | 0.9 GB | clean |
 | OM2-01 `*_yearly.nc` (every level audited) | 5.8 GB | clean |
 | OM2-01 `area_t.nc` | 10 MB | clean |
@@ -138,9 +138,14 @@ one level per 19-level z-chunk is *complete* for detecting whole missing chunks;
 
 1. ~~Audit `preprocessed_inputs/ACCESS-OM2-01`~~ — done, results in §3. Still
    worth running over OM2-1/OM2-025 to confirm the whole tree.
-2. Re-run `prep` (via `scripts/driver.sh`) for the four affected OM2-01 sets:
-   `…qian_wthp`, `…qian_wthmp` (both 2040-2050, `CALENDAR_YEAR_OFFSET=-109`),
-   and `…iaf_cycle4` (1968-1977 **and** 1958-1987).
+2. Re-run `prep` (via `scripts/driver.sh`) for the three affected OM2-01 sets
+   worth keeping: `…qian_wthp`, `…qian_wthmp` (both 2040-2050,
+   `CALENDAR_YEAR_OFFSET=-109`), and `…iaf_cycle4` / 1968-1977 (the default
+   window). Submitted 2026-08-19 as jobs `176678772`, `176679803`, `176679805`.
+   The corrupt `.nc` files were first moved aside to
+   `{TW}/nc_archive_pre_writefix_20260819/` so the new output can be diffed
+   against them. `…iaf_cycle4` / 1958-1987 is a non-default window and was
+   deleted outright rather than re-run.
 3. Re-audit; then rebuild velocities and confirm with
    `scripts/debugging/probe_velocity_extremes.sh` (|u|,|v| ≲ a few m/s,
    |w| ≲ O(1e-2), 0 non-finite).
