@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #PBS -P y99
-#PBS -l mem=32GB
+#PBS -l mem=64GB
 #PBS -q normal
 #PBS -l ncpus=4
 #PBS -l storage=gdata/xp65+gdata/ik11+gdata/cj50+scratch/y99+gdata/y99
