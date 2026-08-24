@@ -364,7 +364,9 @@ whole chain at 0.1° before committing to B → G (adjoint) and the differences.
 
 ## 7. Run tracking (job IDs)
 
-All at `PARENT_MODEL=ACCESS-OM2-01`, `TIME_WINDOW=2040-2050`, `GRID_HZ=4`.
+All at `PARENT_MODEL=ACCESS-OM2-01`, `TIME_WINDOW=2040-2050`, `GRID_HZ=4`
+(as of commit `297dd74` that is the pipeline default, so the explicit override
+is no longer needed — it is kept in the recipe below for clarity).
 Forward MODEL_CONFIG = `cgridtransports_wparent_upwind3_AB2_kH30_kVML25e-3_kVBG75e-7_mkappaV_LBS`;
 preconditioner (upwind1 avg) MC = same with `_upwind3_`→`_upwind1_`.
 
@@ -376,9 +378,15 @@ preconditioner (upwind1 avg) MC = same with `_upwind3_`→`_upwind1_`.
 | C | grid       | 176183472 | F ✓ | grid.jld2 1.6 GB |
 | C | vel        | 176183473 | F ✓ | 7 monthly + 6 yearly velocity files |
 | C | clo        | 176183474 | F ✓ | |
-| E | TMsnapshot | 176219246 | F ✓ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 |
-| F | partition  | 176466922 | R   | 1×4, 1600 GB |
-| F | NK_a       | 176466923 | H   | forward NK, `INITIAL_AGE=0` (afterok partition) |
+| E | TMsnapshot | 176219246 | F ✗ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 — **built from corrupt velocities, must be rebuilt** |
+| F | partition  | 176466922 | F ✗ | 1×4, 1600 GB — superseded (corrupt velocities) |
+| F | NK_a       | 176466923 | qdel | NaN in Φ! call #1 → hung |
+| C′ | prep (re-run) | 176678772 | F ✓ | 8h09, 785 GB peak; 78/78 slabs verified |
+| C′ | vel        | 177187861 | Q   | |
+| C′ | clo        | 177187862 | Q   | |
+| C′ | diagnose_w | 177187864 | H   | afterok vel |
+| C′ | partition  | 177187865 | H   | afterok vel:diagw:clo |
+| C′ | probe      | 177188002 | H   | velocity-extremes acceptance check |
 
 **wthmp** — `01deg_jra55v13_ryf9091_qian_wthmp` (wind+thermal+meltwater)
 
@@ -388,32 +396,62 @@ preconditioner (upwind1 avg) MC = same with `_upwind3_`→`_upwind1_`.
 | C | grid       | 176184558 | F ✓ | grid.jld2 1.6 GB (byte-identical to wthp) |
 | C | vel        | 176184560 | F ✓ | |
 | C | clo        | 176184562 | F ✓ | |
-| E | TMsnapshot | 176219247 | F ✓ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 |
-| F | partition  | 176466929 | R   | 1×4, 1600 GB |
-| F | NK_a       | 176466932 | H   | forward NK, `INITIAL_AGE=0` (afterok partition) |
+| E | TMsnapshot | 176219247 | F ✗ | `avg/M.jld2` 41.9 GB, nnz 2 442 298 397 — **built from corrupt velocities, must be rebuilt** |
+| F | partition  | 176466929 | F ✗ | 1×4, 1600 GB — superseded (corrupt velocities) |
+| F | NK_a       | 176466932 | qdel | NaN in Φ! call #1 → hung |
+| C′ | prep (re-run) | 176679803 | F ✓ | 8h22, 785 GB peak; 78/78 slabs verified |
+| C′ | vel        | 177187867 | Q   | |
+| C′ | clo        | 177187868 | Q   | |
+| C′ | diagnose_w | 177187869 | H   | afterok vel |
+| C′ | partition  | 177187870 | H   | afterok vel:diagw:clo |
+| C′ | probe      | 177188003 | H   | velocity-extremes acceptance check |
 
 State: F ✓ = finished Exit 0, R = running, H = held on dep, — = not yet submitted.
 NK is multi-restart (`INITIAL_AGE=latest` each 48 h until `ReturnCode.Success`);
 record restart job IDs + final `vol_rms_drift` here as they complete. TRAF (G)
 and post-NK/diagnostics (H) rows to be added when submitted.
 
-### ⛔ BLOCKER (both forward NK jobs failed) — corrupt wthp transport climatology
+### ✅ Cause fixed, recovery in progress — corrupt transport climatologies
 
 The first forward NK jobs (`176466923` wthp, `176466932` wthmp) **both NaN-blew-up
 in Φ! call #1** and then hung (distributed NaN desync) — qdel'd, no iterate saved.
 
-Root cause (fully diagnosed): `periodicaverage.py` manufactured **~1e308 (Oct) /
-NaN (Nov)** values in **wthp's** `ty_trans_monthly.nc` at ~28 deep equatorial cells
-(ref cell 0-based `xt847,yu1244,st59`), from clean raw MOM data (≤1e8). `v = ty/
-(ρ₀·AyCFC)` → `1e298` → age NaN. Grid, metrics, σ, and the B→C copy all cleared;
-**wthmp is clean** (identical grid+code). Full handoff plan:
-[docs/periodicaverage_corruption_bug.md](docs/periodicaverage_corruption_bug.md)
-(a separate agent owns the fix — do **not** sanitize downstream).
+**Root cause (proven, fixed in `45baa77`):** not arithmetic — the *write*.
+`to_netcdf()` on a dask-backed array under a `dask.distributed` cluster runs its
+store tasks on the workers, so all 32–48 worker processes opened the same HDF5
+file for writing. HDF5 caught this and failed loudly until
+`HDF5_USE_FILE_LOCKING=FALSE` was set in April 2026 to work around it; from then
+on the writes raced silently. Whole dask chunks never landed (read back as
+`_FillValue = NaN`) and a few were torn mid-write (garbage ~1e308). Jobs exited 0
+and printed success. NaN blocks align exactly to the dask chunk grid; the ~1e308
+values occur only in partially-written chunks. Full write-up:
+[docs/periodicaverage_corruption_bug.md](docs/periodicaverage_corruption_bug.md).
 
-**Recovery after the periodicaverage fix:** re-run `prep`+`vel` for wthp →
-**rebuild the `upwind1 avg` matrix** (Task E, built from the corrupt velocities) →
-re-submit forward NK. wthmp: re-verify velocities (probe), then it can proceed to
-NK independently.
+**Two earlier assumptions here were wrong:**
+- **wthmp was NOT clean** — it was corrupt too (27.1–29.0 M non-finite per
+  variable). It cannot proceed to NK independently.
+- The damage was far wider than "~28 deep equatorial cells in `ty_trans`": ~5–8%
+  of all cells, across **all twelve months**, in **four** variables (`temp`,
+  `salt`, `tx_trans`, `ty_trans`), for wthp, wthmp **and** two IAF windows.
+  Only the 0.1° monthly 3D fields were hit — yearly files, `eta_t`/`mld`, and
+  everything at 1°/0.25° came through clean (corruption tracked output size).
+
+**Recovery status:**
+
+| step | status |
+|---|---|
+| `periodicaverage.py` fix | ✅ `45baa77` (single-process write + per-slab verify + readback) |
+| re-run `prep` (wthp, wthmp) | ✅ `176678772`, `176679803` — 78/78 slab verifications each |
+| verify | ✅ audit `177185182` **PASSED**; ref cell `1.566e308` → `5.710295e+04`, and `max|OLD−NEW| = 0` over all 2 154 284 cells the old file left intact |
+| re-run `vel` → `clo` → `diagnose_w` → `partition` → probe | 🔄 in flight (see table below) |
+| **rebuild `upwind1 avg` matrix (Task E) — BOTH experiments** | ❌ not started; `176219246`/`176219247` were both built from corrupt velocities |
+| re-submit forward NK | ❌ not started |
+
+The pre-fix `.nc` files are kept for comparison at
+`{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
+downstream: `prep_velocities.jl:287-289` maps `NaN → 0`, which is what let the
+missing chunks pass as "no transport" and made the corruption invisible to the
+solver in the first place.
 
 | investigation | job(s) | finding |
 |---|---|---|
