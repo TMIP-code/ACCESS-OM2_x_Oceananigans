@@ -447,7 +447,7 @@ values occur only in partially-written chunks. Full write-up:
 | verify `vel` (velocity-extremes probe) | ✅ `177216192` (wthp) / `177216194` (wthmp) Exit 0 — physical maxima (u/v ≲ 2, w ≲ 0.02), **0 non-finite**; the 1e298 v/w are gone |
 | **rebuild `upwind1 avg` matrix (Task E) — BOTH** | 🔄 `177217170` (wthp) / `177217183` (wthmp), megamem ~11–24 h; overwrite the corrupt-input `176219246/247` |
 | partition (both) | 🔄 `177217315` (wthp) / `177217316` (wthmp) — per-rank vel files were gone |
-| re-submit forward NK | ⏳ held until the fresh avg matrix lands (submitting sooner reads the half-written/stale one) |
+| re-submit forward NK | 🔄 `177365034` (wthp) / `177365035` (wthmp) — gpuhopper 4×H200 48 h, `INITIAL_AGE=0`; fresh avg `M.jld2` Aug 25 (41.9 GB). First run on verified-clean inputs — expect it to clear Φ! call #1 this time. Multi-restart with `INITIAL_AGE=latest`. |
 
 The pre-fix `.nc` files are kept for comparison at
 `{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
