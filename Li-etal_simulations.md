@@ -448,7 +448,8 @@ values occur only in partially-written chunks. Full write-up:
 | **rebuild `upwind1 avg` matrix (Task E) — BOTH** | 🔄 `177217170` (wthp) / `177217183` (wthmp), megamem ~11–24 h; overwrite the corrupt-input `176219246/247` |
 | partition (both) | 🔄 `177217315` (wthp) / `177217316` (wthmp) — per-rank vel files were gone |
 | forward NK — run 1 (`INITIAL_AGE=0`) | ✅ `177365034` (wthp) / `177365035` (wthmp) — **0 NaN (blocker cleared)**; iter 1 done, `vol_rms_drift` 0.983 → **0.0155** (wthp, 42 Φ!) / **0.0159** (wthmp, 44 Φ!); saved `newton_iterate_01`; hit 48 h walltime mid-iter-2 |
-| forward NK — restart 2 (`INITIAL_AGE=latest`) | 🔄 `177810316` (wthp) / `177810318` (wthmp) — resume from iterate 01; ref trajectory → iter 2 ~1.9e-6, iter 3 ~3.4e-9 (converge) |
+| forward NK — restart 2 (`INITIAL_AGE=latest`) | walltime −29. **wthmp** ✅ iter 2 done, `newton_iterate_02`, drift **1.883e-6**. **wthp** ⚠️ no new iterate — iter-2 GMRES needs >41 JVPs to rtol=1e-4 (> one 48 h walltime), so restarts from iterate 01 loop. |
+| forward NK — restart 3 | 🔄 **wthmp** `178099348` (from iterate 02 → iter 3, converge). **wthp** `178102620` with **`GMRES_RTOL=1e-3`** (looser inner tol so iter 2 fits in walltime; default stays 1e-4, commit exposing it as an env var). |
 
 The pre-fix `.nc` files are kept for comparison at
 `{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
