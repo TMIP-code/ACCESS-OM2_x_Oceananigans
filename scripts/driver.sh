@@ -550,6 +550,7 @@ NK_VARS="JVP_METHOD=${JVP_METHOD},LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=
 # Offline preconditioner reuse: PRECOND_FACTOR=<offline_bench dir> makes NK restore a
 # saved MUMPS factor (JOB=8) on rank 0 instead of building/factorizing Q (see §5b).
 [ -n "${PRECOND_FACTOR:-}" ] && NK_VARS="${NK_VARS},PRECOND_FACTOR=${PRECOND_FACTOR}"
+[ -n "${GMRES_RTOL:-}" ] && NK_VARS="${NK_VARS},GMRES_RTOL=${GMRES_RTOL}"
 
 if has_step NK; then
     # NK depends on TMbuild only (the preconditioner matrix). The previous

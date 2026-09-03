@@ -282,8 +282,14 @@ if rank == 0
     flush(stdout); flush(stderr)
 
     f! = NonlinearFunction(G!; jvp = jvp!)
+    # Inner GMRES tolerance. Default 1e-4 (unchanged). A looser value (e.g. 1e-3)
+    # cuts the JVP count per Newton step — useful when one Newton iteration's
+    # GMRES exceeds a single walltime (inexact Newton: changes the path, not the
+    # converged fixed point). Overridable via GMRES_RTOL.
+    GMRES_RTOL = parse(Float64, get(ENV, "GMRES_RTOL", "1e-4"))
+    @info "- GMRES rtol = $GMRES_RTOL (inner linear solve; gmres_restart=50)"
     newton_solver = NewtonRaphson(
-        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = 1.0e-4),
+        linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = GMRES_RTOL),
     )
 
     ############################################################################
