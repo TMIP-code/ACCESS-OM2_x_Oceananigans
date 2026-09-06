@@ -449,7 +449,11 @@ values occur only in partially-written chunks. Full write-up:
 | partition (both) | 🔄 `177217315` (wthp) / `177217316` (wthmp) — per-rank vel files were gone |
 | forward NK — run 1 (`INITIAL_AGE=0`) | ✅ `177365034` (wthp) / `177365035` (wthmp) — **0 NaN (blocker cleared)**; iter 1 done, `vol_rms_drift` 0.983 → **0.0155** (wthp, 42 Φ!) / **0.0159** (wthmp, 44 Φ!); saved `newton_iterate_01`; hit 48 h walltime mid-iter-2 |
 | forward NK — restart 2 (`INITIAL_AGE=latest`) | walltime −29. **wthmp** ✅ iter 2 done, `newton_iterate_02`, drift **1.883e-6**. **wthp** ⚠️ no new iterate — iter-2 GMRES needs >41 JVPs to rtol=1e-4 (> one 48 h walltime), so restarts from iterate 01 loop. |
-| forward NK — restart 3 | 🔄 **wthmp** `178099348` (from iterate 02 → iter 3, converge). **wthp** `178102620` with **`GMRES_RTOL=1e-3`** (looser inner tol so iter 2 fits in walltime; default stays 1e-4, commit exposing it as an env var). |
+| forward NK — restart 3 | **wthmp** `178099348` ✅ **CONVERGED** `ReturnCode.Success` (exit 0), drift → **6.8e-9**, **vol-weighted mean age = 990.7 yr**, `age_Pardiso_Q4x4.jld2` (14.4 GB). **wthp** `178102620` (`GMRES_RTOL=1e-3`): loop broken — iter 2 done, `newton_iterate_02`, drift **1.93e-5**; walltime. |
+| forward NK — restart 4 (wthp only) | 🔄 `178299686` (`GMRES_RTOL=1e-3`, from iterate 02) — ~2 more iters expected to reach ~7e-9. |
+
+**wthmp forward ideal age: DONE** (mean 990.7 yr). Ready for post-NK diagnostics
+(run1yrNK → ventilation → plotNK) and TRAF (G). wthp forward NK still iterating.
 
 The pre-fix `.nc` files are kept for comparison at
 `{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
