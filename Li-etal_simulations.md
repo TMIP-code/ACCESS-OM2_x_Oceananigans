@@ -485,3 +485,22 @@ solver in the first place.
 | velocity-extremes probe | 176557072/73 → 176560338/39 | wthp v/w ~1e298 @ (848,1246,16) mo10; **wthmp fully clean** |
 | face-area-metric probe | 176562522/23 | `AyCFC` normal (1.97e6) at the cell → not the metric |
 | v-blowup cross-check | 176563851 | raw ty_trans there = **1.566e308** → corruption is in the preprocessed climatology |
+
+### TRAF adjoint age (Task G) — submitted 2026-09-13
+
+`GMRES_RTOL` default changed 1e-4 → **1e-3** (commit `158b8dc`) after measuring the
+forward solves: same 3 Newton iters / ~same total JVPs, but 1e-3 keeps each
+iteration ≤ ~35 JVPs (fits one 48 h walltime) vs 1e-4's >41 (walltime loop). All
+OM2-01 NK (forward + TRAF) now walltime-safe by default.
+
+TRAF is **untested at 0.1°** (Task B enabling `70d97b2` unexercised there). Chain
+`TMbuild-NK`: TMbuild synthesizes `invVMtV = V⁻¹ Mᵀ V` from the clean `upwind1 avg`
+forward M; NK solves the adjoint (`INITIAL_AGE=0`, then `latest` restarts).
+
+| exp | TMbuild (invVMtV) | NK (adjoint) |
+|---|---|---|
+| wthp  | `178896263` | `178896264` 🔄 |
+| wthmp | `178896265` | `178896266` 🔄 |
+
+Watch: first Φ! call clears (no NaN); multi-restart to `ReturnCode.Success`; drop
+`TIMESTEP_MULT` if it blows up in the fold region (OM2-025 TRAF precedent).

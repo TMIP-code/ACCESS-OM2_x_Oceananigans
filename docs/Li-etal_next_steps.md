@@ -54,28 +54,31 @@ env selects the forward tree.)
 
 ---
 
-## Phase 2 — TRAF adjoint age (Task G) — the untested piece
+## Phase 2 — TRAF adjoint age (Task G) — SUBMITTED (untested at 0.1°)
+
+**Launched 2026-09-13** (both experiments), `JOB_CHAIN=TMbuild-NK`:
+- wthp: TMbuild `178896263` → NK `178896264`
+- wthmp: TMbuild `178896265` → NK `178896266`
 
 TRAF at OM2-01 has **never been run** — the Task B avg-matrix enabling is in place
 (`solve_periodic_NK.jl` + `create_matrix.jl`, commit `70d97b2`) but unexercised at
-0.1°. Expect to debug. The `invVMtV = V⁻¹ Mᵀ V` synthesis reads the (now clean)
-`upwind1 avg` forward `M.jld2`.
+0.1°, so **watch the first Φ! call**. `TMbuild` short-circuits to the
+`invVMtV = V⁻¹ Mᵀ V` synthesis, reading the (clean) `upwind1 avg` forward
+`M.jld2`; NK then solves the adjoint. **`GMRES_RTOL` now defaults to 1e-3** (commit
+`158b8dc`) so each Newton iteration is walltime-safe — no need to pass it.
 
-Per experiment:
+The submit command (for reference / re-submits):
 ```bash
-# TMbuild short-circuits to invVMtV synthesis; then NK solves the adjoint.
 EXPERIMENT=01deg_jra55v13_ryf9091_qian_wthp \
 PARENT_MODEL=ACCESS-OM2-01 TIME_WINDOW=2040-2050 GRID_HZ=4 TRAF=yes TRAF_TM_SOURCE=invVMtV \
 ADVECTION_SCHEME=upwind3 TM_ADVECTION_SCHEME=upwind1 TM_SOURCE=avg INITIAL_AGE=0 \
 JOB_CHAIN=TMbuild-NK bash scripts/driver.sh
-
 # restart on walltime (multi-restart, like the forward solve):
 … INITIAL_AGE=latest JOB_CHAIN=NK bash scripts/driver.sh
 ```
 Notes / likely gotchas:
-- **`GMRES_RTOL=1e-3`** will probably be needed (as for forward wthp) if an adjoint
-  Newton iteration's GMRES exceeds one 48 h walltime — watch for "no new iterate
-  saved" and add it.
+- Multi-restart with `INITIAL_AGE=latest` until `ReturnCode.Success` (forward
+  needed ~3 iterations; expect similar).
 - TRAF stability: at OM2-025 the adjoint blew up in the fold region until Δt was
   reduced (see `docs/TRAF_simulations.md` §3f). If Φ! NaNs at high latitude, drop
   `TIMESTEP_MULT`.
