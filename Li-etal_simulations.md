@@ -450,10 +450,24 @@ values occur only in partially-written chunks. Full write-up:
 | forward NK — run 1 (`INITIAL_AGE=0`) | ✅ `177365034` (wthp) / `177365035` (wthmp) — **0 NaN (blocker cleared)**; iter 1 done, `vol_rms_drift` 0.983 → **0.0155** (wthp, 42 Φ!) / **0.0159** (wthmp, 44 Φ!); saved `newton_iterate_01`; hit 48 h walltime mid-iter-2 |
 | forward NK — restart 2 (`INITIAL_AGE=latest`) | walltime −29. **wthmp** ✅ iter 2 done, `newton_iterate_02`, drift **1.883e-6**. **wthp** ⚠️ no new iterate — iter-2 GMRES needs >41 JVPs to rtol=1e-4 (> one 48 h walltime), so restarts from iterate 01 loop. |
 | forward NK — restart 3 | **wthmp** `178099348` ✅ **CONVERGED** `ReturnCode.Success` (exit 0), drift → **6.8e-9**, **vol-weighted mean age = 990.7 yr**, `age_Pardiso_Q4x4.jld2` (14.4 GB). **wthp** `178102620` (`GMRES_RTOL=1e-3`): loop broken — iter 2 done, `newton_iterate_02`, drift **1.93e-5**; walltime. |
-| forward NK — restart 4 (wthp only) | 🔄 `178299686` (`GMRES_RTOL=1e-3`, from iterate 02) — ~2 more iters expected to reach ~7e-9. |
+| forward NK — restart 4 (wthp only) | `178299686` ✅ **CONVERGED** `ReturnCode.Success`, drift → **2.33e-8**, **vol-weighted mean age = 921.1 yr**, `age_Pardiso_Q4x4.jld2` (14.4 GB). |
 
-**wthmp forward ideal age: DONE** (mean 990.7 yr). Ready for post-NK diagnostics
-(run1yrNK → ventilation → plotNK) and TRAF (G). wthp forward NK still iterating.
+**✅ FORWARD IDEAL AGE COMPLETE — BOTH EXPERIMENTS.**
+
+| experiment | forcing | mean periodic steady age | drift | GMRES rtol |
+|---|---|---:|---:|---|
+| wthmp | wind+thermal+**meltwater** | **990.7 yr** | 6.8e-9 | 1e-4 |
+| wthp  | wind+thermal only          | **921.1 yr** | 2.3e-8 | 1e-3 |
+
+**Preliminary meltwater signal:** `wthmp − wthp = +69.6 yr` global-mean ideal age
+— meltwater makes the ocean **~70 yr older** on average (caps surface, inhibits
+AABW convection → less-ventilated deep water). Physically the expected sign.
+(wthp's higher final-drift plateau 2.3e-8 vs wthmp's 6.8e-9 is the `GMRES_RTOL=1e-3`
+inner tolerance — same fixed point, negligible for the age field.)
+
+Next: post-NK diagnostics (run1yrNK → combine1yr → ventilation → plotNK) for both,
+TRAF adjoint (G), then the `wthmp − wthp` difference plots (H,
+`plot_Li_etal_meltwater_diff.jl` — now that both forward ages exist).
 
 The pre-fix `.nc` files are kept for comparison at
 `{TW}/nc_archive_pre_writefix_20260819/` (285 GB per set). Do **not** sanitize
