@@ -351,14 +351,18 @@ ventilation diagnostic outputs land.
   age/adjoint-age panels *(done, untested pending outputs; ventilation-diff TODO)*.
 - [x] **E.** Per experiment: build `upwind1` avg matrix *(done — both `avg/M.jld2`
   41.9 GB, nnz 2 442 298 397)*.
-- [~] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
-  upwind1-avg), multi-restart to convergence (§3.3) *(submitted; running)*.
+- [x] **F.** Per experiment: `partition → NK` forward ideal age (upwind3 /
+  upwind1-avg), multi-restart to convergence (§3.3) *(done — both CONVERGED:
+  wthmp 990.7 yr, wthp 921.1 yr; meltwater signal +69.6 yr. wthp needed
+  `GMRES_RTOL=1e-3`; see §7.)*.
 - [ ] **G.** Per experiment: TRAF NK adjoint age / time to re-emergence (§4.2).
 - [ ] **H.** Per experiment: `run1yrNK → combine1yr → ventilation → plotNK →
   plotventilation` (forward and TRAF); then the `wthmp − wthp` difference figures.
 
-Order of first light: A → C → E → F (forward age, both experiments) validates the
-whole chain at 0.1° before committing to B → G (adjoint) and the differences.
+Order of first light: A → C → E → F (forward age, both experiments) validated the
+whole chain at 0.1° ✅ (via the periodicaverage-corruption recovery, §7). Remaining:
+**G** (adjoint) and **H** (diagnostics + differences) — see the next-session plan
+[docs/Li-etal_next_steps.md](docs/Li-etal_next_steps.md).
 
 ---
 
@@ -445,8 +449,8 @@ values occur only in partially-written chunks. Full write-up:
 | verify | ✅ audit `177185182` **PASSED**; ref cell `1.566e308` → `5.710295e+04`, and `max|OLD−NEW| = 0` over all 2 154 284 cells the old file left intact |
 | re-run `vel` (both) | ✅ rebuilt Aug 24 from clean prep (full monthly FTS temp/salt/mld/eta/u/v/w) |
 | verify `vel` (velocity-extremes probe) | ✅ `177216192` (wthp) / `177216194` (wthmp) Exit 0 — physical maxima (u/v ≲ 2, w ≲ 0.02), **0 non-finite**; the 1e298 v/w are gone |
-| **rebuild `upwind1 avg` matrix (Task E) — BOTH** | 🔄 `177217170` (wthp) / `177217183` (wthmp), megamem ~11–24 h; overwrite the corrupt-input `176219246/247` |
-| partition (both) | 🔄 `177217315` (wthp) / `177217316` (wthmp) — per-rank vel files were gone |
+| **rebuild `upwind1 avg` matrix (Task E) — BOTH** | ✅ `177217170` (wthp) / `177217183` (wthmp) Exit 0, fresh `avg/M.jld2` (41.9 GB) Aug 25; replaced the corrupt-input `176219246/247` |
+| partition (both) | ✅ `177217315` (wthp) / `177217316` (wthmp) Exit 0 |
 | forward NK — run 1 (`INITIAL_AGE=0`) | ✅ `177365034` (wthp) / `177365035` (wthmp) — **0 NaN (blocker cleared)**; iter 1 done, `vol_rms_drift` 0.983 → **0.0155** (wthp, 42 Φ!) / **0.0159** (wthmp, 44 Φ!); saved `newton_iterate_01`; hit 48 h walltime mid-iter-2 |
 | forward NK — restart 2 (`INITIAL_AGE=latest`) | walltime −29. **wthmp** ✅ iter 2 done, `newton_iterate_02`, drift **1.883e-6**. **wthp** ⚠️ no new iterate — iter-2 GMRES needs >41 JVPs to rtol=1e-4 (> one 48 h walltime), so restarts from iterate 01 loop. |
 | forward NK — restart 3 | **wthmp** `178099348` ✅ **CONVERGED** `ReturnCode.Success` (exit 0), drift → **6.8e-9**, **vol-weighted mean age = 990.7 yr**, `age_Pardiso_Q4x4.jld2` (14.4 GB). **wthp** `178102620` (`GMRES_RTOL=1e-3`): loop broken — iter 2 done, `newton_iterate_02`, drift **1.93e-5**; walltime. |
