@@ -282,11 +282,15 @@ if rank == 0
     flush(stdout); flush(stderr)
 
     f! = NonlinearFunction(G!; jvp = jvp!)
-    # Inner GMRES tolerance. Default 1e-4 (unchanged). A looser value (e.g. 1e-3)
-    # cuts the JVP count per Newton step — useful when one Newton iteration's
-    # GMRES exceeds a single walltime (inexact Newton: changes the path, not the
-    # converged fixed point). Overridable via GMRES_RTOL.
-    GMRES_RTOL = parse(Float64, get(ENV, "GMRES_RTOL", "1e-4"))
+    # Inner GMRES tolerance. Default 1e-3 (inexact Newton — changes the path, not
+    # the converged fixed point). Measured on the OM2-01 qian solves: 1e-3 and
+    # 1e-4 converge in the same 3 Newton iterations / ~same total JVPs (~98 vs
+    # ~100), but 1e-3 spreads them ~30-35 JVPs/iter (each fits one 48 h walltime)
+    # whereas 1e-4 can need >41 JVPs for a single iteration → the GMRES for that
+    # step overruns the walltime and, since only the Newton iterate (not the
+    # Krylov state) is checkpointed, restarts loop without progress. 1e-3's higher
+    # final-drift plateau (~2e-8 vs ~7e-9 yr) is negligible. Override via GMRES_RTOL.
+    GMRES_RTOL = parse(Float64, get(ENV, "GMRES_RTOL", "1e-3"))
     @info "- GMRES rtol = $GMRES_RTOL (inner linear solve; gmres_restart=50)"
     newton_solver = NewtonRaphson(
         linsolve = KrylovJL_GMRES(precs = precs, gmres_restart = 50, rtol = GMRES_RTOL),
