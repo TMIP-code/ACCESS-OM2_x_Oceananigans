@@ -504,3 +504,24 @@ forward M; NK solves the adjoint (`INITIAL_AGE=0`, then `latest` restarts).
 
 Watch: first Φ! call clears (no NaN); multi-restart to `ReturnCode.Success`; drop
 `TIMESTEP_MULT` if it blows up in the fold region (OM2-025 TRAF precedent).
+
+### Forward post-NK diagnostics + plots (Phase 1) — submitted 2026-09-14
+
+Memory fixes first (commit `c505fcc`): the 1-yr age FTS consumers loaded all 25
+snapshots (`InMemory()`, ~160 GB) — the earlier OM2-01 1968-1977 `ventilation`
+(172582617, 24 GB) and `plotNK` (172582618, 47 GB) were OOM-killed. Now
+`InMemory(2)`. `combine1yr` was at 46/47 GB and 29:20/30:00 there → run on
+normal/192 GB/4 h. `plotventilation` now takes `TW1` (default `TIME_WINDOW`)
+/ optional `TW2` from ENV (was hard-coded 1968-1977 vs 1999-2008) → single-window
+figure `plots/{MC}/calVdown_forward_2040-2050.png`.
+
+| step | wthp | wthmp | resources |
+|---|---|---|---|
+| run1yrNK | `178922589` ✓ (1h23, 422 GB host / 281 GB GPU) | `178922591` | 1×4 H200, 4 h |
+| combine1yr | `178922590` | `178922592` | normal 48/192 GB, 4 h |
+| ventilation | `178929490` | `178929495` | normal 48/190 GB, 2 h |
+| plotNK | `178929491` | `178929496` | normal 48/190 GB, 24 h |
+| plotventilation | `178929492` | `178929497` | normal 12/48 GB, 2 h |
+| ventseasonal | `178929493` | `178929498` | normal 12/48 GB, 2 h |
+| ventmovie | `178929494` | `178929499` | normal 48/190 GB, 12 h |
+| meltwater diff (both) | `178929720` (afterok both combine1yr) | | normal 48/190 GB, 4 h |
