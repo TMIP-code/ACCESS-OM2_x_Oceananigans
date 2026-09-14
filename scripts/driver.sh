@@ -686,25 +686,38 @@ if has_step plotventilation; then
     [ -n "${PLOT_VENT_QUEUE:-}" ] && plotvent_overrides+=(--queue "$PLOT_VENT_QUEUE")
     [ -n "${PLOT_VENT_NCPUS:-}" ] && plotvent_overrides+=(--ncpus "$PLOT_VENT_NCPUS")
     [ -n "${PLOT_VENT_MEM:-}" ] && plotvent_overrides+=(--mem "$PLOT_VENT_MEM")
+    # TW1 defaults to TIME_WINDOW in plot_ventilation.jl; set TW2 for the
+    # cross-decade (TW2 − TW1) figure.
+    plotvent_vars="LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}"
+    [ -n "${TW1:-}" ] && plotvent_vars+=",TW1=${TW1}"
+    [ -n "${TW2:-}" ] && plotvent_vars+=",TW2=${TW2}"
     submit_job plotventilation "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
         scripts/plotting/plot_ventilation.sh \
         --deps "${VENT_CONST:-${VENT_AVG:-${NK_CONST:-${NK_AVG:-}}}}" "${plotvent_overrides[@]}" \
-        --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
+        --vars "$plotvent_vars" > /dev/null
 fi
 
 # Seasonal ventilation maps (DJF/MAM/JJA/SON) — per-TW, depends on ventilation compute
 if has_step ventseasonal; then
-    submit_job ventseasonal "${WALLTIME_PLOT_VENTILATION:-00:30:00}" \
+    ventseasonal_overrides=()
+    [ -n "${VENTSEASONAL_QUEUE:-}" ] && ventseasonal_overrides+=(--queue "$VENTSEASONAL_QUEUE")
+    [ -n "${VENTSEASONAL_NCPUS:-}" ] && ventseasonal_overrides+=(--ncpus "$VENTSEASONAL_NCPUS")
+    [ -n "${VENTSEASONAL_MEM:-}" ] && ventseasonal_overrides+=(--mem "$VENTSEASONAL_MEM")
+    submit_job ventseasonal "${WALLTIME_VENTSEASONAL:-${WALLTIME_PLOT_VENTILATION:-00:30:00}}" \
         scripts/plotting/plot_ventilation_seasonal.sh \
-        --deps "${VENT_CONST:-${VENT_AVG:-${NK_CONST:-${NK_AVG:-}}}}" \
+        --deps "${VENT_CONST:-${VENT_AVG:-${NK_CONST:-${NK_AVG:-}}}}" "${ventseasonal_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 
 # Ventilation-map movie — per-TW, reads the 1-year FTS, depends on run1yrNK
 if has_step ventmovie; then
+    ventmovie_overrides=()
+    [ -n "${VENTMOVIE_QUEUE:-}" ] && ventmovie_overrides+=(--queue "$VENTMOVIE_QUEUE")
+    [ -n "${VENTMOVIE_NCPUS:-}" ] && ventmovie_overrides+=(--ncpus "$VENTMOVIE_NCPUS")
+    [ -n "${VENTMOVIE_MEM:-}" ] && ventmovie_overrides+=(--mem "$VENTMOVIE_MEM")
     submit_job ventmovie "${WALLTIME_VENTMOVIE:-01:00:00}" \
         scripts/plotting/animate_ventilation.sh \
-        --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" \
+        --deps "${COMBINE1YR_CONST:-${RUNNK_CONST:-${NK_CONST:-}}}" "${ventmovie_overrides[@]}" \
         --vars "LINEAR_SOLVER=${LINEAR_SOLVER},LUMP_AND_SPRAY=${LUMP_AND_SPRAY},PARTITION=${PARTITION}" > /dev/null
 fi
 

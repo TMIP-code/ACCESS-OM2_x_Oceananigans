@@ -137,7 +137,10 @@ grid = load_tripolar_grid(grid_file, CPU())
 
 @info "Loading age FieldTimeSeries from $fts_file"
 flush(stdout); flush(stderr)
-age_fts = FieldTimeSeries(fts_file, "age")
+# InMemory(2): keep only 2 snapshots resident (was the default InMemory(), i.e.
+# all 25 ≈ 160 GB at OM2-01); 2 is the minimum for `Time` interpolation.
+# Changed after commit a93b4df; revert here if snapshot access misbehaves.
+age_fts = FieldTimeSeries(fts_file, "age"; backend = InMemory(2))
 n_times = length(age_fts.times)
 @info "Found $n_times snapshots; stop_time = $(age_fts.times[end]) s"
 

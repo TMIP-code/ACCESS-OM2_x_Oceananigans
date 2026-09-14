@@ -161,7 +161,10 @@ function load_mean_age(exp)
     grid = load_tripolar_grid(grid_path_for(exp), CPU())
     wet3D = compute_wet_mask(grid).wet3D
     vol_3D = Array(interior(compute_volume(grid)))
-    fts = FieldTimeSeries(fts_file, FTS_VARNAME; backend = InMemory())
+    # InMemory(2): keep only 2 snapshots resident (was InMemory(), i.e. all 25
+    # ≈ 160 GB per experiment at OM2-01). Changed after commit a93b4df; revert
+    # here if snapshot access misbehaves.
+    fts = FieldTimeSeries(fts_file, FTS_VARNAME; backend = InMemory(2))
     @info "$exp FTS: $(length(fts.times)) snapshots, interior $(size(interior(fts[1])))"
     m = time_mean_years(fts, wet3D, grid; label = exp)
     @info "$exp annual-mean age (yr)" min = minimum(m) max = maximum(m)
