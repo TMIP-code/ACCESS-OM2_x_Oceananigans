@@ -547,7 +547,44 @@ end
 #
 # Requires CairoMakie and OceanBasins symbols in the calling script's scope,
 # as well as Oceananigans (Units, Grids, ImmersedBoundaries).
+#
+# Frame strategy: reduce each FTS snapshot to 2D ONCE (one disk read per
+# snapshot), then linearly interpolate the 2D reductions per frame. The FTS's
+# `fts[Time(t)]` is a linear interpolation between two snapshots, and slab
+# extraction / fixed-weight masked zonal means are linear in the field, so the
+# two commute exactly. Before commit c8ddef5 every frame built a full-3D
+# interpolated Field (`fts[Time(t)]`, ~6.5 GB at 0.1°) and re-reduced it —
+# 144 frames × (4 basins + 6 depths) full-3D passes ≈ 20 h of a 22 h plotNK job.
 ################################################################################
+
+"""
+    fts_time_weights(times, t) -> (n₁, n₂, ñ)
+
+Bracketing snapshot indices and weight for linear time interpolation at `t`:
+`x(t) = (1 − ñ)·x[n₁] + ñ·x[n₂]` (clamped outside `times`). Matches the FTS's
+`Linear` time indexing used by `fts[Time(t)]`.
+"""
+function fts_time_weights(times, t)
+    Nt = length(times)
+    t ≤ times[1] && return (1, 1, 0.0)
+    t ≥ times[Nt] && return (Nt, Nt, 0.0)
+    n₂ = searchsortedfirst(times, t)   # first n with times[n] ≥ t (≥ 2 here)
+    times[n₂] == t && return (n₂, n₂, 0.0)
+    n₁ = n₂ - 1
+    return (n₁, n₂, (t - times[n₁]) / (times[n₂] - times[n₁]))
+end
+
+"""
+    lerp_snapshots(snaps, times, t)
+
+Linear time interpolation of per-snapshot 2D reductions `snaps[n]` (one per
+`times[n]`) to time `t`. NaN cells (fixed masks) stay NaN.
+"""
+function lerp_snapshots(snaps, times, t)
+    n₁, n₂, ñ = fts_time_weights(times, t)
+    n₁ == n₂ && return copy(snaps[n₁])
+    return @. (1 - ñ) * snaps[n₁] + ñ * snaps[n₂]
+end
 
 """
     animate_zonal_averages(age_fts, grid, wet3D, vol_3D, output_dir, prefix;
@@ -586,20 +623,32 @@ function animate_zonal_averages(
         ("indian", basins.IND),
     ]
 
-    stop_time = age_fts.times[end]
+    times = age_fts.times
+    stop_time = times[end]
     frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
 
+    # Zonal-average every snapshot once, for every basin (see header note).
+    Nt = length(times)
     age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
     xw_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
     w_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
     za_buf = Array{Float64}(undef, Ny′, Nz′)
+    za_snap = Dict(name => Vector{Matrix{Float64}}(undef, Nt) for (name, _) in basin_configs)
+    @info "Zonal-averaging $Nt snapshots × $(length(basin_configs)) basins"
+    flush(stdout); flush(stderr)
+    for n in 1:Nt
+        age_raw = interior(age_fts[n])
+        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
+        for (basin_name, basin_mask) in basin_configs
+            mask3D = reshape(basin_mask, size(basin_mask, 1), size(basin_mask, 2), 1)
+            zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
+            za_snap[basin_name][n] = copy(za_buf)
+        end
+    end
 
     # Build figure once; update observables per basin
-    age_raw = interior(age_fts[Time(frame_times[1])])
-    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-    first_mask = reshape(basin_configs[1][2], size(basin_configs[1][2], 1), size(basin_configs[1][2], 2), 1)
-    zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, first_mask)
-    za_obs = Observable(copy(za_buf))
+    first_basin = basin_configs[1][1]
+    za_obs = Observable(lerp_snapshots(za_snap[first_basin], times, frame_times[1]))
     title_obs = Observable("")
 
     fig = Figure(; size = (800, 500))
@@ -622,27 +671,17 @@ function animate_zonal_averages(
     ylims!(ax, maximum(depth_vals), 0)
     Colorbar(fig[1, 2], cf; label = "Age (years)")
 
-    for (basin_name, basin_mask) in basin_configs
+    for (basin_name, _) in basin_configs
         @info "Animating zonal average — $basin_name"
         flush(stdout); flush(stderr)
 
-        mask3D = reshape(basin_mask, size(basin_mask, 1), size(basin_mask, 2), 1)
-
         # Reset to first frame for this basin
-        age_raw = interior(age_fts[Time(frame_times[1])])
-        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-        zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
-        za_obs.val .= za_buf
-        notify(za_obs)
+        za_obs[] = lerp_snapshots(za_snap[basin_name], times, frame_times[1])
         title_obs[] = @sprintf("%s — %s zonal avg (t = 0.0 months)", tracer_title, basin_name)
 
         filepath = joinpath(output_dir, "$(prefix)_zonal_avg_$(basin_name).mp4")
         record(fig, filepath, 1:n_frames; framerate) do i
-            age_raw = interior(age_fts[Time(frame_times[i])])
-            @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-            zonalaverage!(za_buf, xw_buf, w_buf, age_buf, vol_3D, mask3D)
-            za_obs.val .= za_buf
-            notify(za_obs)
+            za_obs[] = lerp_snapshots(za_snap[basin_name], times, frame_times[i])
             title_obs[] = @sprintf("%s — %s zonal avg (t = %.1f months)", tracer_title, basin_name, frame_times[i] / (year / 12))
         end
 
@@ -682,18 +721,27 @@ function animate_depth_slices(
     target_depths = [100, 200, 500, 1000, 2000, 3000]
     depth_k_indices = [(d, find_nearest_depth_index(grid, d)) for d in target_depths]
 
-    stop_time = age_fts.times[end]
+    times = age_fts.times
+    stop_time = times[end]
     frame_times = range(0, stop_time; length = n_frames + 1)[1:n_frames]
 
-    age_buf = Array{Float64}(undef, Nx′, Ny′, Nz′)
+    # Extract the target-depth slabs of every snapshot once (see header note).
+    Nt = length(times)
+    slab_snap = Dict(k => Vector{Matrix{Float64}}(undef, Nt) for (_, k) in depth_k_indices)
+    @info "Extracting $Nt snapshots × $(length(depth_k_indices)) depth slabs"
+    flush(stdout); flush(stderr)
+    for n in 1:Nt
+        age_raw = interior(age_fts[n])
+        for (_, k) in depth_k_indices
+            slab_snap[k][n] = ifelse.(@view(wet3D[:, :, k]), @view(age_raw[:, :, k]) ./ year, NaN)
+        end
+    end
 
     # Build the curvilinear gridmetrics once (shared by every frame/depth).
     gridmetrics = gridmetrics_from_grid(grid, Nx′, Ny′)
 
     # Build figure once; update observables per depth
-    age_raw = interior(age_fts[Time(frame_times[1])])
-    @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-    slice_obs = Observable(age_buf[:, :, depth_k_indices[1][2]])
+    slice_obs = Observable(lerp_snapshots(slab_snap[depth_k_indices[1][2]], times, frame_times[1]))
     title_obs = Observable("")
 
     fig = Figure(; size = (1000, 500))
@@ -710,16 +758,12 @@ function animate_depth_slices(
         actual_depth = round(depth_vals[k]; digits = 1)
 
         # Reset to first frame for this depth
-        age_raw = interior(age_fts[Time(frame_times[1])])
-        @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-        slice_obs[] = @view(age_buf[:, :, k])
+        slice_obs[] = lerp_snapshots(slab_snap[k], times, frame_times[1])
         title_obs[] = @sprintf("%s at %d m (k=%d, z=%.1f m, t = 0.0 months)", tracer_title, depth, k, actual_depth)
 
         filepath = joinpath(output_dir, "$(prefix)_slice_$(depth)m.mp4")
         record(fig, filepath, 1:n_frames; framerate) do i
-            age_raw = interior(age_fts[Time(frame_times[i])])
-            @. age_buf = ifelse(wet3D, age_raw / year, NaN)
-            slice_obs[] = @view(age_buf[:, :, k])
+            slice_obs[] = lerp_snapshots(slab_snap[k], times, frame_times[i])
             title_obs[] = @sprintf("%s at %d m (k=%d, z=%.1f m, t = %.1f months)", tracer_title, depth, k, actual_depth, frame_times[i] / (year / 12))
         end
 

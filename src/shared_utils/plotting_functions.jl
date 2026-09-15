@@ -219,28 +219,29 @@ function plotmap!(
     lon_centred = mod.(lon .- lon_window_start, 360) .+ lon_window_start
     lonv_centred = loninsamewindow.(lonv, reshape(lon_centred, (1, size(lon_centred)...)))
 
-    # Build quads. (Note: vec(x2D) iterates linearly in i,j, matching the
-    # i,j enumeration over lonv[:, i, j] below.)
-    quad_points = vcat(
+    # Build quads: point order is vertex-fastest, then i, then j, so the 4
+    # points of cell (i, j) are consecutive and `repeat(vec(x2D); inner = 4)`
+    # gives the matching per-point colours. (No `vcat(...)` splats — at 0.1°
+    # those are ~10 M-argument calls and dominated the per-frame cost.)
+    quad_points = vec(
         [
-            Point2{Float64}.(lonv_centred[:, i, j], latv[:, i, j])
-                for i in axes(lonv_centred, 2), j in axes(lonv_centred, 3)
-        ]...,
+            Point2{Float64}(lonv_centred[v, i, j], latv[v, i, j])
+                for v in 1:4, i in axes(lonv_centred, 2), j in axes(lonv_centred, 3)
+        ]
     )
-    quad_faces = vcat(
-        [
-            begin
-                    j = (i - 1) * 4 + 1
-                    [j j + 1 j + 2; j + 2 j + 3 j]
-                end for i in 1:(length(quad_points) ÷ 4)
-        ]...,
-    )
+    nq = length(quad_points) ÷ 4
+    quad_faces = Matrix{Int}(undef, 2nq, 3)
+    for q in 1:nq
+        j = (q - 1) * 4 + 1
+        quad_faces[2q - 1, :] .= (j, j + 1, j + 2)
+        quad_faces[2q, :] .= (j + 2, j + 3, j)
+    end
     # `x2D` may be an Observable (for animations) — in that case lift the
     # per-point colours so updating the Observable recolours the static mesh
     # geometry in place. The quad geometry itself never changes (fixed grid).
     colors_per_point = x2D isa Observable ?
-        lift(v -> vcat(fill.(vec(v), 4)...), x2D) :
-        vcat(fill.(vec(x2D), 4)...)
+        lift(v -> repeat(vec(v); inner = 4), x2D) :
+        repeat(vec(x2D); inner = 4)
 
     plt = mesh!(
         ax, quad_points, quad_faces;

@@ -191,11 +191,18 @@ function pick_levels(maxv; user_p = nothing)
     return Float32[0, p, 3p, 10p, 30p, 100p]
 end
 
+# Read each snapshot once and keep only its surface slab; frames below are
+# linear interpolations of these 2D slabs (exactly what `age_fts[Time(t)]`
+# would give at the surface, without the full-3D interpolated Field per frame
+# that made this ~80 s/frame at 0.1° before commit c8ddef5).
+@info "Extracting surface slabs of $n_times snapshots"
+flush(stdout); flush(stderr)
+surf_snap = [Float64.(@view interior(age_fts[n])[:, :, k_surf]) for n in 1:n_times]
+
 @info "Scanning snapshots for colour-scale max"
 flush(stdout); flush(stderr)
 maxv = maximum(1:(n_times - 1)) do n
-    age_surf_n = Float64.(@view interior(age_fts[n])[:, :, k_surf])
-    cv = calV_from_age_surf(age_surf_n)
+    cv = calV_from_age_surf(surf_snap[n])
     return maximum(filter(isfinite, cv); init = 0.0)
 end
 user_p = (haskey(ENV, "VENT_LEVELS_P") && !isempty(ENV["VENT_LEVELS_P"])) ?
@@ -231,7 +238,7 @@ ax = Axis(
     yticks = (yticks_map, latticklabel.(yticks_map)),
 )
 
-age_surf_0 = Float64.(@view interior(age_fts[Time(frame_times[1])])[:, :, k_surf])
+age_surf_0 = lerp_snapshots(surf_snap, age_fts.times, frame_times[1])
 plt = plotmap!(
     ax, calV_from_age_surf(age_surf_0), gridmetrics;
     colorrange = extrema(levels_mean),
@@ -267,9 +274,9 @@ flush(stdout); flush(stderr)
 month_s = year_s / 12
 play_order = TRAF ? reverse(1:n_frames) : (1:n_frames)
 record(fig, outputfile, play_order; framerate) do i
-    age_surf_i = Float64.(@view interior(age_fts[Time(frame_times[i])])[:, :, k_surf])
+    age_surf_i = lerp_snapshots(surf_snap, age_fts.times, frame_times[i])
     cv = calV_from_age_surf(age_surf_i)
-    plt.color[] = vcat(fill.(vec(cv), 4)...)
+    plt.color[] = repeat(vec(cv); inner = 4)
     cal_month = (TRAF ? (stop_time - frame_times[i]) : frame_times[i]) / month_s
     title_obs[] = TRAF ?
         @sprintf(
