@@ -497,10 +497,15 @@ TRAF is **untested at 0.1°** (Task B enabling `70d97b2` unexercised there). Cha
 `TMbuild-NK`: TMbuild synthesizes `invVMtV = V⁻¹ Mᵀ V` from the clean `upwind1 avg`
 forward M; NK solves the adjoint (`INITIAL_AGE=0`, then `latest` restarts).
 
-| exp | TMbuild (invVMtV) | NK (adjoint) |
-|---|---|---|
-| wthp  | `178896263` | `178896264` 🔄 |
-| wthmp | `178896265` | `178896266` 🔄 |
+| exp | TMbuild (invVMtV) | NK run 1 (`INITIAL_AGE=0`) | NK restart 2 (`latest`) |
+|---|---|---|---|
+| wthp  | `178896263` ✓ | `178896264` — Φ! #1 clean (0 NaN); iter 1 done at 21 Φ!, drift 0.983 → **0.122**; walltime-killed mid-iter-2 (43 Φ!) | `179103029` 🔄 |
+| wthmp | `178896265` ✓ | `178896266` — iter 1 done at 19 Φ!, drift 0.984 → **0.126**; walltime-killed mid-iter-2 (44 Φ!) | `179103030` 🔄 |
+
+TRAF at 0.1° works: Φ! ≈ 63 min (same as forward), no fold-region blow-up at
+`TIMESTEP_MULT=1`. Iter 1 converges less than the forward's did (0.12 vs 0.016)
+because `GMRES_RTOL=1e-3` stops the inner solve at ~20 Φ! — expect 4–5 Newton
+iterations, one 48 h job per iteration from here.
 
 Watch: first Φ! call clears (no NaN); multi-restart to `ReturnCode.Success`; drop
 `TIMESTEP_MULT` if it blows up in the fold region (OM2-025 TRAF precedent).
