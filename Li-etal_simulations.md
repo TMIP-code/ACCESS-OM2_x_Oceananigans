@@ -524,4 +524,13 @@ figure `plots/{MC}/calVup_forward_2040-2050.png`.
 | plotventilation | `178929492` | `178929497` | normal 12/48 GB, 2 h |
 | ventseasonal | `178929493` | `178929498` | normal 12/48 GB, 2 h |
 | ventmovie | `178929494` | `178929499` | normal 48/190 GB, 12 h |
-| meltwater diff (both) | `178929720` (afterok both combine1yr) | | normal 48/190 GB, 4 h |
+| meltwater diff (both) | `178929720` ✗ exit 1 (missing `isatlantic` import) → **`179026631`** (fixed, `c8ddef5`) | | normal 48/190 GB, 4 h |
+
+2026-09-15 status: every step above exited 0 except the first meltdiff (fixed and
+resubmitted). run1yrNK wthmp 1h24 / 417 GB; ventilation 21-22 min / 47 GB;
+ventmovie 3h10 / 50-86 GB; plotNK still running (10 animations ≈ 2.2 h each —
+wthp `178929491` at 9/10 with ~2.4 h of its 24 h left; static PNGs done first).
+Ventilation naming fix (`c8ddef5`): forward leg = 𝒱↑ → files are now
+`calVup_forward…` (wthmp jobs picked the new names up; wthp files renamed on
+disk). wthp `plotventilation` / `ventseasonal` resubmitted for the corrected title:
+`179024033` / `179024034`.
