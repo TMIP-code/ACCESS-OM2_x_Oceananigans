@@ -11,7 +11,8 @@ share a single colour scale (the same orange pseudo-log ramp as the annual-mean
 tripolar grid (no re-grid, no dateline artifacts) with `GeoMakie.coastlines()`.
 
 Writes one PNG per (PM, EXP, TW, leg) to
-  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK[_QAxB]/plots/calVdown_seasonal_{forward|adjoint}.png
+  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK[_QAxB]/plots/calVup_seasonal_forward.png
+  outputs/{PM}/{EXP}/{TW}/periodic/{MC}_traf/NK[_QAxB]/plots/calVdown_seasonal_adjoint.png
 
 The forward leg's FTS gives the forward-age-based 𝒱↑; the `_traf` (adjoint) leg
 gives the adjoint-age-based 𝒱↓ — same as `plot_ventilation.jl`.
@@ -56,8 +57,7 @@ include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 model_config = require_env("MODEL_CONFIG")
 
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-leg_tag = TRAF ? "adjoint" : "forward"
-leg_label_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↑"
+(; leg_tag, calV_tag, leg_label_long) = ventilation_leg(TRAF)
 
 ls = parse_lump_and_spray()
 
@@ -264,7 +264,7 @@ resize_to_layout!(fig)
 # Save
 ################################################################################
 
-outputfile = joinpath(plot_dir, "calVdown_seasonal_$(leg_tag)$(omega_suffix).png")
+outputfile = joinpath(plot_dir, "$(calV_tag)_seasonal_$(leg_tag)$(omega_suffix).png")
 @info "Saving $outputfile"
 flush(stdout); flush(stderr)
 save(outputfile, fig)

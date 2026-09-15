@@ -209,8 +209,8 @@ still well under memory.
 ### 6. [docs/private/cross_resolution_ventilation_paper.md](private/cross_resolution_ventilation_paper.md) — update `Source*` paths and figure-caption units (DEFERRED)
 
 The 2×2 tables in section 3.3 reference
-`calVdown_{forward,adjoint}_lonlat.png`. Point them at the new
-`calVdown_{forward,adjoint}.png` filenames once the re-plotting is done.
+`{calVup_forward,calVdown_adjoint}_lonlat.png`. Point them at the new
+`{calVup_forward,calVdown_adjoint}.png` filenames once the re-plotting is done.
 Update the caption text where it says "linear in metres" to the new
 normalisation. **Defer this edit until after the plots are regenerated.**
 
@@ -231,7 +231,7 @@ follow-up session.
    `ventilation.jld2` files present (1968-1977 and 1999-2008). If they
    aren't yet, the script should fail cleanly pointing the user at
    driver.sh. Once both are present, run `julia --project
-   src/plot_ventilation.jl` and confirm `calVdown_forward.png` is
+   src/plot_ventilation.jl` and confirm `calVup_forward.png` is
    written into `outputs/{PM}/{EXP}/plots/{MC}/` with the 2×2 layout and
    no visible artifacts at the tripolar fold or Antarctic margin.
 3. Commit:

@@ -1,6 +1,7 @@
 """
-Compare the surface ventilation diagnostic `calVdown` across OMEGA values
-for a single (PARENT_MODEL, TIME_WINDOW, leg) at one model_config tag.
+Compare the surface ventilation diagnostic 𝒱 across OMEGA values for a single
+(PARENT_MODEL, TIME_WINDOW, leg) at one model_config tag. Forward leg = 𝒱↑
+(`calVup`), `_traf` leg = 𝒱↓ (`calVdown`) — see `ventilation_leg`.
 
 Loads four ventilation files (OMEGA ∈ {all, z500, z1500, z2500}) from
   outputs/{PM}/{EXP}/{TW}/periodic/{MC}/NK[_QAxB]/ventilation{omega_suffix}.jld2
@@ -18,7 +19,8 @@ once at compute_ventilation_diagnostic.jl:229), and lays out a 2 × 4 figure:
               [2,4] z500 − z2500   (500–2500 m source; sanity-check sum)
 
 Writes one PNG per leg to
-  outputs/{PM}/{EXP}/plots/{MC}/calVdown_omega_compare_{forward|adjoint}_{TW}.png
+  outputs/{PM}/{EXP}/plots/{MC}/calVup_omega_compare_forward_{TW}.png
+  outputs/{PM}/{EXP}/plots/{MC}_traf/calVdown_omega_compare_adjoint_{TW}.png
 
 Usage — interactive:
 ```
@@ -62,8 +64,7 @@ include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 model_config = require_env("MODEL_CONFIG")
 TW = require_env("TIME_WINDOW")
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-leg_tag = TRAF ? "adjoint" : "forward"
-leg_label_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↓"
+(; leg_tag, calV_tag, leg_label_long) = ventilation_leg(TRAF)
 
 ls = parse_lump_and_spray()
 
@@ -373,7 +374,7 @@ rowgap!(fig.layout, 1, 8)
 # Save
 ################################################################################
 
-out_png = joinpath(plot_dir, "calVdown_omega_compare_$(leg_tag)_$(TW).png")
+out_png = joinpath(plot_dir, "$(calV_tag)_omega_compare_$(leg_tag)_$(TW).png")
 @info "Saving $out_png"
 flush(stdout); flush(stderr)
 save(out_png, fig)

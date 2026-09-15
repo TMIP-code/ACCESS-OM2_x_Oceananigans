@@ -1,6 +1,15 @@
 """
-Compute the surface ventilation diagnostic `calVdown` from the annual mean of
-the 1-year re-run of a converged periodic-NK age solution.
+Compute the surface ventilation diagnostic 𝒱 from the annual mean of the
+1-year re-run of a converged periodic-NK age solution.
+
+Leg ↔ arrow: the formula below is the same for both legs, but its meaning is
+not. On the forward leg (age Γ↓) it gives 𝒱↑ — the volume re-exposed at the
+surface; on the `_traf` leg (adjoint age Γ↑) it gives 𝒱↓ — the surface
+ventilation diagnostic of Pasquier *et al.* 2024. The JLD2 key is the
+leg-agnostic legacy name `calVdown_raw` (kept so every existing
+`ventilation.jld2` stays readable); the saved `leg` / `calV` entries record
+which one this file holds, and plot scripts name their outputs
+`calVup_forward…` / `calVdown_adjoint…` via `ventilation_leg`.
 
 For each (parent model, experiment, time window, model config) combination,
 this script loads the 1-year periodic age `FieldTimeSeries` from
@@ -374,6 +383,9 @@ jldsave(
     n_avg = n_avg,
     units = "m³/m² (= m); plot script normalises by 1e16 / vtot to obtain % v_tot / (10,000 km)²",
     formula = "calVdown_raw = V_surf .* mean_n(age_surf_n) ./ (tau .* Az_surf)",
+    # Which 𝒱 this file holds (key name `calVdown_raw` is legacy/leg-agnostic).
+    leg = ventilation_leg(is_traf).leg_tag,
+    calV = ventilation_leg(is_traf).calV_tag,
 )
 
 @info "compute_ventilation_diagnostic.jl complete"

@@ -119,6 +119,27 @@ function parse_omega(s::AbstractString = require_env("OMEGA"))
     return (; kind = :zdeep, depth_m = D, tag = "z$(digits)", suffix = "_z$(digits)")
 end
 
+"""
+    ventilation_leg(traf::Bool)
+
+Leg ↔ arrow bookkeeping for the surface-ventilation diagnostic 𝒱 = V·Γ_surf/(τ·A):
+
+- forward leg (`TRAF=no`, age Γ↓)          → 𝒱↑, `calVup`   — volume re-exposed at the surface
+- `_traf` leg (`TRAF=yes`, adjoint age Γ↑) → 𝒱↓, `calVdown` — ventilation of Pasquier *et al.* 2024
+
+Returns `(; leg_tag, calV_tag, arrow, leg_label_long)`, e.g.
+`("forward", "calVup", "↑", "Forward 𝒱↑")`. Output files are named
+`\$(calV_tag)_\$(leg_tag)…`. Before commit 0e8458f the forward leg was labelled
+and named `calVdown` in several plot scripts; the JLD2 key `calVdown_raw`
+written by `compute_ventilation_diagnostic.jl` keeps that legacy name for both
+legs (see its docstring).
+"""
+function ventilation_leg(traf::Bool)
+    return traf ?
+        (; leg_tag = "adjoint", calV_tag = "calVdown", arrow = "↓", leg_label_long = "Adjoint 𝒱↓") :
+        (; leg_tag = "forward", calV_tag = "calVup", arrow = "↑", leg_label_long = "Forward 𝒱↑")
+end
+
 """Convenience: return the OMEGA filename-suffix string for the current env."""
 omega_filename_suffix() = parse_omega().suffix
 

@@ -50,7 +50,7 @@ using Oceananigans
 using Oceananigans.Architectures: CPU
 using CairoMakie
 using GeoMakie
-using OceanBasins: oceanpolygons
+using OceanBasins: oceanpolygons, isatlantic, ispacific, isindian  # compute_ocean_basin_masks needs the predicates in Main
 using Statistics
 using Printf
 

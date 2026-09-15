@@ -1,5 +1,5 @@
 """
-Plot the surface ventilation diagnostic `calVdown` produced by
+Plot the surface ventilation diagnostic 𝒱 produced by
 `compute_ventilation_diagnostic.jl`, in the Pasquier *et al.* 2024 / 2025
 plotting style: per-cell quad mesh on the tripolar grid (via the helpers in
 [src/shared_utils/plotting_functions.jl](shared_utils/plotting_functions.jl))
@@ -21,12 +21,15 @@ It loads
 for each window (mirrors the same dual-naming fallback as
 `compute_ventilation_diagnostic.jl`), normalises with `1e16 / vtot`, and
 writes one PNG per (PM, leg) to
-  outputs/{PM}/{EXP}/plots/{MC}/calVdown_{forward|adjoint}.png          (TW1 + TW2)
-  outputs/{PM}/{EXP}/plots/{MC}/calVdown_{forward|adjoint}_{TW1}.png    (TW1 only)
+  outputs/{PM}/{EXP}/plots/{MC}/calVup_forward.png            (TW1 + TW2)
+  outputs/{PM}/{EXP}/plots/{MC}_traf/calVdown_adjoint.png     (TW1 + TW2)
+  … or `{calV}_{leg}_{TW1}.png` with TW2 unset (TW1 only)
 
-Handles both forward (IAF) and adjoint (TRAF) legs uniformly via the
-`_traf` suffix that `env_defaults.sh` appends to `MODEL_CONFIG` when
-`TRAF=yes`.
+Leg ↔ arrow (see `ventilation_leg` in shared_utils/config.jl): the forward
+leg (age Γ↓) gives 𝒱↑ = `calVup` (volume re-exposed at the surface); the
+`_traf` leg (adjoint age Γ↑) gives 𝒱↓ = `calVdown`, the ventilation diagnostic
+of Pasquier *et al.* 2024. The `_traf` suffix is appended to `MODEL_CONFIG` by
+`env_defaults.sh` when `TRAF=yes`.
 
 Usage — interactive:
 ```
@@ -70,7 +73,7 @@ include(joinpath(@__DIR__, "shared_utils", "plotting_functions.jl"))
 model_config = require_env("MODEL_CONFIG")
 
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-leg_tag = TRAF ? "adjoint" : "forward"
+(; leg_tag, calV_tag, leg_label_long) = ventilation_leg(TRAF)
 
 ls = parse_lump_and_spray()
 
@@ -316,7 +319,6 @@ end
 @info "Building figure"
 flush(stdout); flush(stderr)
 
-leg_label_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↓"
 
 fig = Figure(;
     size = (1500, 1000), fontsize = 14,
@@ -498,7 +500,7 @@ resize_to_layout!(fig)
 ################################################################################
 
 tw_suffix = two_windows ? "" : "_$(TW1)"
-outputfile = joinpath(plot_dir, "calVdown_$(leg_tag)$(tw_suffix)$(omega_suffix).png")
+outputfile = joinpath(plot_dir, "$(calV_tag)_$(leg_tag)$(tw_suffix)$(omega_suffix).png")
 @info "Saving $outputfile"
 flush(stdout); flush(stderr)
 save(outputfile, fig)

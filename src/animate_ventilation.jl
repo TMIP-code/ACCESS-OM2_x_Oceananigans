@@ -12,7 +12,8 @@ mapped to `calVdown = V_surf · age_surf / (τ · Az_surf)`, normalised with
 
 Writes one MP4 per (PM, EXP, TW, leg) to the same `plots/` dir as the age
 animations:
-  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/1year/{solver_tag}/plots/calVdown_{forward|adjoint}_movie.mp4
+  outputs/{PM}/{EXP}/{TW}/periodic/{MC}/1year/{solver_tag}/plots/calVup_forward_movie.mp4
+  outputs/{PM}/{EXP}/{TW}/periodic/{MC}_traf/1year/{solver_tag}/plots/calVdown_adjoint_movie.mp4
 
 The forward leg's FTS gives the forward-age-based 𝒱↑; the `_traf` (adjoint) leg
 gives the adjoint-age-based 𝒱↓ — matching `plot_ventilation.jl`.
@@ -71,8 +72,7 @@ ls = parse_lump_and_spray()
 lumpspray_tag = ls.tag
 
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
-leg_tag = TRAF ? "adjoint" : "forward"
-leg_label_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↑"
+(; leg_tag, calV_tag, leg_label_long) = ventilation_leg(TRAF)
 
 px = parse(Int, get(ENV, "PARTITION_X", "1"))
 py = parse(Int, get(ENV, "PARTITION_Y", "1"))
@@ -256,7 +256,7 @@ Colorbar(
 )
 colsize!(fig.layout, 1, Auto(0.1))
 
-outputfile = joinpath(plot_dir, "calVdown_$(leg_tag)_movie$(omega_suffix).mp4")
+outputfile = joinpath(plot_dir, "$(calV_tag)_$(leg_tag)_movie$(omega_suffix).mp4")
 @info "Recording $n_frames frames → $outputfile"
 flush(stdout); flush(stderr)
 

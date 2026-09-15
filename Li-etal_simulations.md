@@ -513,7 +513,7 @@ snapshots (`InMemory()`, ~160 GB) — the earlier OM2-01 1968-1977 `ventilation`
 `InMemory(2)`. `combine1yr` was at 46/47 GB and 29:20/30:00 there → run on
 normal/192 GB/4 h. `plotventilation` now takes `TW1` (default `TIME_WINDOW`)
 / optional `TW2` from ENV (was hard-coded 1968-1977 vs 1999-2008) → single-window
-figure `plots/{MC}/calVdown_forward_2040-2050.png`.
+figure `plots/{MC}/calVup_forward_2040-2050.png`.
 
 | step | wthp | wthmp | resources |
 |---|---|---|---|

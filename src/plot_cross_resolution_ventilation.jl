@@ -30,7 +30,9 @@ Usage:
 ```
 qsub scripts/plotting/plot_cross_resolution_ventilation.sh
 ```
-Writes outputs/cross_resolution/ventilation/calVdown_{forward,adjoint}_3x3.png
+Writes outputs/cross_resolution/ventilation/{calVup_forward,calVdown_adjoint}_3x3.png
+(forward leg = 𝒱↑ re-exposure; `_traf` leg = 𝒱↓ Pasquier 2024 ventilation — see
+`ventilation_leg` in shared_utils/config.jl).
 """
 
 @info "Loading packages for cross-resolution ventilation-map plot"
@@ -61,8 +63,8 @@ flush(stdout); flush(stderr)
 
 TRAF = lowercase(get(ENV, "TRAF", "no")) == "yes"
 config_suffix = TRAF ? "_traf" : ""
-leg_long = TRAF ? "Adjoint 𝒱↓" : "Forward 𝒱↓"
-leg_tag = TRAF ? "adjoint" : "forward"
+(; leg_tag, calV_tag, leg_label_long) = ventilation_leg(TRAF)
+leg_long = leg_label_long
 
 mc_om21 = get(ENV, "MODEL_CONFIG_OM21", "totaltransport_wparent_centered2_AB2_kH300_kVML1e-1_kVBG3e-5_mkappaV_DTx4") * config_suffix
 mc_om2025 = get(ENV, "MODEL_CONFIG_OM2025", "totaltransport_wparent_centered2_AB2_kH75_kVML5e-2_kVBG15e-6_mkappaV_LBS_DTx2") * config_suffix
@@ -341,7 +343,7 @@ Label(
 
 outdir = joinpath(repo_root, "outputs", "cross_resolution", "ventilation")
 mkpath(outdir)
-outfile = joinpath(outdir, "calVdown_$(leg_tag)_3x3.png")
+outfile = joinpath(outdir, "$(calV_tag)_$(leg_tag)_3x3.png")
 @info "Saving $outfile"
 flush(stdout); flush(stderr)
 save(outfile, fig; px_per_unit = 2)

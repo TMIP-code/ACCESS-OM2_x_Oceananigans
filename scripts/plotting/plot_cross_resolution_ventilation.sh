@@ -9,7 +9,7 @@
 # Usage:
 #   qsub scripts/plotting/plot_cross_resolution_ventilation.sh
 #
-# Writes: outputs/cross_resolution/ventilation/calVdown_{forward,adjoint}_3x3.png
+# Writes: outputs/cross_resolution/ventilation/{calVup_forward,calVdown_adjoint}_3x3.png
 
 #PBS -P y99
 #PBS -q normal

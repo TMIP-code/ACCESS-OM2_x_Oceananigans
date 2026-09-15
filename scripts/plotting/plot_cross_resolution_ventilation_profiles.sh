@@ -10,7 +10,7 @@
 # Usage:
 #   qsub scripts/plotting/plot_cross_resolution_ventilation_profiles.sh
 #
-# Writes: outputs/cross_resolution/ventilation/calVdown_profiles_{forward,adjoint}.png
+# Writes: outputs/cross_resolution/ventilation/{calVup_profiles_forward,calVdown_profiles_adjoint}.png
 
 #PBS -P y99
 #PBS -q express
